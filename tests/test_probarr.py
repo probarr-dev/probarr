@@ -2694,6 +2694,33 @@ class TestWantlistWritesAreSerializedPerRun(Temp):
                          "one rename was silently lost to the other's write")
 
 
+class TestRenameChannelWithNoWantlistEntry(Temp):
+    """Same fix as TestRenumberChannel's
+    test_sets_a_number_on_a_channel_that_has_no_wantlist_entry_at_all,
+    applied to _rename_channel: a channel Curate lists from probe results
+    alone (no wantlist entry yet) should be addable by renaming it too,
+    not just by numbering it."""
+
+    def test_renaming_creates_the_missing_wantlist_entry(self):
+        from probarr import web as web_mod
+        from probarr.store import RunStore
+        web_mod.Handler.root = self.root
+        web_mod.Handler._wantlist_locks = {}
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "name": "Discovery FHD", "status": "ok"})
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: sent.append((code, body))
+        h._rename_channel("run1", {"channel_key": "A", "name": "Discovery"})
+        self.assertEqual(sent[-1][0], 200, sent[-1])
+        wanted = RunStore(self.root, "run1").read_wantlist()["wanted"]
+        self.assertEqual(len(wanted), 1)
+        self.assertEqual(wanted[0]["name"], "Discovery")
+        self.assertEqual(wanted[0]["key"], "A")
+
+
 class TestRenumberChannel(Temp):
     """Curate now shows a channel with no number in bright red (it would
     otherwise be silently dropped from every export by _resolve_curated in
@@ -2755,6 +2782,38 @@ class TestRenumberChannel(Temp):
         self.assertEqual(sent[-1][0], 400)
         h._renumber_channel("run1", {"channel_key": "A", "number": "not-a-number"})
         self.assertEqual(sent[-1][0], 400)
+
+    def test_sets_a_number_on_a_channel_that_has_no_wantlist_entry_at_all(self):
+        """Real bug: Curate lists a channel built purely from probe results
+        when it has candidates but never made it into the wantlist (see
+        _resolve_curated's docstring) -- exactly the shape of channel this
+        whole feature exists to fix. Setting its number 404'd with "channel
+        not in this run's wantlist", which is true but useless: the curator
+        is looking straight at it in the UI and has no other way to add it.
+        """
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "name": "Discovery FHD", "status": "ok"})
+        h, sent = self._handler()
+        h._renumber_channel("run1", {"channel_key": "A", "number": 301})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        wanted = RunStore(self.root, "run1").read_wantlist()["wanted"]
+        self.assertEqual(len(wanted), 1)
+        self.assertEqual(wanted[0]["number"], 301)
+        self.assertEqual(wanted[0]["key"], "A")
+
+    def test_still_404s_for_a_channel_with_no_probe_results_either(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([], [])
+        store.append({"rec_key": "X|s1", "channel_key": "X", "stream_id": "s1",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h._renumber_channel("run1", {"channel_key": "does-not-exist", "number": 5})
+        self.assertEqual(sent[-1][0], 404)
 
     def test_promotes_the_number_to_the_lineup_so_it_survives_a_rebuild(self):
         """Without this, a number set by hand in Curate would revert to

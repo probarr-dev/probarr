@@ -1934,6 +1934,19 @@ class Handler(BaseHTTPRequestHandler):
                               "pending": len(store.read_removals())}),
                   "application/json")
 
+    def _probed_channel_name(self, store, channel_key):
+        """Best display name for a channel from its probe results alone,
+        for the channel_key not (yet) in the wantlist -- same fallback
+        curate.build_payload uses when a channel has candidates but no
+        wantlist entry. None when there is nothing probed under this key
+        either, which is the real "no such channel" case.
+        """
+        records = [r for r in store.load() if r.get("channel_key") == channel_key]
+        if not records:
+            return None
+        ranked = rank_mod.rank(records)
+        return (ranked[0].get("stream_name") if ranked else None) or channel_key
+
     def _rename_channel(self, run_id, body):
         with self._wantlist_lock_for(run_id):
             """Rename a channel's display name within this run.
@@ -1969,8 +1982,17 @@ class Handler(BaseHTTPRequestHandler):
                     w["name"] = name
                     break
             else:
-                return self._send('{"error":"channel not in this run\'s wantlist"}',
-                                  "application/json", 404)
+                # Probed but never added to the wantlist -- see
+                # _resolve_curated's own docstring on how that happens.
+                # Curate still lists the channel in that state (built from
+                # probe results, not the wantlist), so a rename offered
+                # there has to be able to create the missing entry rather
+                # than 404 on a channel the curator can plainly see.
+                if not self._probed_channel_name(store, channel_key):
+                    return self._send('{"error":"channel not in this run\'s wantlist"}',
+                                      "application/json", 404)
+                wanted.append({"number": None, "name": name, "tvg_id": "",
+                              "key": channel_key})
             store.write_wantlist_raw(wanted, want.get("missing") or [])
             lineup = store.read_meta().get("lineup")
             if lineup:
@@ -2024,8 +2046,18 @@ class Handler(BaseHTTPRequestHandler):
                     w["number"] = number
                     break
             else:
-                return self._send('{"error":"channel not in this run\'s wantlist"}',
-                                  "application/json", 404)
+                # Same reasoning as _rename_channel: a channel with probe
+                # results but no wantlist entry is exactly the case this
+                # whole feature exists to fix (see the "no channel number"
+                # push-preview drop in _resolve_curated), so setting its
+                # number here creates the entry instead of 404ing on a
+                # channel the curator is looking straight at.
+                fallback_name = self._probed_channel_name(store, channel_key)
+                if not fallback_name:
+                    return self._send('{"error":"channel not in this run\'s wantlist"}',
+                                      "application/json", 404)
+                wanted.append({"number": number, "name": fallback_name,
+                              "tvg_id": "", "key": channel_key})
             store.write_wantlist_raw(wanted, want.get("missing") or [])
             lineup = store.read_meta().get("lineup")
             if lineup:
