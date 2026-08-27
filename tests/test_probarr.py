@@ -86,6 +86,28 @@ class TestNormalize(unittest.TestCase):
         pools = group_candidates(streams, self.n)
         self.assertEqual(sorted(len(v) for v in pools.values()), [1, 2])
 
+    def test_stylised_unicode_tags_are_still_recognised_as_tags(self):
+        """Real Discord report: a provider spells its quality/format tags
+        in small-caps/superscript Unicode ("ᴿᴬᵂ" for RAW, "ᵁᴴᴰ" for UHD)
+        rather than plain ASCII. Those decompose to plain letters under
+        NFKD, but strip() used to fold the string to ASCII only at the
+        very END, after the tag-stripping regexes had already run and
+        found nothing to match -- so the disguised tag survived every
+        strip and got baked into the key. "NPO 1 ᴿᴬᵂ" must still collapse
+        to the same key as the tag-free wantlist entry "NPO 1".
+        """
+        n = Normalizer(region_tags=["NL", "OD", "PLAY+", "ZG", "BE-VIP"])
+        base = n.key("NPO 1")
+        for name in ["NL: NPO 1 ᴿᴬᵂ NL",
+                     "BE-VIP: NPO 1 ᴿᴬᵂ ",
+                     "OD: NPO 1 ᴴᴰ",
+                     "PLAY+: NPO 1 ᴿᴬᵂ ",
+                     "ZG: NPO 1 ᴿᴬᵂ "]:
+            self.assertEqual(n.key(name), base, f"{name!r} did not match")
+        # A genuinely different service tier must still NOT collapse into
+        # the base channel just because this fix touched the same code path.
+        self.assertNotEqual(n.key("NL: NPO 1 EXTRA ᴿᴬᵂ NL"), base)
+
 
 class TestWantlist(unittest.TestCase):
     def test_parses_number_name_and_tvg_id(self):

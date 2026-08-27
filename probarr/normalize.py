@@ -26,7 +26,7 @@ import unicodedata
 # real resolution anyway -- these labels are frequently lies.
 QUALITY_TAGS = [
     "UHD", "FHD", "QHD", "HD", "SD", "4K", "8K", "1080P", "1080I", "720P",
-    "576P", "480P", "2160P", "HEVC", "H265", "H264", "X265", "X264", "AVC",
+    "576P", "480P", "2160P", "3840P", "7680P", "HEVC", "H265", "H264", "X265", "X264", "AVC",
     "MPEG2", "RAW", "LQ", "HQ", "MULTIAUDIO", "MULTI", "BACKUP", "ALT",
     "VIP", "PLUS", "PREMIUM", "SOURCE", "FEED", "TEST",
 ]
@@ -44,11 +44,30 @@ DEFAULT_REGION_TAGS = [
 _SEP = r"[\s:|/\-–—\.]"
 
 
-def _fold(s: str) -> str:
-    """Uppercase, strip accents, drop anything that isn't alphanumeric."""
+def _unifold(s: str) -> str:
+    """NFKD-decompose stylised Unicode to its plain-ASCII equivalent,
+    keeping spacing/punctuation intact -- unlike _fold(), which also
+    collapses everything down to bare alphanumerics.
+
+    Real reported case: a provider naming its variants in small-caps/
+    superscript Unicode ("NPO 1 ᴿᴬᵂ" -- 'RAW' in small caps, "NPO 1
+    ᵁᴴᴰ ³⁸⁴⁰ᵖ" -- 'UHD 3840p' in small caps/superscript). Those
+    decompose to plain "RAW"/"UHD 3840P" under NFKD, so must be folded
+    to that BEFORE the tag-stripping regexes below run -- they only ever
+    match literal ASCII tag text, and were blind to the stylised originals
+    entirely. Folding only at the very end (inside _fold(), as this used
+    to) meant the disguised tag survived every strip and got baked into
+    the final key instead of removed -- "NPO 1" and its own "RAW" variant
+    normalised to two different, unmatching keys.
+    """
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
-    s = s.upper().replace("&", " AND ")
+    return s.upper()
+
+
+def _fold(s: str) -> str:
+    """Uppercase, strip accents, drop anything that isn't alphanumeric."""
+    s = _unifold(s).replace("&", " AND ")
     return re.sub(r"[^A-Z0-9]+", "", s)
 
 
@@ -158,7 +177,12 @@ class Normalizer:
         produce. Only alias names with nothing to strip in the first place
         happened to work.
         """
-        s = name
+        # Folded to plain ASCII FIRST, not last: a provider that renders its
+        # own tags in small-caps/superscript Unicode ("ᴿᴬᵂ" for "RAW") is
+        # otherwise invisible to every regex below, which only ever matches
+        # literal ASCII tag text -- see _unifold()'s own docstring for the
+        # real case this fixes.
+        s = _unifold(name)
         # A '+1' channel is a genuinely different channel, not a variant of the
         # same one, so it gets its own key rather than being stripped. Rewrite
         # the marker to a word so "Meridian Sports 1 +1" cannot collide with a
@@ -334,8 +358,8 @@ def group_candidates(streams, normalizer, include_timeshift=False,
 # is no free pre-probe bitrate signal to rank on the way there is for
 # resolution tags.
 _DECLARED_QUALITY_RANK = {
-    "8K": 100, "4320P": 100,
-    "UHD": 90, "4K": 90, "2160P": 90,
+    "8K": 100, "4320P": 100, "7680P": 100,
+    "UHD": 90, "4K": 90, "2160P": 90, "3840P": 90,
     "QHD": 70, "1440P": 70,
     "FHD": 60, "1080P": 60, "1080I": 55,
     "HD": 40, "720P": 40,
