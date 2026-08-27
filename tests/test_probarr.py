@@ -1749,6 +1749,52 @@ class TestClaimsRegistry(Temp):
         self.assertFalse(claims.unclaim(self.root, 7),
                          "unclaiming something already gone should say so, not error")
 
+    def test_claimed_by_key_is_the_reverse_index(self):
+        from probarr import claims
+        claims.claim(self.root, 42, "BBCONE", "BBC One", source="run:r1")
+        by_key = claims.claimed_by_key(self.root)
+        self.assertEqual(by_key["BBCONE"]["dispatcharr_id"], 42)
+        self.assertEqual(by_key["BBCONE"]["name"], "BBC One")
+        self.assertNotIn("ITV", by_key)
+
+
+class TestCurateShowsClaimStatus(Temp):
+    """Real user request: seeing which channels are/aren't tagged in
+    claims.py directly in Curate (not just inferred from a push preview),
+    right next to the channel name, for debugging why a push would treat
+    a channel as blocked/relink."""
+
+    def test_build_payload_carries_the_claim_for_a_matched_channel(self):
+        from probarr import claims
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok"})
+        claims.claim(self.root, 42, "BBCONE", "BBC One")
+        from probarr.verify import annotate_placeholders
+        by_channel = annotate_placeholders(store)
+        payload = curate.build_payload(by_channel, store, False, None, None, None,
+                                       claims.claimed_by_key(self.root))
+        ch = next(c for c in payload["channels"] if c["key"] == "BBCONE")
+        self.assertEqual(ch["claim"]["dispatcharr_id"], 42)
+
+    def test_build_payload_reports_none_for_an_unclaimed_channel(self):
+        from probarr import claims
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok"})
+        from probarr.verify import annotate_placeholders
+        by_channel = annotate_placeholders(store)
+        payload = curate.build_payload(by_channel, store, False, None, None, None,
+                                       claims.claimed_by_key(self.root))
+        ch = next(c for c in payload["channels"] if c["key"] == "BBCONE")
+        self.assertIsNone(ch["claim"])
+
 
 class TestDispatcharrPushRefusesUnclaimedNumberCollisions(unittest.TestCase):
     """Real user-reported worry: on an established Dispatcharr instance, a

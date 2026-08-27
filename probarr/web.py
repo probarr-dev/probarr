@@ -986,7 +986,8 @@ class Handler(BaseHTTPRequestHandler):
         payload = curate.build_payload(by_channel, store,
                                        bool(store.read_meta().get("epg")),
                                        self._inherited(store), self._dropped_urls(store),
-                                       self._epg_mismatches(store))
+                                       self._epg_mismatches(store),
+                                       claims_mod.claimed_by_key(self.root))
         ch = next((c for c in payload["channels"] if c["key"] == channel_key), None)
         if ch is None:
             return self._send('{"error":"no such channel"}', "application/json", 404)
@@ -3554,7 +3555,8 @@ class Handler(BaseHTTPRequestHandler):
         guide_present = bool(store.read_meta().get("epg"))
         self._send(curate.render(by_channel, store, guide_present,
                                  self._inherited(store), self._dropped_urls(store),
-                                 self._epg_mismatches(store)))
+                                 self._epg_mismatches(store),
+                                 claims_mod.claimed_by_key(self.root)))
 
     def _lineups(self):
         """Saved lineups, each annotated with the runs made from it.

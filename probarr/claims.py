@@ -61,6 +61,26 @@ def read_all(root):
     return {int(k): v for k, v in _read(root).items()}
 
 
+def claimed_by_key(root):
+    """{channel_key: {dispatcharr_id, name, source, claimed_at}} -- the
+    reverse of read_all()'s id-keyed shape, for Curate's own debugging
+    display (see web.py's _curate/_channel_json): a curator looking at
+    ONE channel wants to know "is this thing tagged, and as what", which
+    is a lookup by channel key, not by Dispatcharr id.
+
+    A channel_key claimed under more than one Dispatcharr id (should not
+    happen in practice) keeps whichever claim was recorded last -- good
+    enough for a debugging display, and claim() itself is the only writer
+    so there is exactly one path that could ever produce it.
+    """
+    out = {}
+    for did, info in read_all(root).items():
+        key = info.get("key")
+        if key:
+            out[key] = {"dispatcharr_id": did, **info}
+    return out
+
+
 def is_claimed(root, dispatcharr_id):
     return str(dispatcharr_id) in _read(root)
 

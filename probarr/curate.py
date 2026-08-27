@@ -309,6 +309,10 @@ main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
 .dtag.fail{background:rgba(248,81,73,.12);border-color:var(--bad);color:var(--bad)}
 .dtag{margin-left:8px;background:var(--bg2);border:1px solid var(--line);
   border-radius:20px;padding:1px 8px;font-size:11px;color:var(--dim)}
+.claimtag{font-size:11px;font-weight:400;border-radius:20px;padding:2px 9px;
+  vertical-align:middle;white-space:nowrap}
+.claimtag-on{background:rgba(39,194,76,.1);border:1px solid var(--ok);color:var(--ok)}
+.claimtag-off{background:rgba(240,80,80,.1);border:1px solid var(--bad);color:var(--bad)}
 .chpip{margin-left:5px;font-size:9.5px;font-weight:700;color:#3a2200;
   background:var(--warn);border-radius:3px;padding:0 4px;vertical-align:1px}
 .whybox{background:var(--bg2);border:1px solid var(--line);border-left:3px solid var(--accent2);
@@ -1126,7 +1130,23 @@ function renderDetail(){
       '<button id="numedit" title="Set this channel’s number">✎</button> '+
       (dLogoUrl ? '<img class="dhlogo" src="'+esc(dLogoUrl)+'" alt="">' : '')+
       '<span id="titletext" tabindex="0" title="Click to rename">'+esc(ch.title)+'</span>'+
-      '<button id="titleedit" title="Rename this channel">\u270e</button></h1>'+
+      '<button id="titleedit" title="Rename this channel">\u270e</button> '+
+      // Whether push() would refuse this channel as an unclaimed number
+      // collision -- see claims.py. Shown right next to the name because
+      // that is exactly the thing worth seeing while debugging a "blocked"
+      // row in the push preview: is THIS channel tagged, and as what.
+      (ch.claim
+        ? '<span class="claimtag claimtag-on" title="Tagged as Dispatcharr '+
+          'channel #'+esc(ch.claim.dispatcharr_id)+' \u2014 push() will treat '+
+          'a number match against this id as an ordinary update, not a '+
+          'blocked/relink conflict.">linked \u00b7 Dispatcharr #'+
+          esc(ch.claim.dispatcharr_id)+'</span>'
+        : '<span class="claimtag claimtag-off" title="Not yet tagged to any '+
+          'Dispatcharr channel. If this channel\u2019s number collides with an '+
+          'unrecognised Dispatcharr channel on push, it will show as '+
+          '\u201cblocked\u201d or \u201crelink\u201d in the push preview until '+
+          'resolved there, or via Unclaimed.">not linked to Dispatcharr</span>')+
+      '</h1>'+
       '<div class="sub">'+esc(ch.why||"")+
         (!ch.missing ? ' &middot; group: <b>'+esc(s.group||"none")+'</b>'+
           '<button id="groupedit" title="Change this channel’s group (or a '+
@@ -3759,8 +3779,14 @@ def changes_since_last_probe(store):
 
 
 def build_payload(by_channel, store, guide_present=False, inherited=None,
-                  dropped=None, epg_mismatches=None):
-    """Channel records for the curation view, URL-referenced (not embedded)."""
+                  dropped=None, epg_mismatches=None, claims=None):
+    """Channel records for the curation view, URL-referenced (not embedded).
+
+    `claims`: {channel_key: {dispatcharr_id, ...}} from claims.claimed_by_key()
+    -- purely a debugging display (see the "linked #N"/"not linked" tag
+    next to the title in curate.py's own detail header), so a caller not
+    passing it (None, the default) just gets no tag rather than an error.
+    """
     want = store.read_wantlist()
     wanted = want.get("wanted") or []
     by_key = {w["key"]: w for w in wanted}
@@ -3785,6 +3811,7 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
         channels.append({
             "key": key,
             "number": w.get("number") if w.get("number") is not None else pref_number,
+            "claim": (claims or {}).get(key),
             "title": pref_name or w.get("name")
                      or (ranked[0].get("stream_name") if ranked else key),
             "why": rank_mod.explain_choice(ranked),
@@ -3849,6 +3876,7 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
             channels.append({"key": w["key"],
                              "number": w.get("number") if w.get("number") is not None
                                        else ((inherited or {}).get(w["key"]) or {}).get("number"),
+                             "claim": (claims or {}).get(w["key"]),
                              "title": (((inherited or {}).get(w["key"]) or {})
                                        .get("name") or w.get("name")), "why": "no candidate streams matched",
                              "expected": None, "epg_missing": False,
@@ -3919,9 +3947,9 @@ def _url(store, rel, version=None):
 
 
 def render(by_channel, store, guide_present=False, inherited=None, dropped=None,
-          epg_mismatches=None):
+          epg_mismatches=None, claims=None):
     payload = build_payload(by_channel, store, guide_present, inherited, dropped,
-                            epg_mismatches)
+                            epg_mismatches, claims)
     right = ('<span class="saveind" id="saveind"></span>'
              '<button id="pushall" title="Push every channel whose Dispatcharr state differs from your curated picks.">Push changes</button>'
              f'<a href="/run/{store.run_id}/export.xmltv" title="A guide for '
