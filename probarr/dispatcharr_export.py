@@ -407,7 +407,7 @@ def push(client, channels, group_name=None, default_group_name="probarr",
                 updated += 1
                 changed_ids.append(existing_ch["id"])
                 touched.append({"key": ch.get("key"), "id": existing_ch["id"],
-                               "name": name})
+                               "name": name, "number": number})
                 log(f"  {name}: updated ("
                    + ", ".join(c["field"] for c in changes) + ")")
             elif kind == "create":
@@ -417,7 +417,7 @@ def push(client, channels, group_name=None, default_group_name="probarr",
                 created += 1
                 changed_ids.append(new_ch["id"])
                 touched.append({"key": ch.get("key"), "id": new_ch["id"],
-                               "name": name})
+                               "name": name, "number": number})
                 log(f"  {name}: created")
             else:
                 unchanged += 1
@@ -428,7 +428,7 @@ def push(client, channels, group_name=None, default_group_name="probarr",
                 # unchanged, not only on an update.
                 if existing_ch is not None:
                     touched.append({"key": ch.get("key"), "id": existing_ch["id"],
-                                   "name": name})
+                                   "name": name, "number": number})
                 log(f"  {name}: unchanged")
             if epg_data_id:
                 explicit_epg_ids.add(

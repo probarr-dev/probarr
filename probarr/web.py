@@ -2188,7 +2188,8 @@ class Handler(BaseHTTPRequestHandler):
         claims_mod.claim(self.root, dispatcharr_id,
                          (body.get("channel_key") or "").strip() or None,
                          (body.get("name") or "").strip() or None,
-                         source=(body.get("source") or "").strip() or None)
+                         source=(body.get("source") or "").strip() or None,
+                         number=body.get("number"))
         self._send(json.dumps({"ok": True}), "application/json")
 
     def _dispatcharr_unclaimed(self, body):
@@ -2355,7 +2356,8 @@ class Handler(BaseHTTPRequestHandler):
                                   "application/json", 400)
             store.write_wantlist_raw(wanted, want.get("missing") or [])
             claims_mod.claim(self.root, payload["dispatcharr_id"], payload["key"],
-                             body.get("name"), source=f"run:{run_id}")
+                             body.get("name"), source=f"run:{run_id}",
+                             number=body.get("number"))
             self._send(json.dumps({"ok": True, "key": payload["key"],
                                   "relinked": payload["relinked"]}),
                       "application/json")
@@ -2390,13 +2392,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not ok:
                     errors.append({"name": name, "error": payload})
                     continue
-                to_claim.append((payload["dispatcharr_id"], payload["key"], name))
+                to_claim.append((payload["dispatcharr_id"], payload["key"], name,
+                                c.get("number")))
                 assigned += 1
                 relinked_count += payload["relinked"]
             store.write_wantlist_raw(wanted, want.get("missing") or [])
-            for dispatcharr_id, key, name in to_claim:
+            for dispatcharr_id, key, name, number in to_claim:
                 claims_mod.claim(self.root, dispatcharr_id, key, name,
-                                 source=f"run:{run_id}")
+                                 source=f"run:{run_id}", number=number)
             self._send(json.dumps({"ok": True, "assigned": assigned,
                                   "relinked": relinked_count, "errors": errors}),
                       "application/json")
@@ -4231,7 +4234,8 @@ class Handler(BaseHTTPRequestHandler):
             for t in summary.get("touched") or []:
                 try:
                     claims_mod.claim(self.root, t["id"], t.get("key"),
-                                     t.get("name"), source=f"run:{store.run_id}")
+                                     t.get("name"), source=f"run:{store.run_id}",
+                                     number=t.get("number"))
                 except Exception:
                     pass  # never let claim bookkeeping fail an otherwise-good push
             # Must happen AFTER push() actually writes epg_data_id to

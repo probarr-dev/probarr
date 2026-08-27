@@ -1741,6 +1741,16 @@ class TestClaimsRegistry(Temp):
         self.assertTrue(claims.is_claimed(self.root, 42))
         self.assertFalse(claims.is_claimed(self.root, 999))
 
+    def test_claim_records_the_live_number_for_display(self):
+        """The number is purely cosmetic (see claim()'s own docstring) --
+        Curate shows it as "linked · Dispatcharr live channel N" because
+        showing the internal dispatcharr_id there read as a second,
+        conflicting channel number sitting right next to the real one."""
+        from probarr import claims
+        claims.claim(self.root, 42, "BBCONE", "BBC One", number=105)
+        self.assertEqual(claims.read_all(self.root)[42]["number"], 105)
+        self.assertEqual(claims.claimed_by_key(self.root)["BBCONE"]["number"], 105)
+
     def test_unclaim_removes_it(self):
         from probarr import claims
         claims.claim(self.root, 7, "X", "X")
@@ -1904,7 +1914,7 @@ class TestDispatcharrPushRefusesUnclaimedNumberCollisions(unittest.TestCase):
         self.assertEqual(result["blocked"], [])
         self.assertEqual(len(result["touched"]), 1)
         self.assertEqual(result["touched"][0],
-                         {"key": "BBCONE", "id": 7, "name": "BBC One"})
+                         {"key": "BBCONE", "id": 7, "name": "BBC One", "number": 101})
 
     def test_push_records_a_touch_for_a_brand_new_channel_it_creates(self):
         from probarr.dispatcharr_export import push

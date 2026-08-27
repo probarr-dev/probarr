@@ -1136,13 +1136,15 @@ function renderDetail(){
       // that is exactly the thing worth seeing while debugging a "blocked"
       // row in the push preview: is THIS channel tagged, and as what.
       (ch.claim
-        ? '<span class="claimtag claimtag-on" title="Tagged to Dispatcharr\u2019s '+
-          'internal id '+esc(ch.claim.dispatcharr_id)+' for this channel \u2014 '+
-          'NOT the channel number shown on the left, which Dispatcharr lets '+
-          'change at any time. This id is what push() actually checks, so a '+
-          'number match against it is treated as an ordinary update, not a '+
-          'blocked/relink conflict.">linked \u00b7 Dispatcharr id '+
-          esc(ch.claim.dispatcharr_id)+'</span>'
+        ? '<span class="claimtag claimtag-on" title="Tagged to Dispatcharr '+
+          'channel #'+esc(ch.claim.number!=null?ch.claim.number:'?')+
+          ' (internal id '+esc(ch.claim.dispatcharr_id)+', which is what '+
+          'push() actually checks \u2014 the live channel NUMBER can still '+
+          'change on Dispatcharr\u2019s side without affecting this tag) \u2014 '+
+          'a number match against this id is treated as an ordinary update, '+
+          'not a blocked/relink conflict.">linked \u00b7 Dispatcharr live '+
+          'channel '+(ch.claim.number!=null?esc(ch.claim.number):'(unknown #)')+
+          '</span>'
         : '<span class="claimtag claimtag-off" title="Not yet tagged to any '+
           'Dispatcharr channel. If this channel\u2019s number collides with an '+
           'unrecognised Dispatcharr channel on push, it will show as '+
@@ -3613,7 +3615,8 @@ function conflictRow(a, isRelink){
       (cur.streams||0)+' stream(s)). It will be replaced with \u201c'+esc(a.name)+
       '\u201d. This cannot be undone from here.';
   return '<div class="dm-row '+a.kind+'" data-dispatcharr-id="'+esc(cur.id)+
-    '" data-channel-key="'+esc(a.key||"")+'" data-channel-name="'+esc(a.name)+'">'+
+    '" data-channel-key="'+esc(a.key||"")+'" data-channel-name="'+esc(a.name)+
+    '" data-channel-number="'+(a.number!=null?a.number:"")+'">'+
     '<span class="pname">'+(a.number!=null?a.number+' ':'')+esc(a.name)+
     ' <span class="pchg">'+(isRelink ? '\u2014 looks like a match' : '\u2014 BLOCKED')+
     '</span></span>'+
@@ -3652,6 +3655,8 @@ document.getElementById("dm-plan").addEventListener("click", async e => {
       body: JSON.stringify({dispatcharr_id: row.dataset.dispatcharrId,
                             channel_key: row.dataset.channelKey,
                             name: row.dataset.channelName,
+                            number: row.dataset.channelNumber
+                              ? Number(row.dataset.channelNumber) : null,
                             source: "run:"+DATA.run_id})});
     const d = await r.json();
     if(d.error){ alert("Could not link: "+d.error); e.target.disabled = false;

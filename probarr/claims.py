@@ -85,7 +85,8 @@ def is_claimed(root, dispatcharr_id):
     return str(dispatcharr_id) in _read(root)
 
 
-def claim(root, dispatcharr_id, channel_key=None, name=None, source=None):
+def claim(root, dispatcharr_id, channel_key=None, name=None, source=None,
+         number=None):
     """Record that Dispatcharr channel `dispatcharr_id` is probarr's.
 
     Idempotent and cheap to call on every successful push -- see
@@ -93,10 +94,19 @@ def claim(root, dispatcharr_id, channel_key=None, name=None, source=None):
     the "we just wrote this, and Dispatcharr just confirmed the id"
     moment that makes this safe to record with total certainty, not a
     guess.
+
+    `number`: purely for display (see the "linked · Dispatcharr live
+    channel N" tag in curate.py) -- NOT what push()'s claimed_ids gate
+    checks, which is dispatcharr_id alone. Recording it means Curate can
+    show the live channel number a curator actually recognises instead of
+    Dispatcharr's own internal row id, which happens to look exactly like
+    a DIFFERENT channel number sitting right next to it and was reported
+    confusing for exactly that reason.
     """
     data = _read(root)
     data[str(dispatcharr_id)] = {"key": channel_key, "name": name,
-                                 "source": source, "claimed_at": time.time()}
+                                 "source": source, "number": number,
+                                 "claimed_at": time.time()}
     _write(root, data)
 
 
