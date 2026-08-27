@@ -24,7 +24,13 @@ class Xtream:
         return http.request(url, timeout=self.timeout)
 
     def live_streams(self):
-        cats = {c["category_id"]: c["category_name"]
+        # Both sides cast to str. Real bug: this dict used to be keyed by
+        # category_id's NATIVE JSON type (some panels emit it as a number,
+        # not a numeric string) while the per-stream lookup always cast to
+        # str -- a panel serving numeric category ids meant every lookup
+        # missed and every stream silently lost its group, with categories
+        # and streams both fetched correctly but never actually joined.
+        cats = {str(c["category_id"]): c["category_name"]
                 for c in (self._api("get_live_categories") or [])}
         out = []
         for s in (self._api("get_live_streams") or []):

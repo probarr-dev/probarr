@@ -28,6 +28,7 @@ still outstanding is resubmitted on the next start.
 """
 import json
 import os
+import inspect
 import threading
 import time
 
@@ -93,6 +94,24 @@ class ProbeQueue:
         # the operator asked for, and throwing it away because someone
         # started watching television would be the wrong answer.
         self._gate = gate
+        # Determined ONCE from the callable's real signature, not guessed
+        # from whether calling it raises TypeError. Real bug found on a
+        # full-codebase review: the old code called self._gate(next_lane)
+        # and treated ANY TypeError as "this must be a gate that predates
+        # the lane argument", silently retrying with zero arguments. A
+        # caller-supplied gate with a genuine bug (e.g. it does something
+        # invalid with `lane` internally) raises TypeError too, and that
+        # got misdiagnosed and silently swallowed the exact same way,
+        # changing the queue's actual gating behaviour with nothing
+        # logged anywhere to say so.
+        try:
+            self._gate_takes_lane = len(
+                inspect.signature(gate).parameters) >= 1
+        except (TypeError, ValueError):
+            # Some callables (certain builtins/C-implemented callables)
+            # don't expose an inspectable signature at all -- fall back to
+            # the modern, documented shape rather than assuming the old one.
+            self._gate_takes_lane = True
         self._blocked = None
         # callable(lane) -> int, defaults to the global concurrency for any
         # lane with no provider-specific override.
@@ -231,13 +250,11 @@ class ProbeQueue:
                     # is passed through so the gate can weigh a viewer
                     # against THAT provider's real concurrency, not
                     # against an assumed single connection.
-                    reason = None
                     next_lane = (self._pending[0]["payload"].get("lane") or "_default"
                                 if self._pending else None)
                     try:
-                        reason = self._gate(next_lane)
-                    except TypeError:
-                        reason = self._gate()   # a gate that predates the lane arg
+                        reason = (self._gate(next_lane) if self._gate_takes_lane
+                                 else self._gate())
                     except Exception:
                         reason = None      # never let the check block work
                     self._blocked = reason

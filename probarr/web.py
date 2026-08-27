@@ -951,7 +951,52 @@ class Handler(BaseHTTPRequestHandler):
     # process. Searching it is an interactive action -- re-downloading the
     # whole playlist on every keystroke-driven query would make the feature
     # unusable for exactly the browsing it exists to support.
+    #
+    # Class-level (shared by every ThreadingHTTPServer request thread), and
+    # a real bug found on a full-codebase review: the check-then-clear-then
+    # -populate sequence in _catalog_pools() below had no lock, resting on
+    # a comment's assumption ("only ever one source in play") that two
+    # concurrent requests for two different providers/runs simply violate.
+    # One thread's self._catalog_cache.clear() could wipe the entry another
+    # thread had just stored, or a thread could read a still-building
+    # result meant for a different spec -- either way, wrong-provider data
+    # served with no error. Guarded with a lock now; see _catalog_pools().
     _catalog_cache = {}
+    _catalog_cache_lock = threading.Lock()
+
+    # Per-run locks guarding the Dispatcharr push "is one already running"
+    # check-and-claim (see _export_dispatcharr) -- one lock per run_id, not
+    # a single global lock, so a push starting on one run never blocks a
+    # completely unrelated push on another.
+    _push_locks = {}
+    _push_locks_guard = threading.Lock()
+
+    @classmethod
+    def _push_lock_for(cls, run_id):
+        with cls._push_locks_guard:
+            lock = cls._push_locks.get(run_id)
+            if lock is None:
+                lock = cls._push_locks[run_id] = threading.Lock()
+            return lock
+
+    # Same shape, for the wantlist file: _reorder_group, _swap_numbers,
+    # _catalog_add and _rename_channel each do their own read-modify-write
+    # of store.read_wantlist()/write_wantlist_raw() with nothing serializing
+    # them. Real bug found on a full-codebase review: two of these landing
+    # close together (a drag-to-reorder and an in-flight catalogue-add, say)
+    # could both read the same starting wantlist, and whichever writes
+    # second silently discards the other's change even though both request
+    # handlers report success.
+    _wantlist_locks = {}
+    _wantlist_locks_guard = threading.Lock()
+
+    @classmethod
+    def _wantlist_lock_for(cls, run_id):
+        with cls._wantlist_locks_guard:
+            lock = cls._wantlist_locks.get(run_id)
+            if lock is None:
+                lock = cls._wantlist_locks[run_id] = threading.Lock()
+            return lock
 
     def _norm(self):
         """A Normalizer that knows the saved aliases.
@@ -1036,11 +1081,26 @@ class Handler(BaseHTTPRequestHandler):
         # would keep answering with the old grouping until the process
         # restarted -- the alias would look like it had done nothing.
         ck = (spec, json.dumps(aliases_mod.read(self.root), sort_keys=True))
-        hit = self._catalog_cache.get(ck)
-        if hit is None:
-            self._catalog_cache.clear()   # only ever one source in play
-            norm = self._norm()
-            hit = group_candidates(self._load_source_cached(spec), norm, regions=None)
+        with self._catalog_cache_lock:
+            hit = self._catalog_cache.get(ck)
+            if hit is not None:
+                return hit
+        # The actual build (network fetch + grouping, seconds of work) runs
+        # OUTSIDE the lock, so a slow build for spec X does not stall a
+        # concurrent request for a different spec Y that could be answered
+        # from cache immediately. The store-back below re-acquires the lock
+        # only for the dict mutation itself.
+        norm = self._norm()
+        hit = group_candidates(self._load_source_cached(spec), norm, regions=None)
+        with self._catalog_cache_lock:
+            # No eviction of other specs here. The old code's blanket
+            # .clear() on every miss was itself the bug -- it wiped every
+            # OTHER already-cached, still-valid spec too, not just made
+            # room for this one, forcing needless full rebuilds (a
+            # potentially 55k-entry playlist re-parsed) of catalogues that
+            # hadn't changed at all. A handful of concurrently-open runs
+            # against different providers is the normal case this exists
+            # to serve, not a memory concern worth this correctness cost.
             self._catalog_cache[ck] = hit
         return hit
 
@@ -1299,115 +1359,117 @@ class Handler(BaseHTTPRequestHandler):
         self._send(json.dumps({"ok": True, "extra_groups": extra}), "application/json")
 
     def _reorder_group(self, run_id, body):
-        """Reorder the channels of ONE group by reassigning that group's OWN
-        existing numbers to match the new order.
+        with self._wantlist_lock_for(run_id):
+            """Reorder the channels of ONE group by reassigning that group's OWN
+            existing numbers to match the new order.
 
-        Deliberately bounded: the group's number SET is invariant before
-        and after -- nothing is invented, and nothing outside the group is
-        touched. A hand-built genre-banded scheme (100s Entertainment, 300s
-        Movies...) survives a reorder instead of being renumbered away.
-        """
-        keys = [k for k in (body.get("keys") or []) if k]
-        if len(keys) < 2:
-            return self._send('{"error":"at least two keys required"}',
-                              "application/json", 400)
-        store = RunStore(self.root, run_id)
-        if not os.path.exists(store.results_path):
-            return self._send('{"error":"no such run"}', "application/json", 404)
-        want = store.read_wantlist()
-        wanted = want.get("wanted") or []
-        by_key = {w.get("key"): w for w in wanted}
+            Deliberately bounded: the group's number SET is invariant before
+            and after -- nothing is invented, and nothing outside the group is
+            touched. A hand-built genre-banded scheme (100s Entertainment, 300s
+            Movies...) survives a reorder instead of being renumbered away.
+            """
+            keys = [k for k in (body.get("keys") or []) if k]
+            if len(keys) < 2:
+                return self._send('{"error":"at least two keys required"}',
+                                  "application/json", 400)
+            store = RunStore(self.root, run_id)
+            if not os.path.exists(store.results_path):
+                return self._send('{"error":"no such run"}', "application/json", 404)
+            want = store.read_wantlist()
+            wanted = want.get("wanted") or []
+            by_key = {w.get("key"): w for w in wanted}
 
-        # A key can be visibly sitting in this run's own group list (it has
-        # real probe results, Curate shows it, Groups lets you drag it) while
-        # missing from the wantlist -- an older workflow, or a wantlist entry
-        # that was removed while its results were kept. That is missing
-        # bookkeeping, not a reason a channel can't be reordered like any
-        # other one already here, so it is added rather than rejected.
-        missing = [k for k in keys if k not in by_key]
-        if missing:
-            records_by_key = {}
-            for r in store.load():
-                if r.get("channel_key") in missing:
-                    records_by_key.setdefault(r["channel_key"], []).append(r)
-            all_numbers = {w.get("number") for w in wanted if w.get("number") is not None}
-            # Numbered right after the OTHER channels already in this same
-            # group/reorder request, not the whole wantlist's max -- so a
-            # genre-banded group (the 400s) gains a new member numbered into
-            # its own band (408) instead of being shunted into the high end
-            # used for channels added with no band context at all. Falls
-            # back to the wantlist max only when nothing in this request has
-            # a number yet to anchor to.
-            local_numbers = [by_key[k]["number"] for k in keys
-                             if k in by_key and by_key[k].get("number") is not None]
-            base = (max(local_numbers) if local_numbers
-                   else max(all_numbers) if all_numbers else 8999)
-            still_missing = []
-            for k in missing:
-                recs = records_by_key.get(k)
-                if not recs:
-                    still_missing.append(k)
-                    continue
-                candidate = base + 1
-                while candidate in all_numbers:
-                    candidate += 1
-                ranked = rank_mod.rank(recs)
-                entry = {"number": candidate, "key": k,
-                        "name": (ranked[0].get("stream_name") if ranked else k) or k,
-                        "tvg_id": (ranked[0].get("tvg_id") if ranked else "") or ""}
-                wanted.append(entry)
-                by_key[k] = entry
-                all_numbers.add(candidate)
-                base = candidate
-            if still_missing:
+            # A key can be visibly sitting in this run's own group list (it has
+            # real probe results, Curate shows it, Groups lets you drag it) while
+            # missing from the wantlist -- an older workflow, or a wantlist entry
+            # that was removed while its results were kept. That is missing
+            # bookkeeping, not a reason a channel can't be reordered like any
+            # other one already here, so it is added rather than rejected.
+            missing = [k for k in keys if k not in by_key]
+            if missing:
+                records_by_key = {}
+                for r in store.load():
+                    if r.get("channel_key") in missing:
+                        records_by_key.setdefault(r["channel_key"], []).append(r)
+                all_numbers = {w.get("number") for w in wanted if w.get("number") is not None}
+                # Numbered right after the OTHER channels already in this same
+                # group/reorder request, not the whole wantlist's max -- so a
+                # genre-banded group (the 400s) gains a new member numbered into
+                # its own band (408) instead of being shunted into the high end
+                # used for channels added with no band context at all. Falls
+                # back to the wantlist max only when nothing in this request has
+                # a number yet to anchor to.
+                local_numbers = [by_key[k]["number"] for k in keys
+                                 if k in by_key and by_key[k].get("number") is not None]
+                base = (max(local_numbers) if local_numbers
+                       else max(all_numbers) if all_numbers else 8999)
+                still_missing = []
+                for k in missing:
+                    recs = records_by_key.get(k)
+                    if not recs:
+                        still_missing.append(k)
+                        continue
+                    candidate = base + 1
+                    while candidate in all_numbers:
+                        candidate += 1
+                    ranked = rank_mod.rank(recs)
+                    entry = {"number": candidate, "key": k,
+                            "name": (ranked[0].get("stream_name") if ranked else k) or k,
+                            "tvg_id": (ranked[0].get("tvg_id") if ranked else "") or ""}
+                    wanted.append(entry)
+                    by_key[k] = entry
+                    all_numbers.add(candidate)
+                    base = candidate
+                if still_missing:
+                    return self._send('{"error":"channel not in this run"}',
+                                      "application/json", 404)
+
+            rows = [by_key.get(k) for k in keys]
+            if any(r is None for r in rows):
                 return self._send('{"error":"channel not in this run"}',
                                   "application/json", 404)
-
-        rows = [by_key.get(k) for k in keys]
-        if any(r is None for r in rows):
-            return self._send('{"error":"channel not in this run"}',
-                              "application/json", 404)
-        numbers = sorted((r.get("number") for r in rows
-                          if r.get("number") is not None))
-        if len(numbers) != len(rows):
-            return self._send(
-                '{"error":"every channel in a group must already have a number"}',
-                "application/json", 400)
-        for row, num in zip(rows, numbers):
-            row["number"] = num
-        store.write_wantlist_raw(wanted, want.get("missing") or [])
-        self._send(json.dumps({"ok": True,
-                              "numbers": {r["key"]: r["number"] for r in rows}}),
-                  "application/json")
+            numbers = sorted((r.get("number") for r in rows
+                              if r.get("number") is not None))
+            if len(numbers) != len(rows):
+                return self._send(
+                    '{"error":"every channel in a group must already have a number"}',
+                    "application/json", 400)
+            for row, num in zip(rows, numbers):
+                row["number"] = num
+            store.write_wantlist_raw(wanted, want.get("missing") or [])
+            self._send(json.dumps({"ok": True,
+                                  "numbers": {r["key"]: r["number"] for r in rows}}),
+                      "application/json")
 
     def _swap_numbers(self, run_id, body):
-        """Swap the channel NUMBER of two channels in this run's wantlist.
+        with self._wantlist_lock_for(run_id):
+            """Swap the channel NUMBER of two channels in this run's wantlist.
 
-        The only reordering primitive offered, deliberately narrow: a
-        channel's real position is its number, and this owner built a
-        genre-banded numbering scheme by hand (100s Entertainment, 300s
-        Movies, 400s Sports...) that a cascading renumber-everything-below
-        could silently scramble. Swapping exactly the two numbers dropped
-        against each other reorders without ever touching a third channel.
-        """
-        a, b = (body.get("key_a") or "").strip(), (body.get("key_b") or "").strip()
-        if not a or not b or a == b:
-            return self._send('{"error":"key_a and key_b, and they must differ"}',
-                              "application/json", 400)
-        store = RunStore(self.root, run_id)
-        if not os.path.exists(store.results_path):
-            return self._send('{"error":"no such run"}', "application/json", 404)
-        want = store.read_wantlist()
-        wanted = want.get("wanted") or []
-        wa = next((w for w in wanted if w.get("key") == a), None)
-        wb = next((w for w in wanted if w.get("key") == b), None)
-        if not wa or not wb:
-            return self._send('{"error":"channel not in this run"}',
-                              "application/json", 404)
-        wa["number"], wb["number"] = wb.get("number"), wa.get("number")
-        store.write_wantlist_raw(wanted, want.get("missing") or [])
-        self._send(json.dumps({"ok": True, "a": wa["number"], "b": wb["number"]}),
-                  "application/json")
+            The only reordering primitive offered, deliberately narrow: a
+            channel's real position is its number, and this owner built a
+            genre-banded numbering scheme by hand (100s Entertainment, 300s
+            Movies, 400s Sports...) that a cascading renumber-everything-below
+            could silently scramble. Swapping exactly the two numbers dropped
+            against each other reorders without ever touching a third channel.
+            """
+            a, b = (body.get("key_a") or "").strip(), (body.get("key_b") or "").strip()
+            if not a or not b or a == b:
+                return self._send('{"error":"key_a and key_b, and they must differ"}',
+                                  "application/json", 400)
+            store = RunStore(self.root, run_id)
+            if not os.path.exists(store.results_path):
+                return self._send('{"error":"no such run"}', "application/json", 404)
+            want = store.read_wantlist()
+            wanted = want.get("wanted") or []
+            wa = next((w for w in wanted if w.get("key") == a), None)
+            wb = next((w for w in wanted if w.get("key") == b), None)
+            if not wa or not wb:
+                return self._send('{"error":"channel not in this run"}',
+                                  "application/json", 404)
+            wa["number"], wb["number"] = wb.get("number"), wa.get("number")
+            store.write_wantlist_raw(wanted, want.get("missing") or [])
+            self._send(json.dumps({"ok": True, "a": wa["number"], "b": wb["number"]}),
+                      "application/json")
 
     def _candidate_add(self, run_id, body):
         """Probe specific streams against one channel, and nothing else.
@@ -1478,67 +1540,68 @@ class Handler(BaseHTTPRequestHandler):
                               "streams": queued}), "application/json")
 
     def _catalog_add(self, run_id, body):
-        """Add catalogue channels to an existing run and probe them.
+        with self._wantlist_lock_for(run_id):
+            """Add catalogue channels to an existing run and probe them.
 
-        Appends to the run's wantlist so the additions are first-class (they
-        get a channel number and sort into the lineup) rather than showing
-        up as unnumbered strays, then queues their candidates through the
-        same ProbeQueue the re-probe and diagnose actions use -- so provider
-        connection limits are respected exactly as they are everywhere else.
-        """
-        keys = [k for k in (body.get("keys") or []) if k]
-        if not keys:
-            return self._send('{"error":"no channels given"}', "application/json", 400)
-        store = RunStore(self.root, run_id)
-        if not os.path.exists(store.results_path):
-            return self._send('{"error":"no such run"}', "application/json", 404)
-        try:
-            pools = self._catalog_pools(store)
-        except Exception as e:
-            return self._send(json.dumps({"error": str(e)[:300]}),
-                              "application/json", 502)
+            Appends to the run's wantlist so the additions are first-class (they
+            get a channel number and sort into the lineup) rather than showing
+            up as unnumbered strays, then queues their candidates through the
+            same ProbeQueue the re-probe and diagnose actions use -- so provider
+            connection limits are respected exactly as they are everywhere else.
+            """
+            keys = [k for k in (body.get("keys") or []) if k]
+            if not keys:
+                return self._send('{"error":"no channels given"}', "application/json", 400)
+            store = RunStore(self.root, run_id)
+            if not os.path.exists(store.results_path):
+                return self._send('{"error":"no such run"}', "application/json", 404)
+            try:
+                pools = self._catalog_pools(store)
+            except Exception as e:
+                return self._send(json.dumps({"error": str(e)[:300]}),
+                                  "application/json", 502)
 
-        want = store.read_wantlist()
-        wanted = want.get("wanted") or []
-        have = {w["key"] for w in wanted}
-        numbers = [w.get("number") for w in wanted if w.get("number") is not None]
-        # Added channels are numbered above everything existing, so they can
-        # never collide with a wantlist number and never silently displace a
-        # curated channel by landing on its number.
-        next_num = (max(numbers) + 1) if numbers else 9000
-        cfg = settings_mod.read(self.root)
-        max_per = cfg.get("max_candidates") or 6
+            want = store.read_wantlist()
+            wanted = want.get("wanted") or []
+            have = {w["key"] for w in wanted}
+            numbers = [w.get("number") for w in wanted if w.get("number") is not None]
+            # Added channels are numbered above everything existing, so they can
+            # never collide with a wantlist number and never silently displace a
+            # curated channel by landing on its number.
+            next_num = (max(numbers) + 1) if numbers else 9000
+            cfg = settings_mod.read(self.root)
+            max_per = cfg.get("max_candidates") or 6
 
-        queued, added = [], []
-        for key in keys:
-            streams = pools.get(key) or []
-            if not streams:
-                continue
-            if key not in have:
-                # Adding a channel back cancels any deletion staged for it.
-                # Otherwise the next push would delete in Dispatcharr the
-                # very channel just re-added here -- a staged removal is a
-                # statement about the end state, and re-adding contradicts it.
-                store.clear_removal(key)
-                wanted.append({"number": next_num, "name": streams[0].name,
-                              "tvg_id": streams[0].tvg_id or "", "key": key})
-                added.append({"key": key, "number": next_num})
-                next_num += 1
-                have.add(key)
-            for st in sorted(streams, key=lambda x: declared_quality_rank(x.name),
-                            reverse=True)[:max_per]:
-                rk = f"{key}|{st.id}"
-                outcome = self._queue().submit(
-                    f"{run_id}|{rk}",
-                    {"run_id": run_id, "rec_key": rk, "lane": self._lane_for_run(store),
-                     "seed": {"channel_key": key, "stream_id": st.id,
-                             "name": st.name, "url": st.url,
-                             "redacted": st.redacted_url(), "group": st.group,
-                             "logo": st.logo, "tvg_id": st.tvg_id}})
-                queued.append({"rec_key": rk, **outcome})
-        store.write_wantlist_raw(wanted, want.get("missing") or [])
-        self._send(json.dumps({"ok": True, "added": added,
-                              "queued": len(queued)}), "application/json")
+            queued, added = [], []
+            for key in keys:
+                streams = pools.get(key) or []
+                if not streams:
+                    continue
+                if key not in have:
+                    # Adding a channel back cancels any deletion staged for it.
+                    # Otherwise the next push would delete in Dispatcharr the
+                    # very channel just re-added here -- a staged removal is a
+                    # statement about the end state, and re-adding contradicts it.
+                    store.clear_removal(key)
+                    wanted.append({"number": next_num, "name": streams[0].name,
+                                  "tvg_id": streams[0].tvg_id or "", "key": key})
+                    added.append({"key": key, "number": next_num})
+                    next_num += 1
+                    have.add(key)
+                for st in sorted(streams, key=lambda x: declared_quality_rank(x.name),
+                                reverse=True)[:max_per]:
+                    rk = f"{key}|{st.id}"
+                    outcome = self._queue().submit(
+                        f"{run_id}|{rk}",
+                        {"run_id": run_id, "rec_key": rk, "lane": self._lane_for_run(store),
+                         "seed": {"channel_key": key, "stream_id": st.id,
+                                 "name": st.name, "url": st.url,
+                                 "redacted": st.redacted_url(), "group": st.group,
+                                 "logo": st.logo, "tvg_id": st.tvg_id}})
+                    queued.append({"rec_key": rk, **outcome})
+            store.write_wantlist_raw(wanted, want.get("missing") or [])
+            self._send(json.dumps({"ok": True, "added": added,
+                                  "queued": len(queued)}), "application/json")
 
     def _dispatcharr_source(self, store, body):
         """The Dispatcharr connection an import should read from.
@@ -1865,51 +1928,52 @@ class Handler(BaseHTTPRequestHandler):
                   "application/json")
 
     def _rename_channel(self, run_id, body):
-        """Rename a channel's display name within this run.
+        with self._wantlist_lock_for(run_id):
+            """Rename a channel's display name within this run.
 
-        Written to the run's wantlist, because the wantlist name is what
-        everything downstream already reads: the Curate title, the M3U
-        export, and the name pushed to Dispatcharr all resolve from it, so
-        one edit reaches all three without any of them needing to learn
-        about a new override field.
+            Written to the run's wantlist, because the wantlist name is what
+            everything downstream already reads: the Curate title, the M3U
+            export, and the name pushed to Dispatcharr all resolve from it, so
+            one edit reaches all three without any of them needing to learn
+            about a new override field.
 
-        ALSO promoted to the run's lineup, when it has one. A rename is a
-        judgement about the channel, not about this run's candidates -- the
-        same class of decision as the per-channel EPG source and group. Left
-        in the wantlist alone it was silently lost the moment the lineup was
-        re-run, because a fresh run rebuilds its wantlist from the provider
-        and gets the provider's name back.
+            ALSO promoted to the run's lineup, when it has one. A rename is a
+            judgement about the channel, not about this run's candidates -- the
+            same class of decision as the per-channel EPG source and group. Left
+            in the wantlist alone it was silently lost the moment the lineup was
+            re-run, because a fresh run rebuilds its wantlist from the provider
+            and gets the provider's name back.
 
-        Especially useful alongside Duplicate, where two copies of the same
-        feed would otherwise be indistinguishable in the channel list.
-        """
-        channel_key = (body.get("channel_key") or "").strip()
-        name = (body.get("name") or "").strip()
-        if not channel_key or not name:
-            return self._send('{"error":"channel_key and name required"}',
-                              "application/json", 400)
-        store = RunStore(self.root, run_id)
-        if not os.path.exists(store.results_path):
-            return self._send('{"error":"no such run"}', "application/json", 404)
-        want = store.read_wantlist()
-        wanted = list(want.get("wanted") or [])
-        for w in wanted:
-            if w.get("key") == channel_key:
-                w["name"] = name
-                break
-        else:
-            return self._send('{"error":"channel not in this run\'s wantlist"}',
-                              "application/json", 404)
-        store.write_wantlist_raw(wanted, want.get("missing") or [])
-        lineup = store.read_meta().get("lineup")
-        if lineup:
-            try:
-                lineups_mod.set_preference(self.root, lineup, channel_key,
-                                           name=name)
-            except Exception:
-                pass  # never let a preference write break the rename itself
-        self._send(json.dumps({"ok": True, "name": name,
-                              "durable": bool(lineup)}), "application/json")
+            Especially useful alongside Duplicate, where two copies of the same
+            feed would otherwise be indistinguishable in the channel list.
+            """
+            channel_key = (body.get("channel_key") or "").strip()
+            name = (body.get("name") or "").strip()
+            if not channel_key or not name:
+                return self._send('{"error":"channel_key and name required"}',
+                                  "application/json", 400)
+            store = RunStore(self.root, run_id)
+            if not os.path.exists(store.results_path):
+                return self._send('{"error":"no such run"}', "application/json", 404)
+            want = store.read_wantlist()
+            wanted = list(want.get("wanted") or [])
+            for w in wanted:
+                if w.get("key") == channel_key:
+                    w["name"] = name
+                    break
+            else:
+                return self._send('{"error":"channel not in this run\'s wantlist"}',
+                                  "application/json", 404)
+            store.write_wantlist_raw(wanted, want.get("missing") or [])
+            lineup = store.read_meta().get("lineup")
+            if lineup:
+                try:
+                    lineups_mod.set_preference(self.root, lineup, channel_key,
+                                               name=name)
+                except Exception:
+                    pass  # never let a preference write break the rename itself
+            self._send(json.dumps({"ok": True, "name": name,
+                                  "durable": bool(lineup)}), "application/json")
 
     def _duplicate_channel(self, run_id, body):
         """Copy a channel within a run so it can sit in a second group."""
@@ -3506,12 +3570,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._send('{"error":"nothing selected to export"}',
                               "application/json", 400)
 
-        existing = store.read_push_status()
-        if existing and existing.get("state") == "running" \
-                and time.time() - existing.get("updated", 0) < self.PUSH_STALE_SECONDS:
-            return self._send(json.dumps({"error": "a push is already in progress",
-                                          "status": existing}),
-                              "application/json", 409)
+        # Real bug found on a full-codebase review: this check and the
+        # actual "running" claim (further down, write_push_status(...)) used
+        # to be separated by several lines of processing (settings writes,
+        # resolving default_group_name) with nothing atomic between them --
+        # a double-click, or two open browser tabs, could both read
+        # "not running" and both proceed to spawn a background push thread
+        # against the same Dispatcharr instance. Claimed immediately, under
+        # a per-run lock, so the second concurrent request's check happens
+        # strictly after the first one's claim is already on disk.
+        with self._push_lock_for(run_id):
+            existing = store.read_push_status()
+            if existing and existing.get("state") == "running" \
+                    and time.time() - existing.get("updated", 0) < self.PUSH_STALE_SECONDS:
+                return self._send(json.dumps({"error": "a push is already in progress",
+                                              "status": existing}),
+                                  "application/json", 409)
+            # Claimed here, not just checked -- see the comment above.
+            store.write_push_status({"state": "running", "phase": "starting",
+                                     "done": 0, "total": len(curated),
+                                     "started": time.time()})
 
         # Falls back to whatever group name a push into THIS PROVIDER last
         # actually used -- deliberately attached to the provider, not the

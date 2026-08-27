@@ -175,8 +175,15 @@ def pick(results, depth=2):
     never offered as a fallback, because failing over to it is worse than no
     failover at all.
     """
+    # STATUS_PLACEHOLDER deliberately excluded. Found on a full-codebase
+    # review contradicting itself against this module's own _STATUS_RANK
+    # comment above ("Dead, frameless and placeholder streams are unusable
+    # and stay at the bottom") -- a placeholder is a provider's holding
+    # card, not the channel's real content, and treating it as a usable
+    # pick would silently reintroduce exactly the bug class
+    # annotate_placeholders() elsewhere in this codebase exists to detect.
     usable = [r for r in rank(results)
-              if r.get("status") in (STATUS_OK, STATUS_DIRTY, STATUS_PLACEHOLDER)]
+              if r.get("status") in (STATUS_OK, STATUS_DIRTY)]
     return usable[:depth]
 
 

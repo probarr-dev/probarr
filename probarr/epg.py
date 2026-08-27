@@ -203,7 +203,14 @@ class Guide:
                 elif tag == "programme":
                     start = parse_xmltv_time(elem.get("start"))
                     stop = parse_xmltv_time(elem.get("stop"))
-                    if start and (lo <= start <= hi or (stop and lo <= stop <= hi)):
+                    # A programme that fully SPANS the window (starts
+                    # before lo, ends after hi -- a long placeholder/all-day
+                    # block some aggregators emit for sparsely-listed
+                    # channels) satisfied neither half of the old test and
+                    # was silently dropped even though it genuinely covers
+                    # `at`. The third clause catches that case directly.
+                    if start and (lo <= start <= hi or (stop and lo <= stop <= hi)
+                                 or (stop and start < lo and stop > hi)):
                         cid = elem.get("channel") or ""
                         title_el = elem.find("title")
                         desc_el = elem.find("desc")

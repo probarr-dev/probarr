@@ -3081,6 +3081,18 @@ document.addEventListener("keydown", e=>{
     return;
   }
   if(cv.classList.contains("on")) return;
+  // Real bug found on a full-codebase review: this handler only ever
+  // checked the lightbox and clip viewer, not any of the other modals
+  // (Check EPG, watermark, groups, import, catalog, find-streams). Pressing
+  // j/k or an arrow while one of those was open still called advance(),
+  // silently changing `current` to a different channel while the modal
+  // stayed open showing the OLD channel's data -- so a click inside it
+  // (e.g. "Use this" on an EPG source, or saving a watermark box) applied
+  // to whatever channel the hotkey had quietly moved to, not the one still
+  // visible on screen. One check for "any modal is open" instead of naming
+  // each one, matching the equally generic backdrop-click-to-close handler
+  // just above -- so a modal added later is covered automatically too.
+  if(document.querySelector(".modal.on")) return;
   if(e.key==="ArrowDown"||e.key==="j"){ e.preventDefault(); advance(1); }
   else if(e.key==="ArrowUp"||e.key==="k"){ e.preventDefault(); advance(-1); }
   else if(e.key>="1"&&e.key<="9"){

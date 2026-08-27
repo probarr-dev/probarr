@@ -411,6 +411,15 @@ def verify(pools, store, opts, concurrency=1, gap_seconds=0.4,
                 if should_stop and should_stop():
                     interrupted[0] = True
                     break
+                # Checked here too, though it rarely fires here in
+                # practice: submit() is non-blocking, so this loop races
+                # through the whole work list in milliseconds -- the real
+                # enforcement is the identical check in the as_completed
+                # loop below, which can actually observe elapsed wall time
+                # since probes take real seconds to run.
+                if budget_seconds and (time.time() - started_at) >= budget_seconds:
+                    interrupted[0] = True
+                    break
                 futures.append(pool.submit(one, item))
             # submit() only queues work -- it returns immediately, so the
             # loop above races through the ENTIRE work list (hundreds of
@@ -438,8 +447,24 @@ def verify(pools, store, opts, concurrency=1, gap_seconds=0.4,
                     # ending the run visibly. Logged here so it's never lost
                     # either way.
                     log(f"  probe raised an unexpected error: {e}")
-                if should_stop and should_stop():
+                stopped = should_stop and should_stop()
+                # Real bug: budget_seconds was documented and enforced in
+                # the serial path above, but this branch (concurrency>1)
+                # checked only should_stop() -- a scheduled lineup with a
+                # concurrency>1 provider and a budget cap ran to completion
+                # of the entire work list regardless of elapsed time,
+                # silently defeating the one thing budget_seconds exists
+                # for. Same semantics as the serial path: checked between
+                # completions, not mid-capture, so nothing in flight is
+                # killed -- only futures that haven't started are cancelled.
+                over_budget = (budget_seconds and
+                              (time.time() - started_at) >= budget_seconds)
+                if stopped or over_budget:
                     interrupted[0] = True
+                    if over_budget and not stopped:
+                        log(f"  budget of {budget_seconds}s reached -- "
+                           f"stopping cleanly; re-run to continue where "
+                           f"this left off")
                     for pending in futures:
                         pending.cancel()
                     break

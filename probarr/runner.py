@@ -104,11 +104,24 @@ def _carry_forward_fresh(root, store, lineup, pools, log):
     cutoff = time.time() - hours * 3600
     # Newest record per rec_key -- load() already collapses re-probes of the
     # same stream to the latest one.
-    still_current_ids = {s.id for streams in pools.values() for s in streams}
+    #
+    # Per-CHANNEL id sets, not one flattened global set. Real bug found on
+    # a full-codebase review: a provider will happily list the same URL
+    # under several channel names (verify.py notes this same fact
+    # elsewhere), so a bare "is this stream id still in the catalogue
+    # ANYWHERE" check let a stale record for a channel excluded from THIS
+    # run's scope (via only_channels/min_candidates/limit_channels) carry
+    # forward anyway, purely because some OTHER, in-scope channel happened
+    # to share that stream id. That out-of-scope channel's old verdict then
+    # re-entered results.jsonl looking freshly verified.
+    current_ids_by_channel = {ch: {s.id for s in streams}
+                              for ch, streams in pools.items()}
     carried = 0
     for r in prior.load():
-        if r.get("stream_id") not in still_current_ids:
-            continue           # the provider no longer lists this stream at all
+        ch_key = r.get("channel_key")
+        if r.get("stream_id") not in current_ids_by_channel.get(ch_key, ()):
+            continue           # not offered for THIS channel any more (or
+                                # this channel isn't part of this run at all)
         if (r.get("probed_at") or 0) < cutoff:
             continue           # old enough that it deserves a real look again
         if r.get("status") == "dead":

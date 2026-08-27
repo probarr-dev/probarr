@@ -311,8 +311,16 @@ def _parse_container_duration(fmt: dict) -> Optional[float]:
 
 def _media_duration(path, opts) -> float:
     """Duration of a local file, via ffprobe. No network involved."""
+    # Real bug found on a full-codebase review: this used a bare 15s
+    # literal while every other ffprobe/ffmpeg call in this file derives
+    # its timeout from ProbeOptions -- so raising capture_timeout (e.g.
+    # Diagnose mode's longer sample) had no effect here, and measuring the
+    # duration of an otherwise successfully captured file could itself
+    # time out on a slow/loaded host, silently zeroing measured_kbps for a
+    # perfectly good capture with nothing indicating why.
     res, failed = _run([opts.ffprobe, "-v", "error", "-show_entries",
-                        "format=duration", "-of", "csv=p=0", path], 15)
+                        "format=duration", "-of", "csv=p=0", path],
+                       opts.probe_timeout)
     if failed or res.returncode != 0:
         return 0.0
     try:

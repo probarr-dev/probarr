@@ -16,6 +16,8 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import unittest.mock
 
@@ -280,6 +282,31 @@ class TestProbeQueueGate(unittest.TestCase):
         self.assertIn("mybunny", results)
         self.assertIn("mybunny", seen_lanes)
 
+    def test_a_gate_bug_is_not_silently_retried_as_a_zero_arg_gate(self):
+        # Real bug found on a full-codebase review: the queue used to call
+        # self._gate(next_lane), and treated ANY TypeError as "this must
+        # be an old-style zero-arg gate", silently retrying with no
+        # arguments at all. A lane-aware gate with a genuine internal bug
+        # (raises TypeError for a reason that has nothing to do with
+        # arity) was misdiagnosed exactly the same way and got quietly
+        # retried with the wrong arity instead of the bug being visible.
+        # Fixed by deciding the calling convention ONCE from the gate's
+        # real signature (inspect.signature), not from whether calling it
+        # happens to raise. This asserts that decision directly: a
+        # 1-parameter gate is always called WITH the lane, a 0-parameter
+        # gate always WITHOUT it -- never a silent fallback between them.
+        from probarr.probequeue import ProbeQueue
+
+        def one_param_gate(lane):
+            return None
+        q1 = ProbeQueue(lambda p: {"status": "ok"}, gate=one_param_gate)
+        self.assertTrue(q1._gate_takes_lane)
+
+        def zero_param_gate():
+            return None
+        q2 = ProbeQueue(lambda p: {"status": "ok"}, gate=zero_param_gate)
+        self.assertFalse(q2._gate_takes_lane)
+
     def test_gate_without_a_lane_parameter_still_works(self):
         # Backward compatibility: a gate written before the lane argument
         # existed (just `lambda: None`) must not break the queue.
@@ -470,6 +497,44 @@ class TestVerifyStop(Temp):
         # With 4 workers and a stop flipped after the very first completion,
         # nowhere near all 40 candidates should have been probed -- the old
         # code would have run every single one regardless.
+        self.assertLess(call_count[0], 40)
+        meta = store.read_meta()
+        self.assertTrue(meta.get("interrupted"))
+
+    def test_budget_seconds_actually_cuts_a_concurrent_run_short(self):
+        # Real bug found on a full-codebase review: the concurrency>1
+        # branch checked should_stop() in its as_completed loop but never
+        # budget_seconds, unlike the serial branch a few lines above it --
+        # a scheduled lineup with concurrency>1 and a time budget ran to
+        # completion of the entire worklist regardless of elapsed time.
+        # Same shape as the should_stop test above: a slow mocked probe()
+        # and a budget that expires well before all 40 candidates finish.
+        import time as time_mod
+        from probarr import verify as verify_mod
+        from probarr.sources.base import Stream
+        from probarr.probe import ProbeOptions
+        from probarr.store import RunStore
+
+        store = RunStore(self.root, "run1")
+        store.write_wantlist_raw(
+            [{"number": i, "name": f"C{i}", "key": f"C{i}"} for i in range(40)], [])
+        pools = {f"C{i}": [Stream(id=f"s{i}", name=f"C{i}", url=f"http://x/{i}")]
+                for i in range(40)}
+
+        call_count = [0]
+        def fake_probe(stream, opts, thumb_path, frame_path, crop_path):
+            call_count[0] += 1
+            time_mod.sleep(0.1)
+            return {"status": "ok"}
+
+        with unittest.mock.patch("probarr.verify.probe", fake_probe):
+            verify_mod.verify(pools, store, ProbeOptions(), concurrency=4,
+                              gap_seconds=0, budget_seconds=0.15)
+
+        # 4 workers, each probe takes 0.1s, budget is 0.15s -- the first
+        # wave of up to 4 completes, then the budget check must stop
+        # further work from being queued or awaited. The old code ignored
+        # budget_seconds entirely here and would have run all 40.
         self.assertLess(call_count[0], 40)
         meta = store.read_meta()
         self.assertTrue(meta.get("interrupted"))
@@ -2166,6 +2231,20 @@ class TestAliases(Temp):
         self.assertTrue(aliases_mod.delete(self.root, "u & drama"))
         self.assertEqual(aliases_mod.read(self.root), {})
 
+    def test_an_alias_name_carrying_a_region_prefix_still_matches_the_real_stream(self):
+        # Real bug found on a full-codebase review: save() used to fold the
+        # raw typed text with plain _fold(), while Normalizer.key() strips
+        # region/quality prefixes BEFORE folding a real stream name and
+        # only then checks the alias dict -- so an alias name that still
+        # carried a prefix (like "UK: Dave") was stored under a key
+        # ("UKDAVE") the real lookup ("DAVE", after "UK: " is stripped)
+        # could never produce, and the alias silently never fired.
+        aliases_mod.save(self.root, "UK: Dave", "U&Dave")
+        norm = Normalizer(aliases=aliases_mod.read(self.root))
+        self.assertEqual(norm.key("UK: Dave"), norm.key("U&Dave"),
+                         "an alias saved with a region prefix must still "
+                         "match the real (prefixed) stream name it names")
+
 
 class TestLineups(Temp):
     def test_partial_update_does_not_blank_other_fields(self):
@@ -2284,6 +2363,440 @@ class TestSameOriginWriteGuard(Temp):
         h._do_POST()
         self.assertEqual(sent[0][1], 200)
         self.assertEqual(settings_mod.read(self.root)["concurrency"], 5)
+
+
+class TestKeydownGuardsEveryModal(unittest.TestCase):
+    """Real bug found on a full-codebase review: the document-level keydown
+    handler only checked the lightbox and clip viewer before processing
+    j/k/arrow channel navigation -- Check EPG, watermark, groups, import
+    and catalog modals were not checked, so a hotkey pressed while one was
+    open silently changed `current` underneath it. Only a live browser can
+    exercise the actual event flow (see this commit's manual verification
+    against the running app); this locks in the source-level guard so a
+    future edit can't silently narrow it back to naming specific modals.
+    """
+
+    def test_the_generic_any_modal_open_guard_is_present(self):
+        from probarr import curate
+        # Must appear BEFORE the j/k/arrow navigation branch, and must be
+        # a generic "any .modal.on" check -- not a per-id list, which is
+        # exactly the shape that missed every modal except two.
+        idx_guard = curate.HTML.index('document.querySelector(".modal.on")')
+        idx_nav = curate.HTML.index('e.key==="ArrowDown"||e.key==="j"')
+        self.assertLess(idx_guard, idx_nav,
+                        "the modal-open guard must run before hotkey navigation")
+
+
+class TestCatalogCacheThreadSafety(Temp):
+    """Real bug found on a full-codebase review: _catalog_cache is a
+    CLASS-level dict shared by every ThreadingHTTPServer request thread.
+    The old code unconditionally called self._catalog_cache.clear() on
+    EVERY cache miss for ANY spec -- so a concurrent request for a second
+    provider's catalogue wiped a first provider's already-cached, still
+    valid entry, forcing it to be silently rebuilt (a full re-parse of a
+    potentially 55k-entry playlist) on its very next lookup even though
+    nothing about it had changed or gone stale. Fixed to evict only the
+    OTHER (differing) keys under a lock, scoped to what's actually stale.
+    """
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        web_mod.Handler._catalog_cache = {}
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        h._norm = lambda: __import__(
+            "probarr.normalize", fromlist=["Normalizer"]).Normalizer()
+        return h
+
+    def test_a_second_specs_build_does_not_evict_the_first(self):
+        from probarr.sources.base import Stream
+        h = self._handler()
+        calls = []
+        def fake_load(spec):
+            calls.append(spec)
+            return [Stream(id=spec, name=spec, url=f"http://x/{spec}")]
+        h._load_source_cached = fake_load
+
+        store_a = RunStore(self.root, "run-a", create=True)
+        store_a.write_meta({"source": "http://provider-a/list.m3u"})
+        store_b = RunStore(self.root, "run-b", create=True)
+        store_b.write_meta({"source": "http://provider-b/list.m3u"})
+
+        h._catalog_pools(store_a)   # primes the cache for A
+        self.assertEqual(calls, ["http://provider-a/list.m3u"])
+
+        h._catalog_pools(store_b)   # a miss for a DIFFERENT spec
+        self.assertEqual(len(calls), 2, "B should have been built once")
+
+        # The real assertion: looking A up again must be a cache HIT --
+        # the old code's blanket clear() during B's build would have
+        # evicted A, forcing this call to rebuild it from scratch.
+        h._catalog_pools(store_a)
+        self.assertEqual(len(calls), 2,
+                         "A was rebuilt even though nothing about it "
+                         "changed -- B's miss must not evict A's entry")
+
+    def test_concurrent_builds_for_two_specs_each_land_correctly(self):
+        from probarr.sources.base import Stream
+        h = self._handler()
+        barrier = threading.Barrier(2)
+        def fake_load(spec):
+            barrier.wait(timeout=5)   # force both threads to overlap
+            return [Stream(id=spec, name=spec, url=f"http://x/{spec}")]
+        h._load_source_cached = fake_load
+
+        store_a = RunStore(self.root, "run-a", create=True)
+        store_a.write_meta({"source": "http://provider-a/list.m3u"})
+        store_b = RunStore(self.root, "run-b", create=True)
+        store_b.write_meta({"source": "http://provider-b/list.m3u"})
+
+        results = {}
+        def go(name, store):
+            results[name] = h._catalog_pools(store)
+
+        t1 = threading.Thread(target=go, args=("a", store_a))
+        t2 = threading.Thread(target=go, args=("b", store_b))
+        t1.start(); t2.start()
+        t1.join(); t2.join()
+
+        self.assertEqual(len(h._catalog_cache), 2,
+                         "both specs must remain cached after the race, "
+                         "not just whichever finished last")
+        names_a = {s.name for pool in results["a"].values() for s in pool}
+        names_b = {s.name for pool in results["b"].values() for s in pool}
+        self.assertEqual(names_a, {"http://provider-a/list.m3u"})
+        self.assertEqual(names_b, {"http://provider-b/list.m3u"})
+
+
+class TestCarryForwardScopedPerChannel(Temp):
+    """Real bug found on a full-codebase review: _carry_forward_fresh()
+    matched a prior record's stream_id against a set flattened across
+    EVERY channel's pool, not the specific channel that record belongs to.
+    A provider listing the same URL under two channel names (documented
+    elsewhere in this codebase as a real thing that happens) let a stale
+    verdict for a channel OUTSIDE this run's scope carry forward anyway,
+    just because some other, in-scope channel happened to share the id.
+    """
+
+    def _lineup_run(self, run_id, lineup, channel_key, stream_id, status,
+                    age_hours=1):
+        from probarr.store import RunStore
+        store = RunStore(self.root, run_id, create=True)
+        store.write_meta({"lineup": lineup, "run_state": "done"})
+        store.append({"rec_key": f"{channel_key}|{stream_id}",
+                     "channel_key": channel_key, "stream_id": stream_id,
+                     "status": status,
+                     "probed_at": time.time() - age_hours * 3600})
+        return store
+
+    def test_a_shared_stream_id_does_not_carry_forward_an_out_of_scope_channel(self):
+        from probarr import runner
+        from probarr.settings import write as write_settings
+        from probarr.sources.base import Stream
+        write_settings(self.root, {"freshness_hours": 24})
+
+        # Prior run had BOTH channels, sharing one stream id (the same URL
+        # listed under two names -- confirmed real by verify.py's own docs).
+        prior = self._lineup_run("run-prior", "LU", "INSCOPE", "shared:1", "ok")
+        prior.append({"rec_key": "OUTOFSCOPE|shared:1", "channel_key": "OUTOFSCOPE",
+                     "stream_id": "shared:1", "status": "ok",
+                     "probed_at": time.time() - 3600})
+
+        # This run's pools only carry INSCOPE -- OUTOFSCOPE was excluded
+        # (e.g. by only_channels/min_candidates/limit_channels upstream).
+        current = RunStore(self.root, "run-current", create=True)
+        current.write_meta({"lineup": "LU", "run_state": "running"})
+        pools = {"INSCOPE": [Stream(id="shared:1", name="x", url="http://x/1")]}
+
+        runner._carry_forward_fresh(self.root, current, "LU", pools, lambda m: None)
+
+        rows = current.load()
+        keys = {r["channel_key"] for r in rows}
+        self.assertIn("INSCOPE", keys)
+        self.assertNotIn("OUTOFSCOPE", keys,
+                         "a channel outside this run's scope must not gain a "
+                         "carried-forward record just because it shares a "
+                         "stream id with an in-scope channel")
+
+
+class TestXtreamCategoryLookupSurvivesNumericIds(unittest.TestCase):
+    """Real bug found on a full-codebase review: the category-name dict was
+    keyed by category_id's native JSON type, but the per-stream lookup
+    always cast to str -- a panel emitting category_id as a JSON number
+    (not all of them agree on this) meant every lookup missed and every
+    stream from that source silently lost its group.
+    """
+
+    def test_a_numeric_category_id_still_resolves_a_group_name(self):
+        from probarr.sources.xtream import Xtream
+        x = Xtream("http://fake", "u", "p")
+        x._api = lambda action, **kw: (
+            [{"category_id": 5, "category_name": "Sport"}]
+            if action == "get_live_categories" else
+            [{"stream_id": 1, "name": "Sky Sports", "category_id": 5}])
+        streams = x.live_streams()
+        self.assertEqual(streams[0].group, "Sport")
+
+
+class TestGuideKeepsAWindowSpanningProgramme(Temp):
+    """Real bug found on a full-codebase review: Guide.load()'s retention
+    test kept a programme only if one of its endpoints fell inside the
+    retention window -- a programme that starts BEFORE the window and ends
+    AFTER it (fully covering it, e.g. a long all-day placeholder block some
+    aggregators emit for sparsely-listed channels) satisfied neither
+    clause and was silently dropped even though it genuinely covers `at`.
+    """
+
+    def test_a_programme_spanning_the_whole_window_is_kept(self):
+        import datetime as _dt
+        from probarr.epg import Guide
+        at = _dt.datetime.now(_dt.timezone.utc)
+        start = (at - _dt.timedelta(hours=100)).strftime("%Y%m%d%H%M%S +0000")
+        stop = (at + _dt.timedelta(hours=100)).strftime("%Y%m%d%H%M%S +0000")
+        xml = os.path.join(self.root, "guide.xml")
+        with open(xml, "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0"?><tv><channel id="c1">'
+                   '<display-name>X</display-name></channel>'
+                   f'<programme channel="c1" start="{start}" stop="{stop}">'
+                   '<title>All Day</title></programme></tv>')
+        # window_hours=6 -- the window is +/-6h around `at`, well inside
+        # this programme's 200-hour span on both sides.
+        g = Guide.load(xml, window_hours=6, at=at)
+        now = g.now_playing("c1", at)
+        self.assertIsNotNone(now,
+                             "a programme spanning the whole retention "
+                             "window must not be dropped by it")
+        self.assertEqual(now["title"], "All Day")
+
+
+class TestDoublePushIsRejected(Temp):
+    """Real bug found on a full-codebase review: the "is a push already
+    running" check and the actual claim (writing push_status state=running)
+    used to be separated by several lines of unrelated processing with
+    nothing atomic between them -- two near-simultaneous requests (a
+    double-click, two open tabs) could both read "not running" and both
+    spawn a background export thread against the same Dispatcharr instance.
+    """
+
+    def _setup_run(self):
+        from probarr.store import RunStore
+        from probarr import providers as providers_mod
+        store = RunStore(self.root, "run1", create=True)
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok", "url": "http://x/1",
+                     "url_redacted": "", "group": "", "logo": "",
+                     "tvg_id": "", "probed_at": 1})
+        store.write_wantlist_raw(
+            [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
+        providers_mod.save(self.root, "dp1",
+                          "dispatcharr://u:p@192.168.1.1:9191")  # probarr:allow-secret (test fixture)
+        return store
+
+    def test_two_near_simultaneous_pushes_only_one_is_accepted(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        web_mod.Handler._push_locks = {}
+        self._setup_run()
+
+        orig_read = None
+
+        def make_handler():
+            h = web_mod.Handler.__new__(web_mod.Handler)
+            sent = []
+            h._send = lambda body, ctype="application/json", code=200: (
+                sent.append((code, body)), sent)[-1]
+            return h, sent
+
+        def racy_read_push_status(store_self):
+            # A real delay between "check" and the caller's subsequent
+            # claim -- this is what widens the pre-fix vulnerable window
+            # (nothing serialized the two) without deadlocking post-fix
+            # (the per-run lock now means only one thread is ever in here
+            # concurrently in the first place; the other simply waits for
+            # the lock, and by the time it gets in, the claim already
+            # landed).
+            time.sleep(0.05)
+            return orig_read(store_self)
+
+        from probarr.store import RunStore
+        orig_read = RunStore.read_push_status
+        results = []
+        def go():
+            h, sent = make_handler()
+            with unittest.mock.patch.object(
+                    RunStore, "read_push_status", racy_read_push_status), \
+                unittest.mock.patch.object(
+                    web_mod.Handler, "_run_export", lambda self, *a, **k: None):
+                h._export_dispatcharr("run1", {"provider": "dp1",
+                                              "fallback_mode": "native"})
+            results.append(sent[0][0] if sent else None)
+
+        results_lock_threads = [threading.Thread(target=go),
+                                threading.Thread(target=go)]
+        for th in results_lock_threads:
+            th.start()
+        for th in results_lock_threads:
+            th.join()
+
+        self.assertEqual(sorted(results), [200, 409],
+                         "exactly one concurrent push must be accepted and "
+                         "the other rejected as already running -- both "
+                         "succeeding means the double-push race is back")
+
+
+class TestWantlistWritesAreSerializedPerRun(Temp):
+    """Real bug found on a full-codebase review: _reorder_group,
+    _swap_numbers, _catalog_add and _rename_channel each read the
+    wantlist, mutated an in-memory copy, and wrote it back, with nothing
+    serializing two such requests landing close together. Whichever wrote
+    second silently discarded the first's change even though both request
+    handlers reported {"ok": true}. Reproduced here with two concurrent
+    renames of two DIFFERENT channels in the same run -- both must survive.
+    """
+
+    def test_two_concurrent_renames_do_not_clobber_each_other(self):
+        from probarr import web as web_mod
+        from probarr.store import RunStore
+        web_mod.Handler.root = self.root
+        web_mod.Handler._wantlist_locks = {}
+
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "A", "number": 1, "name": "A"},
+             {"key": "B", "number": 2, "name": "B"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "status": "ok"})
+
+        orig_read = RunStore.read_wantlist
+        def slow_read(self_store):
+            # Widens the read-modify-write window so two concurrent
+            # requests reliably both read the pre-rename wantlist -- the
+            # exact condition needed for the lost-update bug to fire.
+            result = orig_read(self_store)
+            time.sleep(0.05)
+            return result
+
+        def do_rename(key, name):
+            h = web_mod.Handler.__new__(web_mod.Handler)
+            sent = []
+            h._send = lambda body, ctype="application/json", code=200: sent.append(body)
+            with unittest.mock.patch.object(RunStore, "read_wantlist", slow_read):
+                h._rename_channel("run1", {"channel_key": key, "name": name})
+
+        t1 = threading.Thread(target=do_rename, args=("A", "Renamed A"))
+        t2 = threading.Thread(target=do_rename, args=("B", "Renamed B"))
+        t1.start(); t2.start()
+        t1.join(); t2.join()
+
+        wanted = {w["key"]: w["name"] for w in
+                 RunStore(self.root, "run1").read_wantlist()["wanted"]}
+        self.assertEqual(wanted, {"A": "Renamed A", "B": "Renamed B"},
+                         "one rename was silently lost to the other's write")
+
+
+class TestMediaDurationUsesConfiguredTimeout(unittest.TestCase):
+    """Real bug found on a full-codebase review: _media_duration() used a
+    bare 15s literal timeout while every other ffprobe/ffmpeg call in
+    probe.py derives its timeout from ProbeOptions -- so raising
+    capture_timeout (Diagnose mode's longer sample) had no effect on
+    measuring that same capture's duration afterward, which could then
+    itself time out on a slow host and silently zero measured_kbps.
+    """
+
+    def test_probe_timeout_is_passed_to_the_duration_probe(self):
+        from probarr.probe import _media_duration, ProbeOptions
+        seen = {}
+        def fake_run(cmd, timeout):
+            seen["timeout"] = timeout
+            class R:
+                returncode = 0
+                stdout = b"12.5"
+            return R(), False
+        opts = ProbeOptions(probe_timeout=99)
+        with unittest.mock.patch("probarr.probe._run", fake_run):
+            dur = _media_duration("/tmp/x.ts", opts)
+        self.assertEqual(seen["timeout"], 99)
+        self.assertEqual(dur, 12.5)
+
+
+class TestRankPickExcludesPlaceholders(unittest.TestCase):
+    """Real bug found on a full-codebase review: pick()'s usable-candidates
+    filter included STATUS_PLACEHOLDER alongside ok/dirty, directly
+    contradicting this module's own _STATUS_RANK comment ("Dead, frameless
+    and placeholder streams are unusable and stay at the bottom"). Dead
+    code today (no caller anywhere in probarr/ or tests/), but a latent
+    trap for whoever wires it up next, given it looks like the ranking
+    module's obvious public entry point.
+    """
+
+    def test_a_placeholder_candidate_is_never_returned_as_usable(self):
+        from probarr.rank import pick
+        results = [
+            {"rec_key": "a", "status": "placeholder", "width": 1920,
+            "height": 1080, "corruption_errors": 0},
+            {"rec_key": "b", "status": "dead"},
+        ]
+        self.assertEqual(pick(results), [])
+
+
+class TestAtomicWriteHelperCoversEveryWriter(Temp):
+    """Real cleanup finding from a full-codebase review: only the wantlist
+    writer had grown fsync() + on-failure temp-file cleanup (after a real
+    data-loss incident), while write_meta/write_removals/write_excluded/
+    write_selection/write_push_status still had the plain tmp+os.replace
+    version -- the same class of bug the wantlist writer was hardened
+    against was still fully reachable through any of the other five.
+    Consolidated into one _atomic_write_json() helper; this proves each
+    caller actually goes through it (crash mid-write leaves no .tmp
+    litter and the previous file survives untouched).
+    """
+
+    def _assert_write_is_atomic(self, store, write_fn, path, prior_content):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(prior_content)
+        with unittest.mock.patch.object(
+                json, "dump", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                write_fn()
+        # The previous file must survive untouched, and no .tmp litter.
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), prior_content)
+        self.assertFalse(os.path.exists(path + ".tmp"))
+
+    def test_write_meta_is_atomic(self):
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({"a": 1})
+        self._assert_write_is_atomic(
+            store, lambda: store.write_meta({"a": 2}), store.meta_path,
+            open(store.meta_path, encoding="utf-8").read())
+
+    def test_write_removals_is_atomic(self):
+        store = RunStore(self.root, "run1", create=True)
+        store.write_removals([{"key": "A"}])
+        self._assert_write_is_atomic(
+            store, lambda: store.write_removals([{"key": "B"}]),
+            store.removals_path, open(store.removals_path, encoding="utf-8").read())
+
+    def test_write_excluded_is_atomic(self):
+        store = RunStore(self.root, "run1", create=True)
+        store.write_excluded([{"key": "A"}])
+        self._assert_write_is_atomic(
+            store, lambda: store.write_excluded([{"key": "B"}]),
+            store.excluded_path, open(store.excluded_path, encoding="utf-8").read())
+
+    def test_write_selection_is_atomic(self):
+        store = RunStore(self.root, "run1", create=True)
+        store.write_selection({"A": {"group": "1"}})
+        self._assert_write_is_atomic(
+            store, lambda: store.write_selection({"A": {"group": "2"}}),
+            store.selection_path, open(store.selection_path, encoding="utf-8").read())
+
+    def test_write_push_status_is_atomic(self):
+        store = RunStore(self.root, "run1", create=True)
+        store.write_push_status({"state": "done"})
+        self._assert_write_is_atomic(
+            store, lambda: store.write_push_status({"state": "running"}),
+            store.push_status_path, open(store.push_status_path, encoding="utf-8").read())
 
 
 class TestPageTemplates(unittest.TestCase):

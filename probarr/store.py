@@ -76,6 +76,35 @@ class RunStore:
         self.removals_path = os.path.join(self.dir, "removals.json")
         self.excluded_path = os.path.join(self.dir, "excluded_streams.json")
 
+    def _atomic_write_json(self, path, payload):
+        """Write JSON via a temp file, fsync, and an atomic replace --
+        cleaning up the temp file if anything goes wrong along the way.
+
+        Consolidates what used to be six separate hand-rolled copies of
+        "tmp file + os.replace" in this class. Found on a full-codebase
+        review: only the wantlist writer (added later, after a real
+        data-loss incident -- see its own history) had grown the fsync and
+        the on-failure cleanup; the other five (meta, removals, excluded,
+        selection, push_status) still had the plain version, so the same
+        class of bug -- a crash or full disk mid-write leaving a stale
+        .tmp file, or a replace that isn't durable without an fsync first
+        -- was still fully reachable through any of them. One
+        implementation now, so a future hardening only has to happen once.
+        """
+        tmp = path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
     def _ensure_dirs(self):
         """Make this run's directories. Called from the constructor only for
         a run that exists (or is being created), and otherwise from each
@@ -91,10 +120,7 @@ class RunStore:
     def write_meta(self, meta: dict):
         self._ensure_dirs()
         meta = {**meta, "run_id": self.run_id, "updated": time.time()}
-        tmp = self.meta_path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(meta, f, indent=2)
-        os.replace(tmp, self.meta_path)
+        self._atomic_write_json(self.meta_path, meta)
 
     def read_meta(self):
         if not os.path.exists(self.meta_path):
@@ -209,10 +235,7 @@ class RunStore:
 
     def write_removals(self, items):
         self._ensure_dirs()
-        tmp = self.removals_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(items, f, indent=2)
-        os.replace(tmp, self.removals_path)
+        self._atomic_write_json(self.removals_path, items)
 
     def add_removal(self, channel_key, number, name):
         """Record that this channel should be deleted from Dispatcharr on the
@@ -250,10 +273,7 @@ class RunStore:
 
     def write_excluded(self, items):
         self._ensure_dirs()
-        tmp = self.excluded_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(items, f, indent=2)
-        os.replace(tmp, self.excluded_path)
+        self._atomic_write_json(self.excluded_path, items)
 
     def add_excluded(self, channel_key, stream_id, name, reason):
         """Note that `stream_id` was deliberately deleted from `channel_key`,
@@ -447,10 +467,7 @@ class RunStore:
         data -- it represents real human effort that would be tedious to redo.
         """
         self._ensure_dirs()
-        tmp = self.selection_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(selection, f, indent=2)
-        os.replace(tmp, self.selection_path)
+        self._atomic_write_json(self.selection_path, selection)
 
     def read_selection(self):
         if not os.path.exists(self.selection_path):
@@ -472,10 +489,7 @@ class RunStore:
         a poller sees real-time movement rather than a single jump at the end.
         """
         status = {**status, "run_id": self.run_id, "updated": time.time()}
-        tmp = self.push_status_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(status, f, indent=2)
-        os.replace(tmp, self.push_status_path)
+        self._atomic_write_json(self.push_status_path, status)
 
     def read_push_status(self):
         if not os.path.exists(self.push_status_path):
@@ -487,32 +501,20 @@ class RunStore:
             return None
 
     def _write_wantlist_atomic(self, payload):
-        """Write the wantlist via a temp file and an atomic replace.
+        """Write the wantlist via _atomic_write_json().
 
-        Every other write in this project already does this; these two were
-        the exception, and the wantlist is a bad one to lose. It holds each
-        channel's NUMBER and NAME, and _resolve_curated() skips any channel
-        without a number from every export -- so a half-written file does
-        not fail loudly, it silently drops channels from the M3U and from
-        the Dispatcharr push. Worse, read_wantlist() treats unparseable
-        JSON as an empty wantlist, so a truncated write reads back as
-        "nothing was wanted" rather than as an error.
+        The wantlist is a bad one to lose: it holds each channel's NUMBER
+        and NAME, and _resolve_curated() skips any channel without a
+        number from every export -- so a half-written file does not fail
+        loudly, it silently drops channels from the M3U and from the
+        Dispatcharr push. Worse, read_wantlist() treats unparseable JSON
+        as an empty wantlist, so a truncated write reads back as "nothing
+        was wanted" rather than as an error. This was the first writer
+        hardened with fsync + on-failure cleanup; _atomic_write_json()
+        below is that same hardening, now shared by every writer in this
+        class instead of being this one's alone.
         """
-        tmp = self.wantlist_path + ".tmp"
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self.wantlist_path)
-        except BaseException:
-            # Leave the previous wantlist in place, and take the partial
-            # temp file with us rather than leaving litter behind.
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        self._atomic_write_json(self.wantlist_path, payload)
 
     def write_wantlist(self, wanted, missing):
         self._ensure_dirs()

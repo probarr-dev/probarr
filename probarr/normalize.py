@@ -144,8 +144,20 @@ class Normalizer:
                 return _BRACKET_COUNTRY_CODES[code]
         return None
 
-    def key(self, name: str) -> str:
-        """The matching key: identity only, all packaging stripped."""
+    def strip(self, name: str) -> str:
+        """Packaging-stripped, folded identity -- WITHOUT the alias lookup.
+
+        Split out of key() so aliases.py can fold a name through exactly
+        the same pipeline key() itself uses before consulting the alias
+        dict. Real bug this fixes: aliases.save() used to fold the raw
+        typed text with plain _fold(), while key() strips region/quality
+        prefixes, brackets and inline tags FIRST and only folds what's
+        left -- so an alias saved for a name that still carried a prefix
+        (e.g. "UK: Dave") was stored under a key ("UKDAVE") that key()'s
+        own lookup, computed from the stripped name ("DAVE"), could never
+        produce. Only alias names with nothing to strip in the first place
+        happened to work.
+        """
         s = name
         # A '+1' channel is a genuinely different channel, not a variant of the
         # same one, so it gets its own key rather than being stripped. Rewrite
@@ -155,7 +167,11 @@ class Normalizer:
         s = self._prefix_re.sub(" ", s)
         s = self._bracket_re.sub(" ", s)
         s = self._inline_re.sub(" ", s)
-        folded = _fold(s)
+        return _fold(s)
+
+    def key(self, name: str) -> str:
+        """The matching key: identity only, all packaging stripped."""
+        folded = self.strip(name)
         return self.aliases.get(folded, folded)
 
     def explain(self, name: str) -> dict:

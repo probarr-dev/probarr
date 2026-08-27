@@ -16,15 +16,27 @@ as a JSON file passed to the CLI with --aliases, which is unreachable from
 the browser the rest of the tool lives in. This makes it a first-class
 saved thing, like providers, wantlists and EPG sources.
 
-Shape: {folded name: canonical key}. Both sides are folded through the
-same _fold() the normaliser uses, because that is exactly what
-Normalizer.key() looks up -- storing the raw typed text would produce an
-alias that silently never matches anything.
+Shape: {stripped-and-folded name: stripped-and-folded canonical key}. Both
+sides go through Normalizer.strip() -- the SAME region/quality-prefix
+stripping plus folding that Normalizer.key() applies to a real stream name
+before it ever consults the alias dict. Storing the raw typed text (or
+even just a plain fold with no prefix-stripping) produces an alias that
+silently never matches anything: an alias saved for "UK: Dave" folds to
+"UKDAVE", but a real stream "UK: Dave" has its "UK: " prefix stripped
+before folding to "DAVE" -- two different keys for the same intended
+match. Real bug, found and fixed once already looked wrong to leave as a
+plain _fold().
 """
 import json
 import os
 
-from .normalize import _fold
+from .normalize import Normalizer
+
+# A single default-tagged Normalizer, used only to compute the identical
+# strip()+fold() pipeline key() itself applies before an alias lookup --
+# never for actual matching (aliases=None here on purpose, or every save
+# would need every existing alias just to fold a new one).
+_STRIPPER = Normalizer()
 
 STORE_FILE = "aliases.json"
 
@@ -57,13 +69,13 @@ def _write(root, data):
 
 
 def save(root, name, canonical):
-    """Alias `name` to `canonical`. Both are folded on the way in.
+    """Alias `name` to `canonical`. Both are stripped and folded on the way in.
 
     An alias pointing at itself is refused rather than stored: it is always
     a mistake (usually aliasing a name to the very stream name it already
     matched) and would be a no-op taking up a row forever.
     """
-    n, c = _fold(name or ""), _fold(canonical or "")
+    n, c = _STRIPPER.strip(name or ""), _STRIPPER.strip(canonical or "")
     if not n or not c:
         raise ValueError("both a name and a canonical name are required")
     if n == c:
@@ -75,7 +87,7 @@ def save(root, name, canonical):
 
 
 def delete(root, name):
-    n = _fold(name or "")
+    n = _STRIPPER.strip(name or "")
     data = read(root)
     if n not in data:
         return False
