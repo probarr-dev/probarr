@@ -2990,6 +2990,82 @@ class TestRenameChannelWithNoWantlistEntry(Temp):
         self.assertEqual(wanted[0]["key"], "A")
 
 
+class TestClaimIntoRun(Temp):
+    """Real user-reported bug: assigning an "Unclaimed" Dispatcharr channel
+    to the run that already curates it -- the single most common case,
+    since Unclaimed's whole reason to exist is channels probarr pushed
+    before the claims system existed -- failed with "a channel with this
+    name is already in this run". That was true and useless: the fix is
+    to claim the existing wantlist entry in place, not to require a
+    brand new one."""
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        web_mod.Handler._wantlist_locks = {}
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_claiming_a_channel_already_in_the_run_relinks_instead_of_erroring(self):
+        from probarr import claims
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok"})
+        h, sent = self._handler()
+        h._claim_into_run("run1", {"dispatcharr_id": 55, "name": "BBC One",
+                                   "number": 101})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        wanted = RunStore(self.root, "run1").read_wantlist()["wanted"]
+        self.assertEqual(len(wanted), 1,
+                         "the existing entry must be reused, not duplicated")
+        self.assertTrue(claims.is_claimed(self.root, 55))
+
+    def test_relinking_backfills_a_missing_number_but_never_overwrites_one(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "BBCONE", "number": None, "name": "BBC One"}], [])
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok"})
+        h, sent = self._handler()
+        h._claim_into_run("run1", {"dispatcharr_id": 55, "name": "BBC One",
+                                   "number": 101})
+        wanted = RunStore(self.root, "run1").read_wantlist()["wanted"]
+        self.assertEqual(wanted[0]["number"], 101)
+
+        # A second claim with a DIFFERENT incoming number must not clobber
+        # the number the run already has -- that's what channel-renumber
+        # is for, deliberately, not an implicit side effect of claiming.
+        h2, sent2 = self._handler()
+        h2._claim_into_run("run1", {"dispatcharr_id": 56, "name": "BBC One",
+                                    "number": 999})
+        wanted2 = RunStore(self.root, "run1").read_wantlist()["wanted"]
+        self.assertEqual(wanted2[0]["number"], 101)
+
+    def test_a_genuinely_new_channel_is_still_appended(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok"})
+        h, sent = self._handler()
+        h._claim_into_run("run1", {"dispatcharr_id": 77, "name": "ITV",
+                                   "number": 103})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        wanted = {w["key"]: w for w in RunStore(self.root, "run1").read_wantlist()["wanted"]}
+        self.assertEqual(len(wanted), 2)
+        self.assertEqual(wanted["ITV"]["number"], 103)
+
+
 class TestRenumberChannel(Temp):
     """Curate now shows a channel with no number in bright red (it would
     otherwise be silently dropped from every export by _resolve_curated in

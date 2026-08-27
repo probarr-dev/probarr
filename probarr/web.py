@@ -2205,11 +2205,18 @@ class Handler(BaseHTTPRequestHandler):
     def _claim_into_run(self, run_id, body):
         """Assign an Unclaimed Dispatcharr channel to a run's wantlist.
 
-        Appends it with its REAL Dispatcharr number and name already set
-        (unlike the catalogue "+" add, which invents a placeholder 9000+
-        number for a channel that doesn't exist in Dispatcharr yet -- this
-        one already does, so there is a real number to keep), and claims
-        its id in the same step so it never shows up in Unclaimed again.
+        The common case (see claims.py's module docstring): this "unclaimed"
+        channel is one probarr has been curating and pushing all along --
+        it just predates the claims system, so it has never been tagged.
+        Its key is very likely ALREADY in this run's wantlist, from before.
+        That used to be treated as a conflict and refused outright, which
+        was backwards: the whole point of Unclaimed is to close the gap
+        between "Dispatcharr has it" and "probarr has tagged it", and a
+        channel already curated here is the easiest case to close, not a
+        reason to give up. So: an existing entry is claimed in place
+        (picking up the real number if it didn't have one yet) instead of
+        erroring; only a channel key genuinely new to this run gets a
+        freshly appended entry.
         """
         with self._wantlist_lock_for(run_id):
             dispatcharr_id = body.get("dispatcharr_id")
@@ -2232,16 +2239,19 @@ class Handler(BaseHTTPRequestHandler):
                                   "application/json", 400)
             want = store.read_wantlist()
             wanted = list(want.get("wanted") or [])
-            if any(w.get("key") == key for w in wanted):
-                return self._send(
-                    '{"error":"a channel with this name is already in this run"}',
-                    "application/json", 409)
-            wanted.append({"number": number, "name": name, "tvg_id": "",
-                          "key": key, "imported_from": "dispatcharr"})
+            existing = next((w for w in wanted if w.get("key") == key), None)
+            if existing:
+                if existing.get("number") is None and number is not None:
+                    existing["number"] = number
+            else:
+                wanted.append({"number": number, "name": name, "tvg_id": "",
+                              "key": key, "imported_from": "dispatcharr"})
             store.write_wantlist_raw(wanted, want.get("missing") or [])
             claims_mod.claim(self.root, dispatcharr_id, key, name,
                              source=f"run:{run_id}")
-            self._send(json.dumps({"ok": True, "key": key}), "application/json")
+            self._send(json.dumps({"ok": True, "key": key,
+                                  "relinked": existing is not None}),
+                      "application/json")
 
     def _duplicate_channel(self, run_id, body):
         """Copy a channel within a run so it can sit in a second group."""
