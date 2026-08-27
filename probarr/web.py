@@ -434,11 +434,20 @@ class Handler(BaseHTTPRequestHandler):
     def _do_POST(self):
         path = urllib.parse.urlparse(self.path).path
         parts = [p for p in path.split("/") if p]
+        # Applied to EVERY write, not just settings/backup (where it was
+        # first added). probarr has no login, so the only thing standing
+        # between "any device on the LAN, or a malicious tab open
+        # alongside this one" and a blind write was this check -- and with
+        # it scoped to two of the ~75 POST branches here, the same
+        # forged-Origin request that /api/settings correctly rejected was
+        # accepted without complaint by, among others,
+        # /api/run/<id>/selection, silently overwriting curated state.
+        # Confirmed live before broadening this.
+        if not self._same_origin():
+            return self._send(json.dumps({"error": "cross-origin write rejected"}),
+                              "application/json", 403)
 
         if path == "/api/settings":
-            if not self._same_origin():
-                return self._send(json.dumps({"error": "cross-origin write rejected"}),
-                                  "application/json", 403)
             body, sent = self._json_body()
             if sent:
                 return
@@ -455,9 +464,6 @@ class Handler(BaseHTTPRequestHandler):
                 "application/json")
 
         if path == "/api/backup/import":
-            if not self._same_origin():
-                return self._send(json.dumps({"error": "cross-origin write rejected"}),
-                                  "application/json", 403)
             # A restore rewrites providers, lineups, wantlists and every
             # run's own state in place -- deliberately no merge, the backup
             # IS the new truth, same reasoning as any other restore. 200MB

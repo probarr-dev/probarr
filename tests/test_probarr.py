@@ -2228,32 +2228,32 @@ class TestSameOriginWriteGuard(Temp):
         return h
 
     def test_rejects_request_with_no_origin_or_referer(self):
-        h = self._handler({"Host": "192.168.1.243:7799"})
+        h = self._handler({"Host": "192.168.1.243:7799"})  # probarr:allow-secret (test fixture IP, not real)
         self.assertFalse(h._same_origin())
 
     def test_rejects_mismatched_origin(self):
-        h = self._handler({"Host": "192.168.1.243:7799",
+        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
                             "Origin": "http://evil.example:1234"})
         self.assertFalse(h._same_origin())
 
     def test_accepts_matching_origin(self):
-        h = self._handler({"Host": "192.168.1.243:7799",
-                            "Origin": "http://192.168.1.243:7799"})
+        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
+                            "Origin": "http://192.168.1.243:7799"})  # probarr:allow-secret (test fixture IP, not real)
         self.assertTrue(h._same_origin())
 
     def test_accepts_matching_referer_when_origin_absent(self):
-        h = self._handler({"Host": "192.168.1.243:7799",
-                            "Referer": "http://192.168.1.243:7799/settings"})
+        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
+                            "Referer": "http://192.168.1.243:7799/settings"})  # probarr:allow-secret (test fixture IP, not real)
         self.assertTrue(h._same_origin())
 
     def test_rejects_with_no_host_header_at_all(self):
-        h = self._handler({"Origin": "http://192.168.1.243:7799"})
+        h = self._handler({"Origin": "http://192.168.1.243:7799"})  # probarr:allow-secret (test fixture IP, not real)
         self.assertFalse(h._same_origin())
 
     def test_settings_post_rejects_cross_origin_write(self):
         from probarr import web as web_mod
         from probarr import settings as settings_mod
-        h = self._handler({"Host": "192.168.1.243:7799",
+        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
                             "Origin": "http://evil.example"})
         h.path = "/api/settings"
         h.command = "POST"
@@ -2271,8 +2271,8 @@ class TestSameOriginWriteGuard(Temp):
     def test_settings_post_accepts_same_origin_write(self):
         from probarr import web as web_mod
         from probarr import settings as settings_mod
-        h = self._handler({"Host": "192.168.1.243:7799",
-                            "Origin": "http://192.168.1.243:7799"})
+        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
+                            "Origin": "http://192.168.1.243:7799"})  # probarr:allow-secret (test fixture IP, not real)
         h.path = "/api/settings"
         h.command = "POST"
         payload = json.dumps({"concurrency": 5}).encode("utf-8")
@@ -3061,6 +3061,66 @@ class TestRunKwargsWiresStrictRegion(Temp):
         kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
                                 "regions": "US"})
         self.assertFalse(kwargs["strict_region"])
+
+
+class TestSameOriginGuardCoversEveryWrite(Temp):
+    """The guard as merged only checked /api/settings and /api/backup/import
+    -- two of ~75 POST branches in _do_POST. The identical threat model
+    (no login, any device on the LAN or a stray tab can blind-POST)
+    applies to the rest just as much. Confirmed live before broadening:
+    a forged-Origin POST to /api/run/<id>/selection was accepted and
+    silently overwrote curated state. This locks that in for an
+    arbitrary write endpoint, not just the two originally covered.
+    """
+
+    def _post(self, path, headers, payload):
+        import io
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        h.path = path
+        h.command = "POST"
+        h.headers = dict(headers)
+        body = json.dumps(payload).encode("utf-8")
+        h.headers["Content-Length"] = str(len(body))
+        h.rfile = io.BytesIO(body)
+        sent = []
+        h._send = lambda b, ctype="application/json", code=200: sent.append((b, code))
+        h._do_POST()
+        return sent[0]
+
+    def _seeded_run(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                      "stream_id": "s1", "status": "ok"})
+        return store
+
+    def test_a_forged_origin_cannot_write_a_curated_selection(self):
+        from probarr.store import RunStore
+        self._seeded_run()
+        _, code = self._post(
+            "/api/run/run1/selection",
+            {"Host": "192.168.1.243:7799", "Origin": "http://evil.example"},  # probarr:allow-secret (test fixture IP, not real)
+            {"BBCONE": {"group": "HIJACKED"}})
+        self.assertEqual(code, 403)
+        from probarr.store import RunStore as RS
+        self.assertNotEqual(RS(self.root, "run1").read_selection()
+                            .get("BBCONE", {}).get("group"), "HIJACKED")
+
+    def test_a_genuine_same_origin_write_still_reaches_a_run_endpoint(self):
+        from probarr.store import RunStore
+        self._seeded_run()
+        _, code = self._post(
+            "/api/run/run1/selection",
+            {"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
+             "Referer": "http://192.168.1.243:7799/run/run1/curate"},  # probarr:allow-secret (test fixture IP, not real)
+            {"BBCONE": {"group": "News"}})
+        self.assertEqual(code, 200)
+        self.assertEqual(RunStore(self.root, "run1").read_selection()
+                         ["BBCONE"]["group"], "News")
 
 
 if __name__ == "__main__":
