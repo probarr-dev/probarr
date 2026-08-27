@@ -3086,6 +3086,30 @@ async function settleChannel(){
   renderList(); renderDetail();
 }
 
+async function refreshAllChannels(){
+  // Called once a push finishes: it can create/rename/relink far more
+  // channels than the one the curator happens to be looking at, and the
+  // claim badge in particular (see claims.py) only ever reflects whatever
+  // was true the moment the page loaded -- a long push leaves every card
+  // showing stale "not linked" tags for channels it just linked, until a
+  // manual reload. One parallel batch of per-channel refreshes, then a
+  // single render, rather than reusing refreshChannel() per key (which
+  // would re-render once per channel for no benefit).
+  try{
+    const keys = DATA.channels.map(c=>c.key);
+    const fresh = await Promise.all(keys.map(async key => {
+      try{
+        const r = await fetch("/run/"+encodeURIComponent(DATA.run_id)+
+                              "/channel?key="+encodeURIComponent(key),
+                              {cache:"no-store"});
+        return r.ok ? await r.json() : null;
+      }catch(e){ return null; }
+    }));
+    fresh.forEach((f,i) => { if(f) DATA.channels[i] = f; });
+    renderList(); renderDetail();
+  }catch(e){ /* leave the old cards rather than blanking them */ }
+}
+
 async function refreshChannel(key){
   if(!key) return;
   try{
@@ -3484,6 +3508,7 @@ function renderPushStatus(s){
                         : "\n(created new custom streams in the target)");
     stopPushPoll();
     checkPending();
+    refreshAllChannels();
   } else if(s.state === "error"){
     btn.disabled = false; btn.textContent = "Push"; delete btn.dataset.done;
     result.className = "mresult show bad";
