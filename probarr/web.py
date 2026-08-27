@@ -44,7 +44,7 @@ from .sources import dispatcharr as dispatcharr_mod
 from .sources.dispatcharr import client_from_spec, base_url_of
 from .store import RunStore, InvalidRunId
 from .normalize import (Normalizer, group_candidates, declared_quality_rank,
-                        split_group_title)
+                        split_group_title, DEFAULT_REGION_TAGS)
 from .probe import ProbeOptions, probe
 from .theme import CSS, topbar
 from .verify import annotate_placeholders
@@ -2819,7 +2819,7 @@ class Handler(BaseHTTPRequestHandler):
         lineup_name = (body.get("lineup") or "").strip()
         if lineup_name:
             lu = lineups_mod.get(self.root, lineup_name) or {}
-            for k in ("source", "provider", "wantlist", "epg", "regions"):
+            for k in ("source", "provider", "wantlist", "epg", "regions", "region_tags"):
                 if not (body.get(k) or "").strip() and lu.get(k):
                     body[k] = lu[k]
         self._resolve_run_body(body)
@@ -2892,6 +2892,26 @@ class Handler(BaseHTTPRequestHandler):
             # UK spelling variants.
             regions=[r.strip().upper() for r in (body.get("regions") or "").split(",")
                     if r.strip()] or None,
+            # Extra prefixes/markers this provider uses that Normalizer's
+            # own DEFAULT_REGION_TAGS has no way to know about -- an
+            # aggregator's own tier/source labels ("OD:", "PLAY+:", "ZG:")
+            # rather than a country. Without a way to add these, a
+            # provider using non-standard prefixes has them stay glued to
+            # the front of every stream's matching key ("ODNPO1" instead
+            # of "NPO1"), which never matches a plain wantlist entry no
+            # matter how the packaging-stripping regexes are fixed --
+            # confirmed live against a real reported case (Discord).
+            #
+            # ADDED to the built-in list, not given instead of it --
+            # Normalizer(region_tags=...) REPLACES its own default list
+            # wholesale rather than extending it (see its own docstring),
+            # so passing only the custom ones here would silently stop
+            # recognising every ordinary "UK:"/"US:"/etc. prefix too.
+            region_tags=(list(dict.fromkeys(
+                            list(DEFAULT_REGION_TAGS) +
+                            [t.strip().upper() for t in
+                             (body.get("region_tags") or "").split(",") if t.strip()]))
+                        if (body.get("region_tags") or "").strip() else None),
             # Off by default: a Regions filter alone only rejects a stream
             # whose name or group title carries a RECOGNISABLE country
             # marker. Most aggregated multi-country providers list plenty
@@ -4359,6 +4379,8 @@ class Handler(BaseHTTPRequestHandler):
                                      "started": store.read_push_status()["started"],
                                      "summary": summary})
         except Exception as e:
+            import traceback, sys as _sys
+            traceback.print_exc(file=_sys.stderr)
             prev = store.read_push_status() or {}
             store.write_push_status({"state": "error", "phase": "error",
                                      "done": prev.get("done", 0),

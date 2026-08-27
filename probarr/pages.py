@@ -1398,6 +1398,19 @@ __TOPBAR__
             (common on aggregated providers) still get through.</label>
         </div>
       </div>
+
+      <div class="field">
+        <div class="lab">Custom prefixes</div>
+        <div class="ctl">
+          <input type="text" id="region_tags" placeholder="e.g. OD, PLAY+, ZG (optional, comma-separated)">
+          <div class="miniline">Extra leading prefixes to recognise and strip, on
+            top of the built-in list (UK, US, NL, DE&hellip;) &mdash; for a
+            provider whose own tier/source labels aren't a country at all
+            (e.g. "OD: NPO 1", "PLAY+: NPO 1", "ZG: NPO 1"). Without this,
+            an unrecognised prefix stays glued to the front of the channel's
+            matching key and never matches a plain wantlist entry.</div>
+        </div>
+      </div>
     </div>
 
     <div class="field">
@@ -1534,6 +1547,7 @@ $("start").addEventListener("click", async ()=>{
     epg: $("epgselect").value === "__custom__" ? $("epg").value : $("epgselect").value,
     regions: $("regions").value,
     strict_region: $("strict_region").checked,
+    region_tags: $("region_tags").value,
     concurrency: $("concurrency").value,
     run_id: $("run_id").value.trim(),
     // Recorded on the run, which is what lets Curate inherit this lineup's
@@ -1619,6 +1633,7 @@ function applyLineup(){
   }
   if(lu.provider || lu.source) $("provider").value = lu.provider || lu.source;
   $("regions").value = lu.regions || "";
+  $("region_tags").value = lu.region_tags || "";
   // A lineup can legitimately hold either the address or the saved NAME of
   // a wantlist or guide -- both are resolvable server-side -- so match on
   // the option's label as well as its value, or a perfectly valid lineup
@@ -1994,6 +2009,13 @@ __TOPBAR__
       <div class="ctl"><input type="text" id="regions" placeholder="e.g. UK (optional)"></div>
     </div>
     <div class="field">
+      <div class="lab">Custom prefixes</div>
+      <div class="ctl"><input type="text" id="region_tags"
+        placeholder="e.g. OD, PLAY+, ZG (optional)">
+        <div class="miniline">Extra leading prefixes to strip that aren't a
+          country -- a provider's own tier/source label.</div></div>
+    </div>
+    <div class="field">
       <div class="lab">Re-verify</div>
       <div class="ctl">
         <select id="schedule" style="max-width:210px;display:inline-block">
@@ -2168,6 +2190,7 @@ $("list").addEventListener("click", async e => {
     $("wantlist").value = lu.wantlist || "";
     $("epgselect").value = lu.epg || "";
     $("regions").value = lu.regions || "";
+    $("region_tags").value = lu.region_tags || "";
     $("schedule").value = String(lu.schedule_days || 0);
     $("sched-day").value = String(lu.schedule_weekday || 0);
     $("sched-hour").value = String(lu.schedule_hour == null ? 2 : lu.schedule_hour);
@@ -2249,7 +2272,7 @@ $("list").addEventListener("change", async e=>{
 });
 
 $("cancel").addEventListener("click", ()=>{
-  ["name","regions"].forEach(k => $(k).value = "");
+  ["name","regions","region_tags"].forEach(k => $(k).value = "");
   ["provider","wantlist","epgselect"].forEach(k => $(k).value = "");
   $("schedule").value = "0"; schedVis();
   $("edithead").textContent = "New lineup";
@@ -2269,6 +2292,7 @@ $("save").addEventListener("click", async ()=>{
       source: "",
       wantlist: $("wantlist").value, epg: $("epgselect").value,
       regions: $("regions").value.trim(),
+      region_tags: $("region_tags").value.trim(),
       schedule_days: parseInt($("schedule").value, 10) || 0,
       schedule_weekday: parseInt($("sched-day").value, 10) || 0,
       schedule_hour: parseInt($("sched-hour").value, 10) || 0})});

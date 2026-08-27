@@ -3316,20 +3316,32 @@ class TestDoublePushIsRejected(Temp):
         results = []
         def go():
             h, sent = make_handler()
-            with unittest.mock.patch.object(
-                    RunStore, "read_push_status", racy_read_push_status), \
-                unittest.mock.patch.object(
-                    web_mod.Handler, "_run_export", lambda self, *a, **k: None):
-                h._export_dispatcharr("run1", {"provider": "dp1",
-                                              "fallback_mode": "native"})
+            h._export_dispatcharr("run1", {"provider": "dp1",
+                                          "fallback_mode": "native"})
             results.append(sent[0][0] if sent else None)
 
-        results_lock_threads = [threading.Thread(target=go),
-                                threading.Thread(target=go)]
-        for th in results_lock_threads:
-            th.start()
-        for th in results_lock_threads:
-            th.join()
+        # Patched ONCE, around both threads -- not per-thread. Two threads
+        # each entering their own `with unittest.mock.patch.object(...)` on
+        # the SAME class attribute is racy: patch.object's __enter__/__exit__
+        # save-then-restore by plain attribute assignment, so if thread A's
+        # __exit__ runs between thread B's __enter__ (saves A's patched
+        # value as "the original") and B's own __exit__, B restores the
+        # class to A's patched value instead of the true original --
+        # permanently monkey-patching Handler._run_export to this no-op
+        # lambda for the rest of the test PROCESS, not just this test. Real
+        # bug found this way: every later test that called the real
+        # _run_export and asserted on it silently saw the no-op instead,
+        # under whichever runner happened to execute this test first.
+        with unittest.mock.patch.object(
+                RunStore, "read_push_status", racy_read_push_status), \
+            unittest.mock.patch.object(
+                web_mod.Handler, "_run_export", lambda self, *a, **k: None):
+            results_lock_threads = [threading.Thread(target=go),
+                                    threading.Thread(target=go)]
+            for th in results_lock_threads:
+                th.start()
+            for th in results_lock_threads:
+                th.join()
 
         self.assertEqual(sorted(results), [200, 409],
                          "exactly one concurrent push must be accepted and "
@@ -4690,6 +4702,50 @@ class TestRunKwargsWiresStrictRegion(Temp):
         kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
                                 "regions": "US"})
         self.assertFalse(kwargs["strict_region"])
+
+
+class TestRunKwargsWiresRegionTags(Temp):
+    """Real Discord report: a provider's own prefixes ("OD:", "PLAY+:",
+    "ZG:", "BE-VIP:") aren't in Normalizer's DEFAULT_REGION_TAGS, so they
+    stayed glued to the front of the matching key ("ODNPO1" instead of
+    "NPO1") no matter how the packaging-stripping regexes were fixed. The
+    web UI had no field for this at all -- only the CLI's --region-tags
+    flag could set it. _run_kwargs() now reads a comma-separated
+    "region_tags" body field and ADDS it to the built-in list (Normalizer
+    itself REPLACES its default list wholesale when given one, so passing
+    only the custom tags would silently stop recognising "UK:"/"US:"/etc.)
+    """
+
+    def _kwargs(self, body):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        return h._run_kwargs(body)
+
+    def test_custom_tags_are_added_to_the_built_in_list_not_instead_of_it(self):
+        from probarr.normalize import DEFAULT_REGION_TAGS
+        kwargs = self._kwargs({"source": "http://x/playlist.m3u",
+                               "region_tags": "OD, PLAY+, ZG"})
+        tags = kwargs["region_tags"]
+        for t in ("OD", "PLAY+", "ZG"):
+            self.assertIn(t, tags)
+        for t in DEFAULT_REGION_TAGS:
+            self.assertIn(t, tags, f"{t!r} from the built-in list was dropped")
+
+    def test_absent_when_the_field_is_blank(self):
+        kwargs = self._kwargs({"source": "http://x/playlist.m3u"})
+        self.assertIsNone(kwargs["region_tags"])
+
+    def test_normalizer_then_actually_strips_the_custom_prefix(self):
+        """End to end: the exact reported failure, fixed."""
+        from probarr.normalize import Normalizer
+        kwargs = self._kwargs({"source": "http://x/playlist.m3u",
+                               "region_tags": "OD, PLAY+, ZG, BE-VIP"})
+        n = Normalizer(region_tags=kwargs["region_tags"])
+        base = n.key("NPO 1")
+        for name in ["OD: NPO 1 ᴿᴬᵂ", "PLAY+: NPO 1 ᴴᴰ",
+                     "ZG: NPO 1 ᴿᴬᵂ", "BE-VIP: NPO 1 ᴿᴬᵂ"]:
+            self.assertEqual(n.key(name), base, f"{name!r} did not match")
 
 
 class TestSettingsPostIsAlsoRedacted(Temp):
