@@ -1283,6 +1283,9 @@ select{background:var(--bg);color:var(--text);border:1px solid var(--line);
 .field input[type=text],.field input[type=number]{width:100%;max-width:460px}
 .field input[type=number]{max-width:110px}
 .miniline{color:var(--faint);font-size:11.5px;margin-top:4px}
+.lineupsum{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);
+  padding:9px 11px;font-size:13px;color:var(--dim)}
+.lineupsum b{color:var(--text)}
 .emptynote{background:var(--bg2);border:1px solid var(--line);border-left:3px solid var(--warn);
   border-radius:var(--radius);padding:10px 12px;margin-bottom:10px;font-size:13px}
 .emptynote a{color:var(--accent)}
@@ -1324,47 +1327,58 @@ __TOPBAR__
       </div>
     </div>
 
-    <div class="field">
-      <div class="lab">Provider</div>
+    <div class="field" id="lineupSummary" style="display:none">
+      <div class="lab">This run will use</div>
       <div class="ctl">
-        <select id="provider"></select>
-        <div class="miniline"><a href="/providers">Manage providers</a></div>
+        <div class="lineupsum" id="lineupSumText"></div>
+        <button id="lineupChange" style="margin-top:8px;font-size:12px;padding:5px 10px">
+          Change provider / channels / guide&hellip;</button>
       </div>
     </div>
 
-    <div class="field">
-      <div class="lab">Channels</div>
-      <div class="ctl">
-        <select id="wantlist"><option value="">All channels in the source</option></select>
-        <div class="miniline"><a href="/wantlists">Manage wantlists</a> &middot;
-          leave as "All channels" only for a small source</div>
+    <div id="lineupFields">
+      <div class="field">
+        <div class="lab">Provider</div>
+        <div class="ctl">
+          <select id="provider"></select>
+          <div class="miniline"><a href="/providers">Manage providers</a></div>
+        </div>
       </div>
-    </div>
 
-    <div class="field">
-      <div class="lab">Guide (EPG)</div>
-      <div class="ctl">
-        <select id="epgselect"><option value="">No guide</option>
-          <option value="__custom__">Custom URL&hellip;</option></select>
-        <input type="text" id="epg" placeholder="XMLTV URL"
-          style="display:none;margin-top:6px">
-        <div class="miniline"><a href="/providers#epg-sources" target="_blank">Manage EPG sources</a></div>
+      <div class="field">
+        <div class="lab">Channels</div>
+        <div class="ctl">
+          <select id="wantlist"><option value="">All channels in the source</option></select>
+          <div class="miniline"><a href="/wantlists">Manage wantlists</a> &middot;
+            leave as "All channels" only for a small source</div>
+        </div>
       </div>
-    </div>
 
-    <div class="field">
-      <div class="lab">Regions</div>
-      <div class="ctl">
-        <input type="text" id="regions" placeholder="e.g. UK (optional, comma-separated)">
-        <div class="miniline">On a multi-country provider, a generically-named
-          channel (TLC, CNN, MTV&hellip;) matches every country's copy without
-          this &mdash; measured live: 158 UK channels with no region filter
-          pulled in 1,565 candidates, mostly other countries' channels.</div>
-        <label class="miniline"><input type="checkbox" id="strict_region">
-          Strict &mdash; also drop channels with no recognisable country
-          marker at all. Without this, Regions only rejects candidates it can
-          positively identify as a DIFFERENT country; unmarked candidates
-          (common on aggregated providers) still get through.</label>
+      <div class="field">
+        <div class="lab">Guide (EPG)</div>
+        <div class="ctl">
+          <select id="epgselect"><option value="">No guide</option>
+            <option value="__custom__">Custom URL&hellip;</option></select>
+          <input type="text" id="epg" placeholder="XMLTV URL"
+            style="display:none;margin-top:6px">
+          <div class="miniline"><a href="/providers#epg-sources" target="_blank">Manage EPG sources</a></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="lab">Regions</div>
+        <div class="ctl">
+          <input type="text" id="regions" placeholder="e.g. UK (optional, comma-separated)">
+          <div class="miniline">On a multi-country provider, a generically-named
+            channel (TLC, CNN, MTV&hellip;) matches every country's copy without
+            this &mdash; measured live: 158 UK channels with no region filter
+            pulled in 1,565 candidates, mostly other countries' channels.</div>
+          <label class="miniline"><input type="checkbox" id="strict_region">
+            Strict &mdash; also drop channels with no recognisable country
+            marker at all. Without this, Regions only rejects candidates it can
+            positively identify as a DIFFERENT country; unmarked candidates
+            (common on aggregated providers) still get through.</label>
+        </div>
       </div>
     </div>
 
@@ -1578,7 +1592,13 @@ async function loadLineups(){
 }
 function applyLineup(){
   const lu = LINEUPS.find(l => l.name === $("lineup").value);
-  if(!lu) return;
+  if(!lu){
+    // "One-off run" -- nothing to inherit, so there is nothing to collapse:
+    // show the real fields, same as a lineup-less New Run always has.
+    $("lineupSummary").style.display = "none";
+    $("lineupFields").style.display = "";
+    return;
+  }
   if(lu.provider || lu.source) $("provider").value = lu.provider || lu.source;
   $("regions").value = lu.regions || "";
   // A lineup can legitimately hold either the address or the saved NAME of
@@ -1598,8 +1618,33 @@ function applyLineup(){
   if(!$("run_id").value.trim()) $("run_id").placeholder = lu.name + "-" +
     new Date().toISOString().slice(0,10);
   checkScope();
+  // Collapse the four fields a lineup just filled in behind one summary
+  // line. Picking a lineup is the common "just re-verify this" action --
+  // it used to still show all four fields pre-filled, looking exactly
+  // like a form still asking for decisions, when there was nothing left
+  // to decide. "Change..." re-expands them (still filled in, still
+  // editable) for the genuine one-off-override case.
+  const provLabel = $("provider").selectedOptions[0]
+    ? $("provider").selectedOptions[0].textContent : (lu.provider || lu.source || "?");
+  const wantLabel = $("wantlist").value
+    ? ($("wantlist").selectedOptions[0]
+        ? $("wantlist").selectedOptions[0].textContent : $("wantlist").value)
+    : "all channels";
+  const epgLabel = $("epgselect").value === "__custom__" ? "custom guide"
+    : ($("epgselect").selectedOptions[0] && $("epgselect").value
+        ? $("epgselect").selectedOptions[0].textContent : "no guide");
+  const regionsLabel = $("regions").value.trim()
+    ? "regions " + $("regions").value.trim() : "no region filter";
+  $("lineupSumText").innerHTML = "<b>" + esc(provLabel) + "</b> &middot; " +
+    esc(wantLabel) + " &middot; " + esc(epgLabel) + " &middot; " + esc(regionsLabel);
+  $("lineupFields").style.display = "none";
+  $("lineupSummary").style.display = "";
 }
 $("lineup").addEventListener("change", applyLineup);
+$("lineupChange").addEventListener("click", () => {
+  $("lineupFields").style.display = "";
+  $("lineupSummary").style.display = "none";
+});
 
 // Ordered deliberately: a lineup can only fill the form in once the selects
 // it writes into actually have their options, because setting .value on a
