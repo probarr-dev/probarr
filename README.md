@@ -171,6 +171,26 @@ If a channel is genuinely filed under a name the matcher would never try, add
 an **alias** in Settings, or use **Find streams** on the channel itself in
 Curate to attach anything from the catalogue by hand.
 
+### Region and quality tags
+
+Before any of the matching above happens, probarr strips **packaging** off
+the raw name: a leading country marker ("UK:", "US:") and quality/format
+words ("HD", "RAW", "4K"…) built into the app already cover the common
+cases. A provider that uses its own non-country prefixes for a tier or
+source ("OD:", "PLAY+:", "ZG:") — or a quality word probarr has never
+seen ("GOLD") — isn't covered by that built-in list, and without it the
+prefix stays glued to the front of the name forever: `OD: NPO 1` normalises
+to `ODNPO1`, which will never match a wantlist entry for `NPO 1` no matter
+how the name is spelled otherwise.
+
+**Settings → Manage tags** is a durable, editable version of both lists:
+add your provider's own prefixes/words, remove one you don't want treated
+as packaging, or hit **Restore defaults** to drop your own changes and go
+back to whatever probarr's built-in list currently is. Applies to every run
+and to Browse Channels. New Run also has a one-off **Custom prefixes**
+field for a prefix worth using just this one time, without saving it
+permanently.
+
 ---
 
 ## Browsing a provider when you don't know what to ask for
@@ -439,6 +459,7 @@ Set a lineup to re-verify on a schedule and this happens without you.
 | **Freshness window** | How long a previous verdict is trusted on re-verify (default 6 days). |
 | **Frame / thumbnail height** | Capture resolution. Bigger frames, bigger `/config`. |
 | **Aliases** | For a channel your provider spells in a way the matcher would never guess. |
+| **Manage tags** | Region/quality words to strip as packaging before matching — add your provider's own non-standard prefixes here. See [above](#region-and-quality-tags). |
 | **Failover display** | Whether to read Dispatcharr's event log for real-world failure counts. |
 
 `/settings` also has a full backup export/import of everything in `/config`.

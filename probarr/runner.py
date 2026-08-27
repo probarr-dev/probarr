@@ -15,6 +15,7 @@ from . import __version__
 from . import epgcheck as epgcheck_mod
 from . import lineups as lineups_mod
 from . import settings as settings_mod
+from . import tagsettings
 from . import wantlist as wantlist_mod
 from .epg import Guide
 from .normalize import Normalizer, group_candidates
@@ -200,7 +201,19 @@ def _run(store, root, source, wantlist, epg, regions, strict_region, region_tags
          thumb_height, max_candidates, min_candidates, only_channels,
          limit_channels, resume, log, progress_cb, should_stop, clean_target=2,
          lineup=None, prioritise=False, budget_seconds=None, gate=None):
-    norm = Normalizer(region_tags=region_tags, aliases=aliases or {})
+    # The operator's own saved tag vocabulary (Settings -> Manage tags) is
+    # the base for every run; `region_tags` here is only ever a run-specific
+    # ADDITION on top of it (the New Run form's one-off "Custom prefixes"
+    # field, for a prefix not worth saving permanently) -- never a
+    # replacement, which is what Normalizer(region_tags=...) would do if
+    # handed only the extras. See tagsettings.py's own docstring for why
+    # the saved list itself already tracks future built-in additions
+    # rather than being frozen the moment a user customises anything.
+    all_region_tags = list(dict.fromkeys(
+        tagsettings.tags(root, "region") + list(region_tags or [])))
+    norm = Normalizer(region_tags=all_region_tags,
+                      quality_tags=tagsettings.tags(root, "quality"),
+                      aliases=aliases or {})
 
     log(f"loading source: {source.split('?')[0]}")
     streams = load_source(source)

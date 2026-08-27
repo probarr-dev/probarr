@@ -4704,6 +4704,146 @@ class TestRunKwargsWiresStrictRegion(Temp):
         self.assertFalse(kwargs["strict_region"])
 
 
+class TestTagSettings(Temp):
+    """A durable, user-editable list of region/quality tags -- previously
+    the only way to add a provider's own non-standard prefix was the
+    New Run form's one-off "Custom prefixes" field, retyped every run and
+    never remembered. See tagsettings.py's own module docstring."""
+
+    def test_uncustomised_category_tracks_the_live_code_constant(self):
+        from probarr import tagsettings
+        from probarr.normalize import DEFAULT_REGION_TAGS
+        self.assertEqual(tagsettings.tags(self.root, "region"),
+                         list(DEFAULT_REGION_TAGS))
+        self.assertFalse(tagsettings.is_customised(self.root, "region"))
+
+    def test_add_then_read_round_trips(self):
+        from probarr import tagsettings
+        tagsettings.add(self.root, "region", "od")
+        self.assertIn("OD", tagsettings.tags(self.root, "region"))
+        self.assertTrue(tagsettings.is_customised(self.root, "region"))
+
+    def test_add_is_idempotent(self):
+        from probarr import tagsettings
+        tagsettings.add(self.root, "region", "OD")
+        tagsettings.add(self.root, "region", "OD")
+        self.assertEqual(tagsettings.tags(self.root, "region").count("OD"), 1)
+
+    def test_remove_only_touches_the_named_tag(self):
+        from probarr import tagsettings
+        from probarr.normalize import DEFAULT_REGION_TAGS
+        tagsettings.remove(self.root, "region", "NL")
+        tags = tagsettings.tags(self.root, "region")
+        self.assertNotIn("NL", tags)
+        self.assertIn("UK", tags)
+        self.assertEqual(len(tags), len(DEFAULT_REGION_TAGS) - 1)
+
+    def test_restore_defaults_undoes_customisation(self):
+        from probarr import tagsettings
+        from probarr.normalize import DEFAULT_REGION_TAGS
+        tagsettings.add(self.root, "region", "OD")
+        tagsettings.restore_defaults(self.root, "region")
+        self.assertEqual(tagsettings.tags(self.root, "region"),
+                         list(DEFAULT_REGION_TAGS))
+        self.assertFalse(tagsettings.is_customised(self.root, "region"))
+
+    def test_restoring_region_does_not_touch_quality(self):
+        from probarr import tagsettings
+        tagsettings.add(self.root, "region", "OD")
+        tagsettings.add(self.root, "quality", "GOLD")
+        tagsettings.restore_defaults(self.root, "region")
+        self.assertIn("GOLD", tagsettings.tags(self.root, "quality"))
+        self.assertTrue(tagsettings.is_customised(self.root, "quality"))
+
+    def test_rejects_an_unknown_category(self):
+        from probarr import tagsettings
+        with self.assertRaises(ValueError):
+            tagsettings.tags(self.root, "bogus")
+
+    def test_rejects_a_blank_tag(self):
+        from probarr import tagsettings
+        with self.assertRaises(ValueError):
+            tagsettings.add(self.root, "region", "   ")
+
+
+class TestTagsApiEndpoint(Temp):
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_add_via_endpoint(self):
+        import json
+        h, sent = self._handler()
+        # Route through the real dispatch so the same-origin guard and
+        # routing table are exercised, not just the bare method.
+        h.path = "/api/tags"
+        h.command = "POST"
+        h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/settings"}
+        payload = json.dumps({"kind": "region", "action": "add", "tag": "od"}).encode()
+        h.headers["Content-Length"] = str(len(payload))
+        import io
+        h.rfile = io.BytesIO(payload)
+        h._do_POST()
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertIn("OD", d["tags"])
+
+    def test_unknown_kind_rejected(self):
+        import json
+        h, sent = self._handler()
+        h.path = "/api/tags"
+        h.command = "POST"
+        h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/settings"}
+        payload = json.dumps({"kind": "bogus", "action": "add", "tag": "x"}).encode()
+        h.headers["Content-Length"] = str(len(payload))
+        import io
+        h.rfile = io.BytesIO(payload)
+        h._do_POST()
+        self.assertEqual(sent[-1][0], 400)
+
+
+class TestRunnerMergesSavedTagsWithRunSpecificOnes(Temp):
+    """runner._run() must ADD the run-specific `region_tags` argument to the
+    operator's SAVED list, never replace it with just the extras --
+    Normalizer(region_tags=...) itself replaces wholesale, which is exactly
+    the footgun this merge exists to avoid (see runner.py's own comment)."""
+
+    def test_saved_tags_and_run_specific_ones_are_both_present(self):
+        from probarr import tagsettings
+        from probarr.store import RunStore
+        from probarr import runner as runner_mod
+        tagsettings.add(self.root, "region", "OD")
+        store = RunStore(self.root, "run1", create=True)
+
+        captured = {}
+        orig_normalizer = runner_mod.Normalizer
+        def spy(*a, **k):
+            captured["region_tags"] = k.get("region_tags")
+            n = orig_normalizer(*a, **k)
+            return n
+        with unittest.mock.patch.object(runner_mod, "Normalizer", spy), \
+             unittest.mock.patch.object(runner_mod, "load_source",
+                                        return_value=[]):
+            try:
+                runner_mod._run(store, self.root, "http://x/y.m3u", None, None,
+                               None, False, ["ZG"], {}, 1, 0, 5, 240, 90, None,
+                               1, None, None, True, lambda *a: None, None, None)
+            except RuntimeError:
+                pass  # ffmpeg not installed in this test environment --
+                      # irrelevant; the Normalizer construction we care
+                      # about already happened before this point.
+        self.assertIn("OD", captured["region_tags"])
+        self.assertIn("ZG", captured["region_tags"])
+        self.assertIn("UK", captured["region_tags"])
+
+
 class TestRunKwargsWiresRegionTags(Temp):
     """Real Discord report: a provider's own prefixes ("OD:", "PLAY+:",
     "ZG:", "BE-VIP:") aren't in Normalizer's DEFAULT_REGION_TAGS, so they
@@ -4711,9 +4851,14 @@ class TestRunKwargsWiresRegionTags(Temp):
     "NPO1") no matter how the packaging-stripping regexes were fixed. The
     web UI had no field for this at all -- only the CLI's --region-tags
     flag could set it. _run_kwargs() now reads a comma-separated
-    "region_tags" body field and ADDS it to the built-in list (Normalizer
-    itself REPLACES its default list wholesale when given one, so passing
-    only the custom tags would silently stop recognising "UK:"/"US:"/etc.)
+    "region_tags" body field and passes it through as a run-specific
+    EXTRA; runner._run() is what actually merges it with the operator's
+    saved tag vocabulary (see tagsettings.py and
+    TestRunnerMergesSavedTagsWithRunSpecificOnes) -- so _run_kwargs()
+    itself only needs to parse the raw field correctly, not merge
+    anything (Normalizer itself REPLACES its default list wholesale when
+    given one, which is exactly why the merge has to happen somewhere,
+    just not here any more).
     """
 
     def _kwargs(self, body):
@@ -4722,26 +4867,26 @@ class TestRunKwargsWiresRegionTags(Temp):
         h = web_mod.Handler.__new__(web_mod.Handler)
         return h._run_kwargs(body)
 
-    def test_custom_tags_are_added_to_the_built_in_list_not_instead_of_it(self):
-        from probarr.normalize import DEFAULT_REGION_TAGS
+    def test_field_is_parsed_as_a_comma_separated_list(self):
         kwargs = self._kwargs({"source": "http://x/playlist.m3u",
-                               "region_tags": "OD, PLAY+, ZG"})
-        tags = kwargs["region_tags"]
-        for t in ("OD", "PLAY+", "ZG"):
-            self.assertIn(t, tags)
-        for t in DEFAULT_REGION_TAGS:
-            self.assertIn(t, tags, f"{t!r} from the built-in list was dropped")
+                               "region_tags": "OD, PLAY+, zg"})
+        self.assertEqual(kwargs["region_tags"], ["OD", "PLAY+", "ZG"])
 
     def test_absent_when_the_field_is_blank(self):
         kwargs = self._kwargs({"source": "http://x/playlist.m3u"})
         self.assertIsNone(kwargs["region_tags"])
 
     def test_normalizer_then_actually_strips_the_custom_prefix(self):
-        """End to end: the exact reported failure, fixed."""
+        """End to end: the exact reported failure, fixed -- using the
+        SAME merge runner._run() actually performs (saved list + this
+        run's extras), not just the raw field."""
+        from probarr import tagsettings
         from probarr.normalize import Normalizer
         kwargs = self._kwargs({"source": "http://x/playlist.m3u",
                                "region_tags": "OD, PLAY+, ZG, BE-VIP"})
-        n = Normalizer(region_tags=kwargs["region_tags"])
+        merged = list(dict.fromkeys(
+            tagsettings.tags(self.root, "region") + kwargs["region_tags"]))
+        n = Normalizer(region_tags=merged)
         base = n.key("NPO 1")
         for name in ["OD: NPO 1 ᴿᴬᵂ", "PLAY+: NPO 1 ᴴᴰ",
                      "ZG: NPO 1 ᴿᴬᵂ", "BE-VIP: NPO 1 ᴿᴬᵂ"]:

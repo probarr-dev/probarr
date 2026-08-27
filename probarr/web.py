@@ -44,7 +44,8 @@ from .sources import dispatcharr as dispatcharr_mod
 from .sources.dispatcharr import client_from_spec, base_url_of
 from .store import RunStore, InvalidRunId
 from .normalize import (Normalizer, group_candidates, declared_quality_rank,
-                        split_group_title, DEFAULT_REGION_TAGS)
+                        split_group_title)
+from . import tagsettings as tagsettings_mod
 from .probe import ProbeOptions, probe
 from .theme import CSS, topbar
 from .verify import annotate_placeholders
@@ -235,6 +236,14 @@ class Handler(BaseHTTPRequestHandler):
             # process, same reasoning as /api/providers below.
             return self._send(json.dumps(settings_mod.redact(settings_mod.read(self.root))),
                               "application/json")
+        if path == "/api/tags":
+            self._send(json.dumps({
+                "region": tagsettings_mod.tags(self.root, "region"),
+                "quality": tagsettings_mod.tags(self.root, "quality"),
+                "region_customised": tagsettings_mod.is_customised(self.root, "region"),
+                "quality_customised": tagsettings_mod.is_customised(self.root, "quality"),
+            }), "application/json")
+            return
         if path == "/lineups":
             return self._send(pages.lineups_page())
         if path == "/unclaimed":
@@ -473,6 +482,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(
                 json.dumps(settings_mod.redact(settings_mod.write(self.root, body))),
                 "application/json")
+
+        if path == "/api/tags":
+            body, sent = self._json_body()
+            if sent:
+                return
+            kind = (body.get("kind") or "").strip()
+            action = (body.get("action") or "").strip()
+            if kind not in ("region", "quality"):
+                return self._send('{"error":"kind must be \\"region\\" or \\"quality\\""}',
+                                  "application/json", 400)
+            try:
+                if action == "add":
+                    result = tagsettings_mod.add(self.root, kind, body.get("tag"))
+                elif action == "remove":
+                    result = tagsettings_mod.remove(self.root, kind, body.get("tag"))
+                elif action == "restore":
+                    result = tagsettings_mod.restore_defaults(self.root, kind)
+                else:
+                    return self._send(
+                        '{"error":"action must be \\"add\\", \\"remove\\" or \\"restore\\""}',
+                        "application/json", 400)
+            except ValueError as e:
+                return self._send(json.dumps({"error": str(e)}), "application/json", 400)
+            return self._send(json.dumps({"ok": True, "tags": result}), "application/json")
 
         if path == "/api/backup/import":
             if not self._same_origin():
@@ -1075,7 +1108,9 @@ class Handler(BaseHTTPRequestHandler):
         but not to the catalogue) would be worse than none at all -- the two
         halves of the tool would disagree about what a channel is called.
         """
-        return Normalizer(aliases=aliases_mod.read(self.root))
+        return Normalizer(region_tags=tagsettings_mod.tags(self.root, "region"),
+                         quality_tags=tagsettings_mod.tags(self.root, "quality"),
+                         aliases=aliases_mod.read(self.root))
 
     def _fetch_reference_json(self, url):
         """GET a reference-lineup URL and parse it as JSON. Returns (data, error)."""
@@ -2892,26 +2927,16 @@ class Handler(BaseHTTPRequestHandler):
             # UK spelling variants.
             regions=[r.strip().upper() for r in (body.get("regions") or "").split(",")
                     if r.strip()] or None,
-            # Extra prefixes/markers this provider uses that Normalizer's
-            # own DEFAULT_REGION_TAGS has no way to know about -- an
-            # aggregator's own tier/source labels ("OD:", "PLAY+:", "ZG:")
-            # rather than a country. Without a way to add these, a
-            # provider using non-standard prefixes has them stay glued to
-            # the front of every stream's matching key ("ODNPO1" instead
-            # of "NPO1"), which never matches a plain wantlist entry no
-            # matter how the packaging-stripping regexes are fixed --
-            # confirmed live against a real reported case (Discord).
-            #
-            # ADDED to the built-in list, not given instead of it --
-            # Normalizer(region_tags=...) REPLACES its own default list
-            # wholesale rather than extending it (see its own docstring),
-            # so passing only the custom ones here would silently stop
-            # recognising every ordinary "UK:"/"US:"/etc. prefix too.
-            region_tags=(list(dict.fromkeys(
-                            list(DEFAULT_REGION_TAGS) +
-                            [t.strip().upper() for t in
-                             (body.get("region_tags") or "").split(",") if t.strip()]))
-                        if (body.get("region_tags") or "").strip() else None),
+            # A one-off ADDITION on top of the operator's own saved tag
+            # vocabulary (Settings -> Manage tags, see tagsettings.py) --
+            # for a prefix worth using just this once, not worth saving
+            # permanently. runner._run() does the actual merging with the
+            # saved list; passing only this run's extras through here
+            # keeps that merge in the one place both the web UI and the
+            # CLI share, instead of duplicated in each caller.
+            region_tags=([t.strip().upper() for t in
+                         (body.get("region_tags") or "").split(",") if t.strip()]
+                        or None),
             # Off by default: a Regions filter alone only rejects a stream
             # whose name or group title carries a RECOGNISABLE country
             # marker. Most aggregated multi-country providers list plenty
@@ -3317,7 +3342,9 @@ class Handler(BaseHTTPRequestHandler):
                 name = entry["name"]
             chsel = (store.read_selection() or {}).get(channel_key) or {}
         try:
-            norm = Normalizer(aliases=aliases_mod.read(cls.root))
+            norm = Normalizer(region_tags=tagsettings_mod.tags(cls.root, "region"),
+                             quality_tags=tagsettings_mod.tags(cls.root, "quality"),
+                             aliases=aliases_mod.read(cls.root))
             at = datetime.datetime.now(datetime.timezone.utc)
             # An explicit EPG source pick (Check EPG's "Use this", or a
             # manually pinned exact guide entry) has to keep being honoured
@@ -4730,7 +4757,10 @@ def serve(root, host="0.0.0.0", port=7799):
     # sources, confirmed). Warming it here means that cost lands on an
     # idle container instead of the next person's page load.
     threading.Thread(target=epgcheck_mod.prewarm_all_sources,
-                     args=(Handler.root, Normalizer(aliases=aliases_mod.read(Handler.root))),
+                     args=(Handler.root,
+                           Normalizer(region_tags=tagsettings_mod.tags(Handler.root, "region"),
+                                     quality_tags=tagsettings_mod.tags(Handler.root, "quality"),
+                                     aliases=aliases_mod.read(Handler.root))),
                      daemon=True).start()
     print(f"probarr web UI on http://{host}:{port} (data: {Handler.root})", flush=True)
     try:

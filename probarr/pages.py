@@ -574,6 +574,21 @@ SETTINGS_EXTRA = WANTLIST_EXTRA + """
   padding:10px 12px;margin-top:10px;font-size:12.5px;color:var(--dim)}
 .rate b{color:var(--accent)}
 .danger{color:var(--warn)}
+.tagcard{background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);
+  padding:11px 13px;margin-bottom:10px}
+.tagcard-head{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.tagcard-head b{font-size:13px}
+.tagchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}
+.tagchip{display:inline-flex;align-items:center;gap:5px;background:var(--panel);
+  border:1px solid var(--line);border-radius:20px;padding:3px 6px 3px 10px;
+  font-size:12px;font-variant-numeric:tabular-nums}
+.tagremove{background:none;border:0;color:var(--faint);cursor:pointer;
+  font-size:14px;line-height:1;padding:0 4px;border-radius:50%}
+.tagremove:hover{color:var(--bad);background:rgba(240,80,80,.12)}
+.tagadd{display:flex;gap:6px}
+.tagaddinput{background:var(--bg);color:var(--text);border:1px solid var(--line);
+  border-radius:var(--radius);padding:5px 9px;font-size:12.5px;max-width:220px}
+.tagaddbtn,.restoretags{font-size:11.5px;padding:4px 9px}
 """
 
 SETTINGS_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -686,6 +701,20 @@ __TOPBAR__
     <div class="field"><div class="lab">Wantlist</div>
       <div class="ctl"><input type="text" id="wantlist"
         placeholder="name of a saved wantlist"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Manage tags</h2>
+    <div class="lead">The packaging every stream name gets stripped of before
+      matching a wantlist entry: <b>region</b> markers (country prefixes like
+      "UK:", "US:") and <b>quality</b> markers ("HD", "RAW", "4K"&hellip;).
+      A provider's own tier/source labels that aren't a country
+      ("OD:", "PLAY+:", "ZG:") or a quality word probarr has never seen
+      ("GOLD") need adding here, or they stay glued to the front of every
+      matching key and never match a plain wantlist entry. Applies to every
+      run and to Browse Channels. "Restore defaults" un-does your own
+      changes to that list only -- it never touches the other one.</div>
+    <div id="tagcards"></div>
   </div>
 
   <div class="card">
@@ -829,6 +858,67 @@ $("restorefile").addEventListener("change", async ()=>{
 });
 
 load();
+
+// --- Manage tags -----------------------------------------------------------
+function tagCard(kind, label, list, customised){
+  return '<div class="tagcard">'+
+    '<div class="tagcard-head"><b>'+label+'</b>'+
+    (customised ? '<button class="restoretags" data-kind="'+kind+
+      '" title="Un-does your own changes to this list only, reverting to '+
+      'whatever probarr\'s built-in list currently is.">Restore defaults</button>'
+      : '<span class="muted" style="font-size:11.5px">using built-in defaults</span>')+
+    '</div>'+
+    '<div class="tagchips">'+list.map(t =>
+      '<span class="tagchip">'+esc(t)+
+      '<button class="tagremove" data-kind="'+kind+'" data-tag="'+esc(t)+
+      '" title="Remove">×</button></span>').join("")+
+    '</div>'+
+    '<div class="tagadd">'+
+    '<input type="text" class="tagaddinput" data-kind="'+kind+
+      '" placeholder="add a tag&hellip;">'+
+    '<button class="tagaddbtn" data-kind="'+kind+'">Add</button>'+
+    '</div></div>';
+}
+async function loadTags(){
+  const d = await (await fetch("/api/tags")).json();
+  $("tagcards").innerHTML =
+    tagCard("region", "Region markers", d.region, d.region_customised) +
+    tagCard("quality", "Quality markers", d.quality, d.quality_customised);
+}
+document.getElementById("tagcards").addEventListener("click", async e => {
+  const rm = e.target.closest(".tagremove");
+  const restore = e.target.closest(".restoretags");
+  const addBtn = e.target.closest(".tagaddbtn");
+  if(rm){
+    await fetch("/api/tags", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({kind: rm.dataset.kind, action: "remove", tag: rm.dataset.tag})});
+    loadTags();
+  } else if(restore){
+    if(!confirm("Restore "+restore.dataset.kind+" markers to probarr's built-in "+
+                "list? Your own additions/removals to this list are discarded."))
+      return;
+    await fetch("/api/tags", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({kind: restore.dataset.kind, action: "restore"})});
+    loadTags();
+  } else if(addBtn){
+    const input = document.querySelector('.tagaddinput[data-kind="'+addBtn.dataset.kind+'"]');
+    const tag = input.value.trim();
+    if(!tag) return;
+    const r = await fetch("/api/tags", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({kind: addBtn.dataset.kind, action: "add", tag})});
+    const d = await r.json();
+    if(d.error){ alert(d.error); return; }
+    input.value = "";
+    loadTags();
+  }
+});
+document.getElementById("tagcards").addEventListener("keydown", e => {
+  if(e.key === "Enter" && e.target.classList.contains("tagaddinput")){
+    e.preventDefault();
+    document.querySelector('.tagaddbtn[data-kind="'+e.target.dataset.kind+'"]').click();
+  }
+});
+loadTags();
 
 // --- Ranking vs. you -----------------------------------------------------
 // The override log (decisions.jsonl) was write-only until this existed:
