@@ -2920,5 +2920,69 @@ class TestSettingsPostIsAlsoRedacted(Temp):
         self.assertEqual(post_body["source"], get_body["source"])
 
 
+class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
+    """probarr-oz2: the Regions box on the New Run page never actually
+    restricted anything, because the web UI had no way to set
+    strict_region and group_candidates() defaults to including unmarked
+    candidates. A channel with no recognisable country marker in its name
+    OR group title sails through a Regions filter untouched -- exactly
+    what "no matter what is entered, US, USA... it still imports from
+    other countries" describes on an aggregated multi-country provider,
+    since plenty of its channels carry no marker at all.
+    """
+
+    def _streams(self):
+        from probarr.sources.base import Stream
+        return [
+            Stream(id="1", name="US: CNN", url="http://x/1"),
+            Stream(id="2", name="UK: CNN", url="http://x/2"),
+            Stream(id="3", name="CNN", url="http://x/3"),   # no marker at all
+        ]
+
+    def test_unmarked_channel_passes_a_region_filter_by_default(self):
+        from probarr.normalize import Normalizer, group_candidates
+        pools = group_candidates(self._streams(), Normalizer(), regions=["US"])
+        ids = {s.id for pool in pools.values() for s in pool}
+        self.assertIn("1", ids, "the US-marked channel must pass")
+        self.assertNotIn("2", ids, "the UK-marked channel must be rejected")
+        self.assertIn("3", ids,
+                      "current (surprising) default: an unmarked channel "
+                      "passes a Regions filter it was never shown to match")
+
+    def test_strict_mode_drops_the_unmarked_channel_too(self):
+        from probarr.normalize import Normalizer, group_candidates
+        pools = group_candidates(self._streams(), Normalizer(), regions=["US"],
+                                 include_unmarked=False)
+        ids = {s.id for pool in pools.values() for s in pool}
+        self.assertEqual(ids, {"1"},
+                         "strict mode must keep only the positively-US-marked "
+                         "channel")
+
+
+class TestRunKwargsWiresStrictRegion(Temp):
+    """The fix: _run_kwargs() (the browser New Run form's path into
+    runner.start_run) must actually read strict_region from the request
+    body -- previously nothing in web.py referenced it at all, so no
+    request from the UI could ever reach group_candidates() with
+    include_unmarked=False, no matter what the user typed into Regions.
+    """
+
+    def test_strict_region_true_is_passed_through(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
+                                "regions": "US", "strict_region": True})
+        self.assertTrue(kwargs["strict_region"])
+
+    def test_strict_region_defaults_to_false(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
+                                "regions": "US"})
+        self.assertFalse(kwargs["strict_region"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2306,6 +2306,16 @@ class Handler(BaseHTTPRequestHandler):
             # UK spelling variants.
             regions=[r.strip().upper() for r in (body.get("regions") or "").split(",")
                     if r.strip()] or None,
+            # Off by default: a Regions filter alone only rejects a stream
+            # whose name or group title carries a RECOGNISABLE country
+            # marker. Most aggregated multi-country providers list plenty
+            # of channels with no marker at all, and those sail through
+            # untouched regardless of what's typed into Regions -- exactly
+            # what a user restricting to "US" would not expect. Strict
+            # drops every unmarked candidate too, at the cost of also
+            # dropping genuine single-country channels that just don't
+            # carry a marker.
+            strict_region=bool(body.get("strict_region")),
             # Without this a run matched by different rules than the
             # catalogue search that found the channel in the first place.
             aliases=aliases_mod.read(self.root),

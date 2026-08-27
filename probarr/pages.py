@@ -1360,6 +1360,11 @@ __TOPBAR__
           channel (TLC, CNN, MTV&hellip;) matches every country's copy without
           this &mdash; measured live: 158 UK channels with no region filter
           pulled in 1,565 candidates, mostly other countries' channels.</div>
+        <label class="miniline"><input type="checkbox" id="strict_region">
+          Strict &mdash; also drop channels with no recognisable country
+          marker at all. Without this, Regions only rejects candidates it can
+          positively identify as a DIFFERENT country; unmarked candidates
+          (common on aggregated providers) still get through.</label>
       </div>
     </div>
 
@@ -1496,6 +1501,7 @@ $("start").addEventListener("click", async ()=>{
     wantlist: $("wantlist").value,
     epg: $("epgselect").value === "__custom__" ? $("epg").value : $("epgselect").value,
     regions: $("regions").value,
+    strict_region: $("strict_region").checked,
     concurrency: $("concurrency").value,
     run_id: $("run_id").value.trim(),
     // Recorded on the run, which is what lets Curate inherit this lineup's
