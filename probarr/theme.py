@@ -4,6 +4,7 @@ Deliberately styled after the *arr applications (Sonarr/Radarr/Prowlarr): dark
 slate ground, a single accent, dense information rows. Anyone arriving from
 that stack should not have to learn a new visual grammar to read this.
 """
+from . import __version__
 
 CSS = """
 :root{
@@ -30,6 +31,8 @@ header.topbar{position:sticky;top:0;z-index:50;background:var(--bg2);
   text-decoration:none;display:inline-block}
 .brand span{color:var(--accent)}
 a.brand:hover{opacity:.8}
+.brand-version{font-weight:400;font-size:11px;color:var(--faint);
+  letter-spacing:normal;margin-left:6px}
 .nav{display:flex;gap:6px;align-items:center}
 .nav a{text-decoration:none}
 .nav button.on{background:var(--panel2);border-color:var(--faint);color:var(--text)}
@@ -159,8 +162,9 @@ def topbar(label="", active="", right="", home=True):
     no obvious home in the UI at all -- there was no way to begin a run
     without already knowing the CLI.
     """
-    brand = ('<a class="brand" href="/">prob<span>arr</span></a>' if home
-             else '<div class="brand">prob<span>arr</span></div>')
+    ver = f'<span class="brand-version">v{__version__}</span>'
+    brand = ((f'<a class="brand" href="/">prob<span>arr</span></a>{ver}') if home
+             else f'<div class="brand">prob<span>arr</span></div>{ver}')
     nav = ""
     newrun = nav = ""
     if home:

@@ -1,13 +1,16 @@
 # Per-provider Dispatcharr accounts, instead of the shared "custom" one
 
-Status: **shipped and verified live (2026-08-25)**, for one provider on one
-instance. `mybunny`'s Dispatcharr account (`BunnyCustom`) now natively
-parses the real catalog, and a fresh push after clearing out the old
-custom-stream channels came back **100% native (371/371 stream
-references across 124 channels), 0% custom**. What remains open is
-generalising this from "one provider, corrected by hand" to something
-every provider gets automatically -- see Open questions, most of which
-narrowed or resolved during the build but a few of which are still real.
+Status: core enforcement **shipped and verified live (2026-08-25)**, for
+one provider on one instance. `mybunny`'s Dispatcharr account
+(`BunnyCustom`) now natively parses the real catalog, and a fresh push
+after clearing out the old custom-stream channels came back **100% native
+(371/371 stream references across 124 channels), 0% custom**.
+
+Opt-in auto-creation of a provider's account **shipped 2026-08-26, not yet
+verified live** -- see "Auto-creation (opt-in), and a bug it surfaced"
+below, including a real caller bug that fix uncovered and corrected. What
+remains open is generalising further -- migration for un-wiped providers,
+naming/collision on rename -- see Open questions.
 
 ## The problem
 
@@ -174,18 +177,57 @@ curated -- which makes sense in hindsight: candidates that never matched
 anything natively were disproportionately the ones already excluded from
 curation for other reasons (disabled provider groups, dead streams).
 
+## Auto-creation (opt-in), and a bug it surfaced
+
+The first open question below -- "nothing auto-creates a Dispatcharr
+account for a new provider" -- now has a partial answer:
+`Dispatcharr.get_or_create_account_for_source()` (`sources/dispatcharr.py`)
+creates the missing account itself, given the provider's own spec and name.
+It only ever CREATES, never renames or re-points an existing one (see the
+method's own docstring on why: the naming/collision question below is still
+unresolved, and guessing which existing account "must be" a given provider
+risks re-pointing the wrong one). Wired into the export push as an opt-in
+checkbox ("Create a native Dispatcharr account for this run's provider",
+off by default) rather than something every push does silently -- creating
+an account is a real, visible change to the user's Dispatcharr instance,
+which felt like it should be a decision made once per push, not assumed.
+
+Because the account is always created with a real, working `server_url`
+(never a URL-less stub -- see "What's confirmed feasible" above), the
+scary false-alarm refresh notification that motivated ruling out the
+"cheap" stub-account shape shouldn't apply here. That specific claim --
+account CREATION, not just correcting an existing one's URL by hand --
+has not been exercised against a live instance; the method's docstring
+flags this explicitly. Confirm it before relying on this against a
+Dispatcharr install that alerts on M3U failures.
+
+**A real bug surfaced while wiring this in**: `enforce_provider_stream_limit()`
+was being called from `web.py`'s `_run_export()` with `prov["spec"]` -- the
+DISPATCHARR connection a push goes INTO -- not the original upstream
+provider's own spec (e.g. mybunny's playlist URL) that `find_account_for_source()`
+actually needs to match against. A `dispatcharr://...` spec can never equal
+a real M3U account's `server_url`, so in production this call was silently
+always a no-op; the shared `"custom"` account's own enforcement (a
+different code path, matched by name not spec) was the only one actually
+running. Fixed by resolving the SOURCE provider's spec from
+`meta["provider_name"]` instead (see `_run_export()`'s new comment) and
+threading that through to both `enforce_provider_stream_limit()` and the
+new opt-in creation call. Caught by a new test
+(`TestRunExportUsesTheSourceProviderSpec`) that asserts what spec string
+actually reaches the client, not just that a PATCH happened -- worth
+noting since the existing unit tests for `enforce_provider_stream_limit()`
+itself all passed the whole time; they exercise the method in isolation
+and never would have caught a caller passing the wrong argument.
+
+While fixing that, also hardened `find_account_for_source()` against a
+falsy spec: a `None` or empty spec used to fall through to the real
+comparison and could match the shared `"custom"` account by coincidence
+(it genuinely has `server_url: None`), silently tightening the wrong
+account for a CLI-driven run with no saved provider behind it. Now
+short-circuits to "no match" instead.
+
 ## Open questions, still real
 
-- **This fixed one provider on one instance, by hand.** `BunnyCustom`'s
-  URL correction was a manual API call during this session, not something
-  probarr's own code did. Nothing here auto-creates or auto-corrects a
-  Dispatcharr account for a NEW provider -- `find_account_for_source()`
-  only finds an account that already matches; if none does, it's silently
-  a no-op and that provider's candidates keep landing in the shared
-  `"custom"` fallback exactly as before. Whether probarr's setup flow
-  should offer to create/fix the matching account automatically (and
-  trigger the refresh, and accept the one-time notification that comes
-  with it -- see below) is the real remaining design decision.
 - **Migration for existing custom-stream channels on other providers**:
   this session's channels self-healed because Dispatcharr had already been
   wiped clean and re-pushed from scratch. A provider whose channels were
@@ -202,9 +244,11 @@ curation for other reasons (disabled provider groups, dead streams).
   old account until something (a human, or future code) points one at the
   other again.
 - **The account-creation refresh notification**: still untested whether it
-  can be suppressed or pre-empted. Not hit this time because `BunnyCustom`
-  already existed -- it was corrected, not created. Relevant again the
-  moment auto-creation (above) becomes real.
+  can be suppressed or pre-empted, and still untested whether it even fires
+  as a visible failure now that auto-creation (above) always supplies a
+  real `server_url` rather than an empty stub -- the theory is that it
+  shouldn't, but nothing has exercised account CREATION (as opposed to
+  correcting an existing one's URL by hand) against a live instance yet.
 - **Rate limits while doing this work**: Dispatcharr's own API throttles
   rapid repeated `/api/accounts/token/` calls (confirmed live -- 429s from
   re-authenticating too quickly, twice, during this build). probarr's own

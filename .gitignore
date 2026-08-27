@@ -12,9 +12,11 @@ selection*.json
 .env
 *.env
 !.env.example
+.env.*
 secrets.*
 *.pem
 *.key
+*.token
 
 # --- Python ---
 __pycache__/

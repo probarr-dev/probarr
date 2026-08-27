@@ -9,6 +9,7 @@ container needs no extra layer to run it.
 """
 import dataclasses
 import datetime
+from collections import Counter
 import hashlib
 import html
 import json
@@ -42,7 +43,8 @@ from .sources.base import Stream
 from .sources import dispatcharr as dispatcharr_mod
 from .sources.dispatcharr import client_from_spec, base_url_of
 from .store import RunStore, InvalidRunId
-from .normalize import Normalizer, group_candidates, declared_quality_rank
+from .normalize import (Normalizer, group_candidates, declared_quality_rank,
+                        split_group_title)
 from .probe import ProbeOptions, probe
 from .theme import CSS, topbar
 from .verify import annotate_placeholders
@@ -454,6 +456,9 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json", 403)
 
         if path == "/api/settings":
+            if not self._same_origin():
+                return self._send(json.dumps({"error": "cross-origin write rejected"}),
+                                  "application/json", 403)
             body, sent = self._json_body()
             if sent:
                 return
@@ -470,6 +475,9 @@ class Handler(BaseHTTPRequestHandler):
                 "application/json")
 
         if path == "/api/backup/import":
+            if not self._same_origin():
+                return self._send(json.dumps({"error": "cross-origin write rejected"}),
+                                  "application/json", 403)
             # A restore rewrites providers, lineups, wantlists and every
             # run's own state in place -- deliberately no merge, the backup
             # IS the new truth, same reasoning as any other restore. 200MB
@@ -2730,6 +2738,11 @@ class Handler(BaseHTTPRequestHandler):
         regions = [r.strip().upper() for r in regions.split(",") if r.strip()] \
             if isinstance(regions, str) and regions.strip() else None
 
+        active_only = bool(body.get("active_only")) and prov["scheme"] == "dispatcharr"
+
+        if active_only:
+            return self._browse_dispatcharr_active(prov)
+
         try:
             streams = load_source(prov["spec"])
         except Exception as e:
@@ -2746,11 +2759,51 @@ class Handler(BaseHTTPRequestHandler):
             # "BBC One" rather than "UKFHD | BBC One HD [Multi-Audio]" -- and
             # so the most natural default label for the group.
             best = min(names, key=len)
+            # Most candidates in a pool share the same source group-title;
+            # take the most common non-empty one as the pool's group.
+            group_titles = [c.group for c in cands if getattr(c, "group", None)]
+            group_title = Counter(group_titles).most_common(1)[0][0] if group_titles else ""
+            country, category = split_group_title(group_title)
             channels.append({"key": key, "name": best, "count": len(cands),
-                            "examples": names[:6]})
+                            "examples": names[:6], "group": category,
+                            "country": country or ""})
         channels.sort(key=lambda c: c["name"].lower())
 
-        self._send(json.dumps({"channels": channels, "total_streams": len(streams)}),
+        groups = sorted({c["group"] for c in channels if c["group"]})
+        countries = sorted({c["country"] for c in channels if c["country"]})
+
+        self._send(json.dumps({"channels": channels, "total_streams": len(streams),
+                               "groups": groups, "countries": countries}),
+                   "application/json")
+
+    def _browse_dispatcharr_active(self, prov):
+        """Browse's Dispatcharr-only path: the curated active lineup, not
+        every raw stream Dispatcharr has ever ingested from any M3U account.
+
+        A Dispatcharr instance commonly carries tens of thousands of raw
+        provider streams but only a couple hundred actually assigned to
+        channels an operator watches -- the rest is ingestion noise from
+        every M3U account it has ever pointed at, most of it irrelevant to
+        "what do I want in my wantlist". This mirrors that curated view
+        instead, one row per channel (no text-grouping needed -- Dispatcharr
+        already did that), with the channel's real category as `group` so
+        the UI can offer it as a filter.
+        """
+        try:
+            client = client_from_spec(prov["spec"])
+            lineup = client.active_lineup()
+        except Exception as e:
+            return self._send(json.dumps({"error": str(e)[:400]}),
+                              "application/json", 502)
+
+        channels = [{"key": "dispatcharr:%s" % c["id"], "name": c["name"],
+                     "count": 1, "examples": [c["name"]], "group": c["group"]}
+                    for c in lineup]
+        channels.sort(key=lambda c: c["name"].lower())
+        groups = sorted({c["group"] for c in channels if c["group"]})
+
+        self._send(json.dumps({"channels": channels, "total_streams": len(lineup),
+                               "groups": groups}),
                    "application/json")
 
     def _start_run(self, body):
@@ -4043,6 +4096,13 @@ class Handler(BaseHTTPRequestHandler):
         # prune is scoped to groups this push itself vacated.
         prune_empty = body.get("prune_empty_groups", True)
         group_name = (body.get("group_name") or "").strip() or None
+        # Opt-in, off by default: creating a Dispatcharr M3U account is a
+        # real, visible change to the user's Dispatcharr instance (a new
+        # account in their UI, an immediate one-time refresh attempt), not
+        # something to do silently on every push just because it's possible
+        # -- see docs/design/per-provider-m3u-accounts.md's open question on
+        # this. A push that doesn't ask for it behaves exactly as before.
+        create_account = bool(body.get("create_account"))
         # Remembered on the way in, not on success: these are the answers to
         # "how do you push", and they are the same answers next time whether
         # or not this particular push happened to work.
@@ -4067,7 +4127,7 @@ class Handler(BaseHTTPRequestHandler):
                                # channel asked for; quietly destroying others
                                # alongside it is the surprise the whole
                                # preview-then-push model exists to prevent.
-                               not channel_key),
+                               not channel_key, create_account),
                          daemon=True).start()
         self._send(json.dumps({"ok": True, "started": True,
                                "total": len(curated)}), "application/json")
@@ -4137,7 +4197,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _run_export(self, store, prov, provider_name, curated, fallback_mode,
                     group_name, default_group_name, prune_empty=True,
-                    apply_removals=True):
+                    apply_removals=True, create_account=False):
         """The actual push, run off the request thread. See _export_dispatcharr."""
         # A push is the one operation that creates a group or empties one, so
         # the cached group list is dropped here rather than left to expire.
@@ -4145,6 +4205,23 @@ class Handler(BaseHTTPRequestHandler):
         try:
             client = client_from_spec(prov["spec"])
             meta = store.read_meta()
+            # find_account_for_source() (and, below, the optional
+            # get_or_create_account_for_source()) match against the ORIGINAL
+            # upstream provider's own spec -- e.g. mybunny's playlist URL --
+            # never `prov["spec"]`, which is the DISPATCHARR connection this
+            # push is going INTO, a completely different string that could
+            # never equal any M3U account's server_url. meta["provider_name"]
+            # names that original provider when the run came from probarr's
+            # own saved list (the normal case); its full spec (credentials
+            # included) is looked up fresh here rather than trusted from meta,
+            # since meta["source"] is deliberately saved with its query
+            # string stripped (see runner.start_run) and so can never match
+            # exactly. A CLI-driven run with no saved provider behind it has
+            # no exact spec to match against at all -- source_spec stays
+            # None, and both calls below are the same no-op they already
+            # were before this existed.
+            source_prov = providers_mod.get(self.root, meta.get("provider_name") or "")
+            source_spec = source_prov["spec"] if source_prov else None
             # A candidate's stream can be reused directly ONLY when it
             # already belongs to THIS target instance -- checked twice,
             # because either signal alone can be wrong: provider_name is
@@ -4209,6 +4286,17 @@ class Handler(BaseHTTPRequestHandler):
             # provider was verified against.
             client.enforce_custom_stream_limit(
                 store.read_meta().get("concurrency"), log=log_lines.append)
+            # Opt-in: create/link this provider's own Dispatcharr M3U account
+            # BEFORE enforcing its limit below, so a push that asks for this
+            # can go from "no matching account" to "tightened" in the same
+            # run instead of needing a second push once the account exists.
+            # See get_or_create_account_for_source()'s docstring for why this
+            # is never attempted automatically, and never for a spec that
+            # isn't a plain playlist URL.
+            if create_account and source_spec:
+                client.get_or_create_account_for_source(
+                    source_spec, meta.get("provider_name") or provider_name,
+                    log=log_lines.append)
             # If Dispatcharr ALSO has a real M3U account for this exact
             # provider (see docs/design/per-provider-m3u-accounts.md), keep
             # its own max_streams in step too -- that account's limit is
@@ -4218,7 +4306,7 @@ class Handler(BaseHTTPRequestHandler):
             # accounting regardless of which account it's filed under. A
             # no-op when no such account exists yet.
             client.enforce_provider_stream_limit(
-                prov["spec"], store.read_meta().get("concurrency"),
+                source_spec, store.read_meta().get("concurrency"),
                 log=log_lines.append)
             summary = dispatcharr_export.push(
                 client, channels, group_name=group_name,

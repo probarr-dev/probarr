@@ -265,13 +265,13 @@ _PLATFORM_BRAND_REGIONS = {
 # -- evidenced directly from labeled examples where the ONLY country signal
 # anywhere on the stream was this bracket code.
 _BRACKET_COUNTRY_CODES = {
-    "UK": "UK", "GB": "UK", "US": "US", "USA": "US", "CA": "CA", "MX": "MX",
-    "AR": "AR", "BR": "BR", "CO": "CO", "CL": "CL", "PE": "PE", "EC": "EC",
-    "VE": "VE", "PA": "PA", "UY": "UY", "PY": "PY", "BO": "BO", "DO": "DO",
-    "PT": "PT", "ES": "ES", "IT": "IT", "FR": "FR", "DE": "DE", "NL": "NL",
-    "PL": "PL", "AT": "AT", "RO": "RO", "RU": "RU", "SE": "SE", "NO": "NO",
-    "DK": "DK", "FI": "FI", "TR": "TR", "IN": "IN", "PK": "PK", "ZA": "ZA",
-    "AU": "AU", "NZ": "NZ", "DZ": "DZ",
+    "UK": "UK", "GB": "UK", "US": "US", "USA": "US", "CA": "CA", "CAN": "CA",
+    "MX": "MX", "AR": "AR", "BR": "BR", "CO": "CO", "CL": "CL", "PE": "PE",
+    "EC": "EC", "VE": "VE", "PA": "PA", "UY": "UY", "PY": "PY", "BO": "BO",
+    "DO": "DO", "PT": "PT", "ES": "ES", "IT": "IT", "FR": "FR", "DE": "DE",
+    "NL": "NL", "PL": "PL", "AT": "AT", "RO": "RO", "RU": "RU", "SE": "SE",
+    "NO": "NO", "DK": "DK", "FI": "FI", "TR": "TR", "IN": "IN", "PK": "PK",
+    "ZA": "ZA", "AU": "AU", "NZ": "NZ", "DZ": "DZ",
 }
 
 
@@ -306,6 +306,86 @@ def group_of(group_title):
     if first_word in _BRACKET_COUNTRY_CODES:
         return _BRACKET_COUNTRY_CODES[first_word]
     return None
+
+
+# Delimiters seen between a country marker and the rest of a group-title --
+# Dispatcharr's own convention pipes them ("UK | Amazon Events"), other
+# panels use a colon or bare space. Reuses the same separator set region_of()
+# builds its prefix/suffix regexes from, so a new delimiter never needs
+# provider-specific configuration -- see the module docstring.
+_GROUP_SEP_RE = re.compile(rf"^{_SEP}+")
+
+
+def split_group_title(group_title):
+    """(country, category) for Browse Channels' two-level filter.
+
+    country is a normalised code (e.g. "UK", "US") or None when the
+    group-title carries no recognisable country marker at all -- the
+    category is then the whole original string, unchanged. Complements
+    group_of() (country only) by also returning the leftover text once the
+    matched country token and its adjacent separator are stripped, so a
+    provider's category name ("Amazon Events", "Sports HD") survives
+    whichever delimiter convention it uses.
+    """
+    if not group_title:
+        return None, ""
+    folded = re.sub(r"[^A-Z ]", "", group_title.upper()).strip()
+    if not folded:
+        return None, group_title
+
+    # Full country name, e.g. "Canada Amazon Prime Linear" -- strip the
+    # matched name itself (which may be multiple words) plus one leading
+    # separator run from the rest of the ORIGINAL string, not the folded
+    # one, so punctuation/casing in the category survives untouched.
+    for name in _LONG_REGION_NAMES_SORTED:
+        m = re.search(rf"(?<![A-Z]){re.escape(name)}(?![A-Z])", folded)
+        if m and m.start() == 0:
+            # Only a LEADING full-name match is stripped into a category --
+            # locating an arbitrary mid-string match in the original
+            # (unfolded) text by offset isn't reliable once folding has
+            # dropped punctuation, so a non-leading match still reports the
+            # country but leaves the category as the untouched original.
+            country = _LONG_REGION_NAMES[name]
+            category = _strip_leading_token(group_title, len(name.split()))
+            return country, category
+        if m:
+            return _LONG_REGION_NAMES[name], group_title
+
+    for brand, region in _PLATFORM_BRAND_REGIONS.items():
+        if brand in folded:
+            return region, group_title
+
+    # Short 2-3 letter country code as a leading OR trailing standalone
+    # word -- the other real convention, distinct from the full-name one
+    # above (see group_of()'s own docstring for evidenced examples).
+    words = folded.split(" ")
+    if words and words[0] in _BRACKET_COUNTRY_CODES:
+        return _BRACKET_COUNTRY_CODES[words[0]], _strip_leading_token(group_title, 1)
+    if len(words) > 1 and words[-1] in _BRACKET_COUNTRY_CODES:
+        return _BRACKET_COUNTRY_CODES[words[-1]], _strip_trailing_token(group_title)
+
+    return None, group_title
+
+
+def _strip_leading_token(text, n_words):
+    """`text` with its first `n_words` words and one following separator run
+    removed -- used to turn "UK | Amazon Events" / "US Sports HD" /
+    "Canada Amazon Prime Linear" into just the category half, keeping
+    whatever separator style and casing the category itself used."""
+    m = re.match(rf"^\s*\S+(?:{_SEP}+\S+){{{n_words - 1}}}", text)
+    if not m:
+        return text.strip()
+    return _GROUP_SEP_RE.sub("", text[m.end():]).strip()
+
+
+def _strip_trailing_token(text):
+    """`text` with its last word and one preceding separator run removed --
+    the mirror of _strip_leading_token, for a trailing country marker
+    ("Cartoon Network | US")."""
+    m = re.search(rf"{_SEP}+\S+$", text)
+    if not m:
+        return text.strip()
+    return text[:m.start()].strip()
 
 
 def group_candidates(streams, normalizer, include_timeshift=False,

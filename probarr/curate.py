@@ -480,6 +480,20 @@ __TOPBAR__
               groups this push empties &mdash; never other empty groups.</span></span>
         </label>
       </div>
+
+      <div class="mfield">
+        <label style="display:flex;gap:7px;align-items:flex-start;font-weight:400">
+          <input type="checkbox" id="dm-create-account" style="margin-top:2px">
+          <span><b style="font-size:12.5px">Create a native Dispatcharr account for this run's provider</b>
+            <span class="d" style="display:block;font-size:11.5px;color:var(--dim)">
+              If Dispatcharr has no M3U account pointed at this run's own
+              provider yet, create one so its streams parse natively and its
+              own connection limit gets enforced there too, instead of
+              everything falling back to the shared "custom" account. Off by
+              default &mdash; this adds a real account to Dispatcharr and
+              triggers its own one-time refresh.</span></span>
+        </label>
+      </div>
       </div>
     </div>
 
@@ -3398,6 +3412,11 @@ async function openDispatchModal(channelKey){
     r.closest(".fbopt").classList.toggle("checked", r.checked);
   });
   document.getElementById("dm-prune").checked = cfg.push_prune !== false;
+  // Never restored, unlike the other options above: creating a Dispatcharr
+  // account is a real infrastructure change, not a routine push setting --
+  // it should be an explicit choice each time, not something that quietly
+  // stays checked from a previous push.
+  document.getElementById("dm-create-account").checked = false;
   document.getElementById("dm-options").style.display = "none";
   document.getElementById("dm-more").textContent = "change";
 
@@ -3698,7 +3717,9 @@ function dmSummary(){
       ? "fallback as its own channel" : "native fallback")+
     (grp ? " &middot; new channels into <b>"+esc(grp)+"</b>" : "")+
     (document.getElementById("dm-prune").checked
-      ? " &middot; tidying emptied groups" : "");
+      ? " &middot; tidying emptied groups" : "")+
+    (document.getElementById("dm-create-account").checked
+      ? " &middot; creating a native account if missing" : "");
 }
 document.getElementById("dm-more").addEventListener("click", () => {
   const box = document.getElementById("dm-options");
@@ -3706,7 +3727,7 @@ document.getElementById("dm-more").addEventListener("click", () => {
   box.style.display = open ? "block" : "none";
   document.getElementById("dm-more").textContent = open ? "done" : "change";
 });
-["dm-prune","dm-group"].forEach(id =>
+["dm-prune","dm-group","dm-create-account"].forEach(id =>
   document.getElementById(id).addEventListener("change", dmSummary));
 document.querySelectorAll('input[name="fbmode"]').forEach(r =>
   r.addEventListener("change", dmSummary));
@@ -3738,6 +3759,8 @@ document.getElementById("dm-push").addEventListener("click", async () => {
                              group_name: document.getElementById("dm-group").value,
                              prune_empty_groups:
                                document.getElementById("dm-prune").checked,
+                             create_account:
+                               document.getElementById("dm-create-account").checked,
                              channel_key: pushChannelKey || undefined})});
     const d = await r.json();
     if(d.error){

@@ -559,3 +559,108 @@ export path that skipped dropped channels silently. Issues and PRs welcome.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Getting started (from the browser)
+
+1. **Providers** — add your IPTV subscription (a playlist URL, or
+   `xtream://`/`dispatcharr://` credentials). "Test connection" confirms it
+   before you save it.
+2. **Wantlists** — optional, but the only realistic option on a large
+   provider: paste or import the channels you actually want.
+3. **+ New Run** — pick a provider and (optionally) a wantlist, hit
+   *Start verifying*. Progress streams live; when it finishes you land
+   straight in Curate.
+4. **Curate** — pick a stream per channel, export the M3U.
+
+Nothing here requires the CLI. It still exists for scripting/cron use, and
+does exactly what the browser flow does under the hood (`probarr/runner.py`
+is the one implementation both share).
+
+## Exporting to Dispatcharr
+
+If you already run Dispatcharr, "Export to Dispatcharr" on the Curate page
+pushes your curated picks straight into it — creates or updates channels,
+sets streams, links logos, re-matches EPG. Same self-healing pattern as a
+plain re-run: run the export again after tweaking your picks and it
+re-asserts rather than duplicates.
+
+The export target is a saved **Provider** — the same concept as a source,
+deliberately. If the run was itself sourced from a saved Dispatcharr
+provider, the export panel defaults to pushing back into that exact
+instance, no extra configuration needed. You can still choose a different
+saved Dispatcharr provider as the target (probe from one place, publish to
+another).
+
+Two fallback strategies, presented as an explicit choice with no default —
+this is a real trade-off, not a technical detail to bury:
+
+- **Native**: one channel, `streams: [primary, fallback]`. Dispatcharr's own
+  failover switches automatically. No lineup clutter; the fallback isn't
+  individually selectable.
+- **Separate channel**: a second channel named `FALLBACK: …`, streaming only
+  the fallback. Doubles the lineup, but it's visible and pickable by hand.
+
+Candidates that already belong to the target Dispatcharr instance reuse
+their existing stream id directly. Everything else is matched by URL
+against every stream the target already has — including ones Dispatcharr
+parsed itself from a real M3U/Xtream account, which take priority over an
+older custom stream sharing the same URL if both exist. Only a URL that
+matches nothing gets a real custom stream created (`is_custom: true`), and
+that match-by-URL is what keeps re-exporting from ever piling up
+duplicates. See
+[docs/design/per-provider-m3u-accounts.md](docs/design/per-provider-m3u-accounts.md)
+for why landing on Dispatcharr's own native streams matters beyond
+tidiness: a real M3U account's connection limit is enforced against Live
+TV playback and VOD together, which a custom stream is invisible to
+regardless of which account it's filed under.
+
+The export panel's "change" options include an opt-in checkbox — off by
+default — to create that real Dispatcharr M3U account for this run's own
+provider if one doesn't exist yet, instead of leaving every candidate to
+fall back to the shared "custom" account. It's off by default because
+creating an account is a real, visible change to your Dispatcharr instance
+(a new entry in its own UI, an immediate one-time refresh), not something
+worth doing silently on every push.
+
+## Browsing a source without probing
+
+`/browse` (linked from Wantlists) is the answer to "I don't have a wantlist
+and don't know what to type." Pick a saved Provider, load it, and probarr
+groups the raw channel names — no ffmpeg, no waiting, near-instant even on a
+huge catalogue, since it's the same text-grouping a run already does before
+probing starts. Forty spellings of the same channel collapse into one row
+with a count and an expandable list of what got grouped, so you can actually
+see the matcher working rather than trust it blindly. Tick what you want,
+save it as a wantlist; saving over an existing name appends rather than
+replacing, so a starter list can be extended as you browse a second
+provider.
+
+## Two things learned from a real buffering report
+
+**Advisory flags, computed on every probe, free:**
+
+- `multi_bitrate_manifest` — the source is a multi-rendition manifest (an
+  HLS master playlist or a DASH `.mpd` with several AdaptationSets), rather
+  than a single fixed-quality stream. Detected by counting video streams in
+  the metadata probe, which was already being fetched.
+- `dash_multi_bitrate` — the stronger, evidenced signal. Tested directly: a
+  channel's DASH source and its HLS fix exposed the *same* four renditions,
+  yet only the DASH one caused real buffering through a relay in production.
+  Variant count alone didn't predict it; container format did. Only this
+  flag carries a ranking penalty — `multi_bitrate_manifest` alone is shown
+  as informational, deliberately not penalised, because the data doesn't
+  support treating it as a fault on its own.
+- `slow_fetch` — the capture took close to real-time or longer to download.
+  Healthy live segments normally arrive far faster than real-time; a source
+  that can't keep up is a genuine buffering signal, computed from timing
+  data already gathered for bitrate measurement.
+
+**Diagnose this channel** (Curate, per channel) — for when one channel
+misbehaves in a real player and a single still frame doesn't explain why.
+Re-probes every candidate for that channel with a longer sample (25s) and
+keeps the video clip instead of discarding it, so you can actually watch
+the few seconds that were measured. Clips are fragmented MP4
+(`frag_keyframe+empty_moov`), not `+faststart` — the latter needs a clean
+process exit to rewrite its index, and a killed or timed-out capture left a
+`moov atom not found` file that no player could open. Fragmented MP4 writes
+its index up front, so a clip stays valid even if the capture is cut short.

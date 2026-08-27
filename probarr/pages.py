@@ -1725,6 +1725,12 @@ __TOPBAR__
       <button class="primary" id="load">Load channels</button>
       <span class="muted" id="loadmsg"></span>
     </div>
+    <div id="dispopts" class="row" style="display:none;margin-top:8px">
+      <label class="miniline" style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="activeonly">
+        Only show my active Dispatcharr lineup (not every provider stream)
+      </label>
+    </div>
   </div>
 
   <div class="card" id="results" style="display:none">
@@ -1732,6 +1738,8 @@ __TOPBAR__
       <div>
         <div class="brtools">
           <input type="search" id="q" placeholder="Filter channels&hellip;">
+          <select id="countryfilter" style="display:none;max-width:160px"></select>
+          <select id="catfilter" style="display:none;max-width:200px"></select>
           <button id="selall">Select visible</button>
           <button id="selnone">Select none</button>
           <span class="brcount" id="brcount"></span>
@@ -1761,6 +1769,7 @@ __TOPBAR__
 <script>
 const $ = id => document.getElementById(id);
 let CHANNELS = [];
+let PROVIDERS = [];
 const CHECKED = new Set();
 
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
@@ -1768,10 +1777,18 @@ function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"
 
 async function loadProviders(){
   const d = await (await fetch("/api/providers")).json();
+  PROVIDERS = d.providers;
   if(!d.providers.length){ $("noproviders").style.display="block"; $("loadbar").style.display="none"; return; }
   $("provider").innerHTML = d.providers.map(p =>
     '<option value="'+esc(p.name)+'">'+esc(p.name)+' ('+esc(p.scheme)+')</option>').join("");
+  syncDispOpts();
 }
+
+function syncDispOpts(){
+  const p = PROVIDERS.find(p => p.name === $("provider").value);
+  $("dispopts").style.display = (p && p.scheme === "dispatcharr") ? "flex" : "none";
+}
+$("provider").addEventListener("change", syncDispOpts);
 async function loadWantlistNames(){
   const d = await (await fetch("/api/wantlists")).json();
   $("wnames").innerHTML = d.wantlists.map(w => '<option value="'+esc(w.name)+'">').join("");
@@ -1785,22 +1802,47 @@ $("load").addEventListener("click", async ()=>{
   try{
     const r = await fetch("/api/browse", {method:"POST",
       headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({provider, regions: $("regions").value})});
+      body: JSON.stringify({provider, regions: $("regions").value,
+                            active_only: $("activeonly").checked})});
     const d = await r.json();
     if(d.error){ $("loadmsg").textContent = "error: "+d.error; return; }
     CHANNELS = d.channels; CHECKED.clear();
     $("loadmsg").textContent = CHANNELS.length+" channels found in "+d.total_streams+" streams";
     $("results").style.display = "block";
+    if(d.countries && d.countries.length){
+      $("countryfilter").style.display = "inline-block";
+      $("countryfilter").innerHTML = '<option value="">All countries</option>' +
+        d.countries.map(c => '<option value="'+esc(c)+'">'+esc(c)+'</option>').join("");
+    } else {
+      $("countryfilter").style.display = "none";
+      $("countryfilter").innerHTML = "";
+    }
+    if(d.groups && d.groups.length){
+      $("catfilter").style.display = "inline-block";
+      $("catfilter").innerHTML = '<option value="">All categories</option>' +
+        d.groups.map(g => '<option value="'+esc(g)+'">'+esc(g)+'</option>').join("");
+    } else {
+      $("catfilter").style.display = "none";
+      $("catfilter").innerHTML = "";
+    }
     renderList();
   }catch(e){ $("loadmsg").textContent = "request failed"; }
   finally{ $("load").disabled = false; }
 });
+$("countryfilter").addEventListener("change", renderList);
+$("catfilter").addEventListener("change", renderList);
 
 function visible(){
   const q = $("q").value.trim().toLowerCase();
-  if(!q) return CHANNELS;
-  return CHANNELS.filter(c => c.name.toLowerCase().includes(q) ||
-    c.examples.some(e => e.toLowerCase().includes(q)));
+  const country = $("countryfilter").value;
+  const cat = $("catfilter").value;
+  return CHANNELS.filter(c => {
+    if(country && c.country !== country) return false;
+    if(cat && c.group !== cat) return false;
+    if(q && !(c.name.toLowerCase().includes(q) ||
+      c.examples.some(e => e.toLowerCase().includes(q)))) return false;
+    return true;
+  });
 }
 
 function renderList(){
@@ -1831,6 +1873,8 @@ document.addEventListener("click", e=>{
   if(tog){ tog.closest(".brrow").classList.toggle("expanded"); return; }
 });
 $("q").addEventListener("input", renderList);
+$("countryfilter").addEventListener("change", renderList);
+$("catfilter").addEventListener("change", renderList);
 $("selall").addEventListener("click", ()=>{ visible().forEach(c=>CHECKED.add(c.key)); renderList(); });
 $("selnone").addEventListener("click", ()=>{ visible().forEach(c=>CHECKED.delete(c.key)); renderList(); });
 

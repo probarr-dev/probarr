@@ -9,6 +9,8 @@ actually shipped more than once.
 
     python3 -m unittest discover -s tests -v
 """
+import datetime
+import io
 import json
 import os
 import pathlib
@@ -20,12 +22,14 @@ import threading
 import time
 import unittest
 import unittest.mock
+import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from probarr import aliases as aliases_mod
-from probarr import curate, lineups, pages, providers, settings, wantlist as wl
-from probarr.normalize import Normalizer, group_candidates, declared_quality_rank
+from probarr import curate, epg, lineups, pages, providers, settings, wantlist as wl
+from probarr.normalize import (Normalizer, group_candidates,
+                               declared_quality_rank, split_group_title)
 from probarr.rank import rank
 from probarr.sources import m3u
 from probarr.sources.base import Stream
@@ -107,6 +111,108 @@ class TestNormalize(unittest.TestCase):
         # A genuinely different service tier must still NOT collapse into
         # the base channel just because this fix touched the same code path.
         self.assertNotEqual(n.key("NL: NPO 1 EXTRA ᴿᴬᵂ NL"), base)
+
+
+class TestSplitGroupTitle(unittest.TestCase):
+    """Country + category split for Browse Channels' two-level filter.
+
+    Real providers spell the country/category boundary differently --
+    Dispatcharr's own convention pipes them ("UK | Amazon Events"), other
+    panels use a colon or bare space, and the country token itself is
+    sometimes a 2-letter code (US, CA) and sometimes 3-letter (USA, CAN).
+    split_group_title() must handle all of these without per-provider
+    configuration, reusing the same tag/separator machinery region_of()
+    and group_of() already rely on.
+    """
+
+    def test_pipe_delimited_country_prefix(self):
+        self.assertEqual(split_group_title("UK | Amazon Events"),
+                         ("UK", "Amazon Events"))
+
+    def test_colon_delimited_country_prefix(self):
+        self.assertEqual(split_group_title("US: Sports"),
+                         ("US", "Sports"))
+
+    def test_space_delimited_country_prefix(self):
+        self.assertEqual(split_group_title("US Sports HD"),
+                         ("US", "Sports HD"))
+
+    def test_three_letter_country_code(self):
+        self.assertEqual(split_group_title("USA | Sports"),
+                         ("US", "Sports"))
+        self.assertEqual(split_group_title("CAN Locals"),
+                         ("CA", "Locals"))
+
+    def test_full_country_name(self):
+        self.assertEqual(split_group_title("Canada Amazon Prime Linear"),
+                         ("CA", "Amazon Prime Linear"))
+
+    def test_no_country_marker_falls_back_to_whole_string_as_category(self):
+        self.assertEqual(split_group_title("Movies"), (None, "Movies"))
+        self.assertEqual(split_group_title(""), (None, ""))
+        self.assertEqual(split_group_title(None), (None, ""))
+
+    def test_ukraine_is_not_mistaken_for_uk(self):
+        # Same class of false positive region_of()/group_of() already guard
+        # against -- a group-title starting with "Ukraine" must not be
+        # split as country=UK, category="raine ...".
+        country, category = split_group_title("Ukraine Sports")
+        self.assertNotEqual(country, "UK")
+        self.assertEqual(category, "Ukraine Sports")
+
+
+class TestBrowseCountryCategory(Temp):
+    """Browse Channels' /api/browse must expose country/category for every
+    provider type, not just Dispatcharr -- Xtream and M3U sources already
+    carry a `group` on each Stream, it just wasn't being split or surfaced.
+    """
+
+    def _handler(self, streams):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: sent.append(body)
+        patches = [
+            unittest.mock.patch.object(
+                web_mod.providers_mod, "get",
+                lambda root, name: {"spec": "m3u://x", "scheme": "m3u"}),
+            unittest.mock.patch.object(web_mod, "load_source", lambda spec: streams),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        return h, sent
+
+    def test_xtream_style_streams_get_country_and_category(self):
+        streams = [
+            Stream(id="1", name="BBC One", url="http://x/1", group="UK | General"),
+            Stream(id="2", name="BBC Two", url="http://x/2", group="UK | General"),
+            Stream(id="3", name="ESPN", url="http://x/3", group="US: Sports"),
+        ]
+        h, sent = self._handler(streams)
+        h._browse({"provider": "prov1"})
+
+        d = json.loads(sent[0])
+        self.assertIn("countries", d)
+        self.assertIn("groups", d)
+        self.assertEqual(sorted(d["countries"]), ["UK", "US"])
+        self.assertEqual(sorted(d["groups"]), ["General", "Sports"])
+        by_name = {c["name"]: c for c in d["channels"]}
+        self.assertEqual(by_name["ESPN"]["country"], "US")
+        self.assertEqual(by_name["ESPN"]["group"], "Sports")
+
+    def test_streams_without_a_recognizable_country_still_get_a_category(self):
+        streams = [Stream(id="1", name="Movie Channel", url="http://x/1",
+                          group="Movies")]
+        h, sent = self._handler(streams)
+        h._browse({"provider": "prov1"})
+
+        d = json.loads(sent[0])
+        self.assertEqual(d["countries"], [])
+        self.assertEqual(d["groups"], ["Movies"])
+        self.assertEqual(d["channels"][0]["country"], "")
+        self.assertEqual(d["channels"][0]["group"], "Movies")
 
 
 class TestWantlist(unittest.TestCase):
@@ -1310,6 +1416,228 @@ class TestPerProviderStreamLimit(unittest.TestCase):
         client.enforce_provider_stream_limit("https://p.tv/m3u", 4)
         self.assertEqual(accounts[0]["max_streams"], 4)
         self.assertEqual(accounts[1]["max_streams"], 4)
+
+    def test_find_account_for_source_never_matches_a_falsy_spec(self):
+        # server_url: None on the shared "custom" account must never be
+        # treated as a match for "no spec known" -- see
+        # find_account_for_source()'s docstring.
+        accounts = [{"id": 1, "name": "custom", "server_url": None, "max_streams": 0}]
+        client, calls = self._client(accounts)
+        self.assertIsNone(client.find_account_for_source(None))
+        self.assertIsNone(client.find_account_for_source(""))
+        self.assertFalse(calls)  # short-circuited before ever hitting the API
+
+    def test_enforce_provider_stream_limit_with_no_spec_is_a_noop(self):
+        accounts = [{"id": 1, "name": "custom", "server_url": None, "max_streams": 0}]
+        client, calls = self._client(accounts)
+        client.enforce_provider_stream_limit(None, 4)
+        self.assertFalse(any(m == "PATCH" for m, *_ in calls))
+
+
+class TestGetOrCreateAccountForSource(unittest.TestCase):
+    """The automated version of docs/design/per-provider-m3u-accounts.md's
+    "step zero" -- creating the real Dispatcharr M3U account a provider
+    needs, instead of that being a manual, by-hand prerequisite.
+    """
+
+    def _client(self, accounts):
+        from probarr.sources.dispatcharr import Dispatcharr
+        c = Dispatcharr("http://x", "u", "p")
+        calls = []
+        created = []
+
+        def fake_api(method, path, body=None):
+            calls.append((method, path, body))
+            if method == "GET" and path == "/api/m3u/accounts/":
+                return accounts
+            if method == "POST" and path == "/api/m3u/accounts/":
+                acct = {"id": 99, **body}
+                created.append(acct)
+                accounts.append(acct)
+                return acct
+            raise AssertionError(f"unexpected call {method} {path}")
+
+        c.api = fake_api
+        return c, calls, created
+
+    def test_creates_an_account_when_none_matches(self):
+        client, calls, created = self._client([])
+        acct = client.get_or_create_account_for_source("https://p.tv/m3u", "mybunny")
+        self.assertEqual(acct["id"], 99)
+        self.assertEqual(created[0]["server_url"], "https://p.tv/m3u")
+        self.assertEqual(created[0]["name"], "mybunny")
+
+    def test_reuses_an_existing_matching_account_without_creating(self):
+        accounts = [{"id": 10, "name": "BunnyCustom",
+                     "server_url": "https://p.tv/m3u", "max_streams": 8}]
+        client, calls, created = self._client(accounts)
+        acct = client.get_or_create_account_for_source("https://p.tv/m3u", "mybunny")
+        self.assertEqual(acct["id"], 10)
+        self.assertFalse(created)
+        self.assertFalse(any(m == "POST" for m, *_ in calls))
+
+    def test_skips_a_non_url_spec_entirely(self):
+        # dispatcharr:// and xtream:// specs have no server_url string a
+        # real M3U account could ever match verbatim -- no-op, not a guess.
+        client, calls, created = self._client([])
+        self.assertIsNone(
+            client.get_or_create_account_for_source("dispatcharr://u:p@host:9191",
+                                                     "mydispatch"))
+        self.assertIsNone(
+            client.get_or_create_account_for_source("xtream://u:p@host:8080", "myx"))
+        self.assertFalse(calls)
+        self.assertFalse(created)
+
+    def test_skips_an_empty_spec(self):
+        client, calls, created = self._client([])
+        self.assertIsNone(client.get_or_create_account_for_source(None, "mybunny"))
+        self.assertIsNone(client.get_or_create_account_for_source("", "mybunny"))
+        self.assertFalse(calls)
+
+    def test_a_create_failure_is_logged_not_raised(self):
+        from probarr import http
+        client, _, _ = self._client([])
+
+        def failing_api(method, path, body=None):
+            if method == "GET" and path == "/api/m3u/accounts/":
+                return []
+            raise http.HttpError(500, "boom")
+
+        client.api = failing_api
+        logged = []
+        result = client.get_or_create_account_for_source(
+            "https://p.tv/m3u", "mybunny", log=logged.append)
+        self.assertIsNone(result)
+        self.assertTrue(logged)
+
+
+class TestRunExportUsesTheSourceProviderSpec(Temp):
+    """web.py's _run_export() used to pass `prov["spec"]` -- the DISPATCHARR
+    connection being pushed INTO -- to enforce_provider_stream_limit() and
+    get_or_create_account_for_source(), both of which match against the
+    ORIGINAL upstream provider's own spec (e.g. mybunny's playlist URL).
+    A dispatcharr:// spec can never equal a real M3U account's server_url,
+    so that call was silently always a no-op. This exercises the fix: the
+    saved SOURCE provider's spec (looked up via meta["provider_name"]) is
+    what actually gets passed.
+    """
+
+    def _run(self, create_account):
+        from probarr import web as web_mod, providers as providers_mod
+        from probarr.store import RunStore
+
+        providers_mod.save(self.root, "mybunny", "https://p.tv/m3u?u=x&p=y")
+        providers_mod.save(self.root, "mydispatch", "dispatcharr://u:p@host:9191")
+
+        store = RunStore(self.root, "run1")
+        store.write_meta({"provider_name": "mybunny", "source": "https://p.tv/m3u",
+                          "concurrency": 2})
+        store.write_push_status({"state": "running", "phase": "resolving",
+                                 "done": 0, "total": 0, "started": 0})
+
+        web_mod.Handler.root = self.root
+        handler = web_mod.Handler.__new__(web_mod.Handler)
+
+        fake_client = unittest.mock.MagicMock()
+        prov = {"name": "mydispatch", "spec": "dispatcharr://u:p@host:9191"}
+
+        with unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client), \
+             unittest.mock.patch.object(handler, "_forget_remote_groups"), \
+             unittest.mock.patch.object(handler, "_apply_removals", return_value=[]), \
+             unittest.mock.patch.object(handler, "_resolve_epg_overrides",
+                                        return_value=({}, set())), \
+             unittest.mock.patch.object(web_mod, "dispatcharr_export") as fake_export:
+            fake_export.push.return_value = {}
+            handler._run_export(store, prov, "mydispatch", [], "native",
+                               None, "probarr", prune_empty=True,
+                               apply_removals=False, create_account=create_account)
+
+        return fake_client
+
+    def test_enforce_provider_stream_limit_gets_the_source_spec_not_the_target(self):
+        client = self._run(create_account=False)
+        client.enforce_provider_stream_limit.assert_called_once_with(
+            "https://p.tv/m3u?u=x&p=y", 2, log=unittest.mock.ANY)
+        client.get_or_create_account_for_source.assert_not_called()
+
+    def test_create_account_opt_in_also_uses_the_source_spec(self):
+        client = self._run(create_account=True)
+        client.get_or_create_account_for_source.assert_called_once_with(
+            "https://p.tv/m3u?u=x&p=y", "mybunny", log=unittest.mock.ANY)
+
+
+class TestBrowseDispatcharrActiveLineup(Temp):
+    """probarr-oz2: Browse Channels for a dispatcharr:// provider used to
+    always show every raw stream Dispatcharr has ever ingested from any M3U
+    account (tens of thousands on a real instance) instead of the operator's
+    actual curated lineup. `active_only` opts into the curated view -- one
+    row per Dispatcharr channel, with its real category as `group` -- and is
+    silently ignored for any non-dispatcharr provider.
+    """
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        return h, web_mod
+
+    def test_active_only_uses_curated_lineup_not_raw_streams(self):
+        providers.save(self.root, "mydispatch", "dispatcharr://u:p@host:9191")
+        handler, web_mod = self._handler()
+
+        fake_client = unittest.mock.MagicMock()
+        fake_client.active_lineup.return_value = [
+            {"id": 1, "name": "Beyond Paradise", "group": "Niko TV", "tvg_id": ""},
+            {"id": 2, "name": "24/7 Eureka", "group": "24/7", "tvg_id": ""},
+        ]
+
+        with unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client), \
+             unittest.mock.patch.object(web_mod, "load_source") as fake_load, \
+             unittest.mock.patch.object(handler, "_send") as fake_send:
+            handler._browse({"provider": "mydispatch", "active_only": True})
+
+        fake_load.assert_not_called()
+        fake_client.active_lineup.assert_called_once()
+        body = json.loads(fake_send.call_args[0][0])
+        self.assertEqual(len(body["channels"]), 2)
+        self.assertEqual(body["total_streams"], 2)
+        self.assertEqual(sorted(body["groups"]), ["24/7", "Niko TV"])
+        names = {c["name"]: c["group"] for c in body["channels"]}
+        self.assertEqual(names["Beyond Paradise"], "Niko TV")
+
+    def test_active_only_ignored_for_non_dispatcharr_provider(self):
+        providers.save(self.root, "mybunny", "https://p.tv/m3u?u=x&p=y")
+        handler, web_mod = self._handler()
+
+        from probarr.sources.base import Stream
+        streams = [Stream(id="1", name="BBC One", url="http://x/1", group="",
+                          logo="", tvg_id="", source="mybunny", attrs={})]
+
+        with unittest.mock.patch.object(web_mod, "load_source",
+                                        return_value=streams) as fake_load, \
+             unittest.mock.patch.object(web_mod, "client_from_spec") as fake_client_from_spec, \
+             unittest.mock.patch.object(handler, "_send") as fake_send:
+            handler._browse({"provider": "mybunny", "active_only": True})
+
+        fake_load.assert_called_once()
+        fake_client_from_spec.assert_not_called()
+        body = json.loads(fake_send.call_args[0][0])
+        self.assertEqual(body["total_streams"], 1)
+
+    def test_dispatcharr_error_surfaces_as_502(self):
+        providers.save(self.root, "mydispatch", "dispatcharr://u:p@host:9191")
+        handler, web_mod = self._handler()
+
+        with unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        side_effect=RuntimeError("unreachable")), \
+             unittest.mock.patch.object(handler, "_send") as fake_send:
+            handler._browse({"provider": "mydispatch", "active_only": True})
+
+        args, kwargs = fake_send.call_args
+        status = args[2] if len(args) > 2 else kwargs.get("status")
+        self.assertEqual(status, 502)
 
 
 class TestReferenceLineups(Temp):
@@ -4030,7 +4358,7 @@ class TestCodeReviewFixes(Temp):
             f.write(b'<?xml version="1.0"?><tv><channel id="c1">'
                     b'<display-name>X</display-name></channel></tv>')
         stream = epg_mod._open(path)
-        inner = stream._wrapped
+        inner = stream.fileobj
         stream.close()
         self.assertTrue(inner.closed,
                         "GzipFile.close() leaves its fileobj open unless "
@@ -4200,6 +4528,150 @@ class TestGetOrCreateLogoDoesNotRescan(unittest.TestCase):
     def test_a_duplicate_still_resolves_to_the_existing_row(self):
         c = self._client([{"id": 5, "name": "BBC One", "url": "http://l/1.png"}])
         self.assertEqual(c.get_or_create_logo("BBC One", "http://l/1.png"), 5)
+
+
+class TestEpgMemory(unittest.TestCase):
+    """probarr-6qy: a large XMLTV feed should not blow up memory.
+
+    _open() must stream the source into iterparse rather than reading the
+    whole payload into a bytes object first, and Guide.load()'s iterparse
+    loop must not let the tree root accumulate an ever-growing list of
+    emptied child stubs -- elem.clear() alone does not do that.
+    """
+
+    def _write_xmltv(self, path, n_channels=50, n_programmes=500):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n<tv>\n')
+            for i in range(n_channels):
+                f.write(f'<channel id="ch{i}"><display-name>Ch {i}'
+                        f'</display-name></channel>\n')
+            at = datetime.datetime.now(datetime.timezone.utc)
+            for i in range(n_programmes):
+                start = at + datetime.timedelta(minutes=i)
+                stop = start + datetime.timedelta(minutes=1)
+                cid = f"ch{i % n_channels}"
+                f.write(
+                    f'<programme start="{start.strftime("%Y%m%d%H%M%S +0000")}" '
+                    f'stop="{stop.strftime("%Y%m%d%H%M%S +0000")}" channel="{cid}">'
+                    f'<title>Show {i}</title></programme>\n')
+            f.write("</tv>\n")
+
+    def test_open_does_not_buffer_whole_file_before_parsing(self):
+        # A local file source should stream from disk, not front-load the
+        # entire contents into a single in-memory bytes/BytesIO copy sized
+        # to the file. We check this via the object _open() hands back:
+        # it must not be a BytesIO holding the full raw bytes.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "guide.xml")
+            self._write_xmltv(path)
+            size_on_disk = os.path.getsize(path)
+            stream = epg._open(path)
+            try:
+                self.assertNotIsInstance(
+                    stream, io.BytesIO,
+                    "_open() should stream from disk, not buffer the full "
+                    "file into a BytesIO before iterparse ever starts")
+            finally:
+                stream.close()
+            self.assertGreater(size_on_disk, 0)
+
+    def test_load_does_not_retain_ancestor_stubs_for_every_element(self):
+        # elem.clear() only empties the current element -- it does not
+        # detach it from its parent. Guide.load() must actively drop
+        # processed children from the tree root (or otherwise avoid
+        # accumulating one stub per channel/programme ever seen), or peak
+        # memory grows without bound on a large aggregated feed. We patch
+        # ET.iterparse to snoop on the root's child count as Guide.load()
+        # runs its real loop.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "guide.xml")
+            self._write_xmltv(path, n_channels=20, n_programmes=2000)
+
+            real_iterparse = ET.iterparse
+            max_root_children = []
+
+            def spying_iterparse(source, events=()):
+                root = []
+                for event, elem in real_iterparse(source, events=events):
+                    if event == "start" and not root:
+                        root.append(elem)
+                    if root:
+                        max_root_children.append(len(root[0]))
+                    yield event, elem
+
+            with unittest.mock.patch.object(epg.ET, "iterparse", spying_iterparse):
+                g = epg.Guide.load(path)
+
+            self.assertLess(
+                max(max_root_children), 2020,
+                "Guide.load() leaves an empty stub on the tree root for "
+                "every channel/programme element it has ever consumed -- "
+                "elem.clear() alone doesn't detach it from its parent")
+            self.assertGreater(len(g.programmes), 0)
+
+
+class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
+    """probarr-oz2: the Regions box on the New Run page never actually
+    restricted anything, because the web UI had no way to set
+    strict_region and group_candidates() defaults to including unmarked
+    candidates. A channel with no recognisable country marker in its name
+    OR group title sails through a Regions filter untouched -- exactly
+    what "no matter what is entered, US, USA... it still imports from
+    other countries" describes on an aggregated multi-country provider,
+    since plenty of its channels carry no marker at all.
+    """
+
+    def _streams(self):
+        from probarr.sources.base import Stream
+        return [
+            Stream(id="1", name="US: CNN", url="http://x/1"),
+            Stream(id="2", name="UK: CNN", url="http://x/2"),
+            Stream(id="3", name="CNN", url="http://x/3"),   # no marker at all
+        ]
+
+    def test_unmarked_channel_passes_a_region_filter_by_default(self):
+        from probarr.normalize import Normalizer, group_candidates
+        pools = group_candidates(self._streams(), Normalizer(), regions=["US"])
+        ids = {s.id for pool in pools.values() for s in pool}
+        self.assertIn("1", ids, "the US-marked channel must pass")
+        self.assertNotIn("2", ids, "the UK-marked channel must be rejected")
+        self.assertIn("3", ids,
+                      "current (surprising) default: an unmarked channel "
+                      "passes a Regions filter it was never shown to match")
+
+    def test_strict_mode_drops_the_unmarked_channel_too(self):
+        from probarr.normalize import Normalizer, group_candidates
+        pools = group_candidates(self._streams(), Normalizer(), regions=["US"],
+                                 include_unmarked=False)
+        ids = {s.id for pool in pools.values() for s in pool}
+        self.assertEqual(ids, {"1"},
+                         "strict mode must keep only the positively-US-marked "
+                         "channel")
+
+
+class TestRunKwargsWiresStrictRegion(Temp):
+    """The fix: _run_kwargs() (the browser New Run form's path into
+    runner.start_run) must actually read strict_region from the request
+    body -- previously nothing in web.py referenced it at all, so no
+    request from the UI could ever reach group_candidates() with
+    include_unmarked=False, no matter what the user typed into Regions.
+    """
+
+    def test_strict_region_true_is_passed_through(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
+                                "regions": "US", "strict_region": True})
+        self.assertTrue(kwargs["strict_region"])
+
+    def test_strict_region_defaults_to_false(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
+                                "regions": "US"})
+        self.assertFalse(kwargs["strict_region"])
 
 
 class TestSettingsPostIsAlsoRedacted(Temp):

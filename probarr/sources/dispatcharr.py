@@ -149,6 +149,28 @@ class Dispatcharr:
     def channels(self):
         return self.paged("/api/channels/channels/")
 
+    def active_lineup(self):
+        """The operator's actual curated channel list, with real category names.
+
+        channels() returns Dispatcharr's assigned/active lineup already --
+        this just resolves each channel's bare `channel_group_id` against
+        groups() so callers get a human name ("Movies", "24/7") instead of
+        an opaque id, which is what Browse Channels' category filter needs.
+        A Dispatcharr instance can carry thousands of groups from raw M3U
+        ingestion that were never assigned to any channel; only ones actually
+        referenced here are relevant, so no attempt is made to return the
+        rest.
+        """
+        names = {g["id"]: g.get("name") or "" for g in self.groups()}
+        out = []
+        for c in self.channels():
+            out.append({
+                "id": c["id"], "name": c.get("name") or "",
+                "group": names.get(c.get("channel_group_id"), ""),
+                "tvg_id": c.get("tvg_id") or "",
+            })
+        return out
+
     def active_streams(self):
         """What Dispatcharr is serving to a viewer RIGHT NOW.
 
@@ -474,7 +496,16 @@ class Dispatcharr:
         comparison that cannot produce a false positive. If nothing matches
         exactly, the honest answer is "no such account exists (yet)", not a
         guess.
+
+        `spec` falsy short-circuits to "no match" rather than falling through
+        to the comparison below -- an empty/missing spec (a CLI-driven run
+        with no saved provider behind it, say) would otherwise equal a real
+        account's own `server_url: None` (the shared "custom" account has
+        exactly that) purely by coincidence, and silently tighten the wrong
+        account.
         """
+        if not spec:
+            return None
         return next((a for a in self.api("GET", "/api/m3u/accounts/")
                     if a.get("server_url") == spec), None)
 
@@ -508,6 +539,62 @@ class Dispatcharr:
         if not acct:
             return
         self._tighten_max_streams(acct, limit, log, f"'{acct['name']}' M3U account")
+
+    def get_or_create_account_for_source(self, spec, name, log=None):
+        """The real Dispatcharr M3U account matching `spec`, creating one if
+        Dispatcharr doesn't have it yet -- the automated version of the "step
+        zero" docs/design/per-provider-m3u-accounts.md called out as a manual,
+        by-hand prerequisite (`BunnyCustom`'s server_url, corrected via a raw
+        API call before any of this existed).
+
+        Only attempted for a plain M3U/Xtream playlist URL (`spec` starting
+        with http:// or https://) -- `dispatcharr://` and other non-URL specs
+        have no `server_url` string Dispatcharr could ever match verbatim, so
+        creating an account for one would just be a namespace with nothing to
+        parse. A no-op for those, same as find_account_for_source() already
+        is when nothing matches.
+
+        Deliberately never given a URL-less "stub" server_url -- that shape
+        was ruled out during scoping (see the design doc's "What's confirmed
+        feasible" section): creating an M3U account triggers an immediate,
+        one-time refresh attempt regardless of its periodic-refresh setting,
+        and an empty server_url turns that into a user-visible "downloading
+        failed" notification the moment it's created. Passing `spec` itself
+        (always a real, working playlist URL here) means that first refresh
+        should succeed instead, though this specific path -- account
+        CREATION, as opposed to correcting an existing one's URL by hand --
+        has not itself been exercised against a live instance; confirm this
+        before relying on it against a Dispatcharr install that alerts on
+        M3U failures.
+
+        Only ever CREATES, never renames or re-points an existing account:
+        naming collisions and provider renames/credential rotation are
+        still-open questions in the design doc (see "Naming/collision"), and
+        guessing which existing account "must be" this provider's based on
+        name alone risks re-pointing the wrong one. If an account already
+        exists under `name` but with a different server_url, a second,
+        differently-named account is NOT created either -- Dispatcharr
+        enforces unique M3U account names, so that POST would just fail;
+        surfaced to the caller via `log` rather than swallowed, since the
+        real fix (renaming or correcting the stale account) is a decision
+        for a person, not something to guess at here.
+        """
+        log = log or (lambda msg: None)
+        if not spec or not spec.startswith(("http://", "https://")):
+            return None
+        acct = self.find_account_for_source(spec)
+        if acct:
+            return acct
+        try:
+            created = self.api("POST", "/api/m3u/accounts/",
+                               {"name": name, "server_url": spec, "is_active": True})
+        except http.HttpError as e:
+            log(f"  could not create a Dispatcharr M3U account for "
+               f"'{name}': {e}")
+            return None
+        log(f"  created Dispatcharr M3U account '{name}' for its own "
+           f"provider (server_url matched, was missing before this push)")
+        return created
 
     def get_or_create_custom_stream(self, name, url):
         """Dispatcharr stream id for `url`, creating a custom stream if needed.
