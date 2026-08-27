@@ -266,6 +266,26 @@ main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
 .dm-row .pname{min-width:150px;font-weight:600}
 .dm-row .pchg{color:var(--dim)}
 .dm-row .pchg code{color:var(--text);background:var(--bg);padding:0 3px;border-radius:2px}
+/* Blocked/relink rows are the ones a push refuses to touch until resolved
+   -- they need real space to show what's actually at stake (existing vs
+   incoming), not a line squeezed into a 460px popup alongside 140 dimmed
+   "no change" rows. See #dispatchmodal .modalbox below. */
+.dm-row.blocked{border-left-color:var(--bad);background:rgba(240,80,80,.08);
+  flex-direction:column;align-items:stretch;padding:9px 10px;gap:4px}
+.dm-row.relink{border-left-color:var(--dup);background:rgba(167,116,217,.08);
+  flex-direction:column;align-items:stretch;padding:9px 10px;gap:4px}
+.dm-row.blocked .pname,.dm-row.relink .pname{min-width:0}
+.dm-row.blocked .pchg{color:var(--bad)}
+.dm-row.relink .pchg{color:var(--dup)}
+.dm-conflict-detail{font-size:11.5px;color:var(--dim)}
+.dm-conflict-actions{display:flex;gap:8px;margin-top:2px}
+.dm-conflict-actions button{font-size:11.5px;padding:4px 9px}
+.dm-unchanged-count{font-size:12px;color:var(--faint);padding:4px 6px}
+.dm-plan .warn{background:rgba(240,173,78,.1);border:1px solid var(--warn);color:var(--warn);
+  border-radius:var(--radius);padding:7px 9px;font-size:12px;margin-bottom:8px}
+#dispatchmodal .modalbox{width:min(1400px,95vw);max-width:95vw;height:88vh;
+  display:flex;flex-direction:column}
+#dispatchmodal .dm-plan{flex:1;max-height:none}
 .cat-results{max-height:300px;overflow:auto;display:flex;flex-direction:column;gap:4px}
 .cat-hit{display:flex;gap:9px;align-items:center;padding:6px 8px;background:var(--bg2);
   border:1px solid var(--line);border-radius:var(--radius);font-size:12.5px;cursor:pointer}
@@ -3318,6 +3338,7 @@ async function openDispatchModal(channelKey){
   const _push = document.getElementById("dm-push");
   _push.disabled = true; _push.textContent = "Push"; delete _push.dataset.done;
   document.getElementById("dm-preview").disabled = true;
+  unresolvedConflicts = 0;
   // Restored, not cleared. Clearing meant the dialog opened with Push
   // disabled and demanded the same three answers every single time -- and
   // the answer never changes: it is a property of this probarr and its
@@ -3487,10 +3508,6 @@ document.getElementById("dm-preview").addEventListener("click", async () => {
     if(d.error){ box.innerHTML = '<span class="pchg">Error: '+esc(d.error)+'</span>'; }
     else {
       const c = d.counts;
-      // Unchanged rows are shown, dimmed, rather than hidden: "nothing to
-      // do" is a real and reassuring answer, and silently omitting them
-      // would make an empty preview ambiguous between "no changes" and
-      // "preview broken".
       const dels = d.removals || [];
       // Channels the provider has stopped carrying. Nothing is done to
       // them -- the push never deletes on its own -- but they used to be
@@ -3498,13 +3515,29 @@ document.getElementById("dm-preview").addEventListener("click", async () => {
       // Dispatcharr indefinitely with the preview cheerfully reporting
       // "no change" for everything it DID carry.
       const gone = d.dropped || [];
+      // Number collisions with a Dispatcharr channel probarr has never
+      // claimed (see claims.py) -- push() refuses to touch these, so they
+      // need to be resolved right here, not discovered as a surprise
+      // after the push already ran.
+      const actions = d.actions || [];
+      const blocked = actions.filter(a => a.kind === "blocked");
+      const relink = actions.filter(a => a.kind === "relink");
+      const normal = actions.filter(a => a.kind !== "blocked" && a.kind !== "relink"
+                                       && a.kind !== "unchanged");
+      unresolvedConflicts = blocked.length + relink.length;
+      updatePushGate();
       box.innerHTML = '<div class="pcounts"><b>'+c.create+'</b> to create, <b>'+
         c.update+'</b> to update, <b>'+c.unchanged+'</b> already correct'+
         (dels.length ? ', <b>'+dels.length+'</b> to DELETE' : '')+
-        (gone.length ? ', <b>'+gone.length+'</b> no longer carried' : '')+'</div>'+
-        // Deletions lead. They are the only irreversible thing a push does,
-        // so burying them under forty unchanged rows would defeat the point
-        // of previewing at all.
+        (gone.length ? ', <b>'+gone.length+'</b> no longer carried' : '')+
+        (blocked.length ? ', <b>'+blocked.length+'</b> BLOCKED' : '')+
+        (relink.length ? ', <b>'+relink.length+'</b> need relinking' : '')+'</div>'+
+        (blocked.length + relink.length
+          ? '<div class="warn">Push will skip '+(blocked.length+relink.length)+
+            ' channel(s) below until you resolve them.</div>'
+          : '')+
+        blocked.map(a => conflictRow(a, false)).join("") +
+        relink.map(a => conflictRow(a, true)).join("") +
         dels.map(x =>
           '<div class="dm-row delete"><span class="pname">'+
           (x.number!=null?x.number+' ':'')+esc(x.name||"")+
@@ -3517,20 +3550,85 @@ document.getElementById("dm-preview").addEventListener("click", async () => {
           '</span><span class="pchg">'+esc(x.reason||"no usable stream")+
           (x.present ? ' — still live in Dispatcharr, left untouched'
                      : ' — not in Dispatcharr')+'</span></div>').join("")+
-        d.actions.map(a =>
+        normal.map(a =>
           '<div class="dm-row '+a.kind+'"><span class="pname">'+
           (a.number!=null?a.number+' ':'')+esc(a.name)+'</span><span class="pchg">'+
-          (a.kind==="unchanged" ? "no change" :
-           a.kind==="create" ? "will be created" :
+          (a.kind==="create" ? "will be created" :
            a.changes.map(ch => (ch.field==="group"||ch.field==="logo")
               ? esc(ch.field)+' <code>'+esc(ch.from_name||ch.from)+'</code> \u2192 <code>'+
                 esc(ch.to_name||ch.to)+'</code>'
               : esc(ch.field)+' <code>'+esc(JSON.stringify(ch.from))+'</code> \u2192 <code>'+
                 esc(JSON.stringify(ch.to))+'</code>').join(", "))+
-          '</span></div>').join("");
+          '</span></div>').join("")+
+        (c.unchanged
+          ? '<div class="dm-unchanged-count">'+c.unchanged+' more already correct, not shown</div>'
+          : '');
     }
   }catch(e){ box.innerHTML = '<span class="pchg">Request failed.</span>'; }
   btn.disabled = false; btn.textContent = "Preview changes";
+});
+
+let unresolvedConflicts = 0;
+function updatePushGate(){
+  const pbtn = document.getElementById("dm-push");
+  if(unresolvedConflicts > 0){
+    pbtn.disabled = true;
+    pbtn.title = unresolvedConflicts+" channel(s) need resolving above before this can push.";
+  } else {
+    pbtn.disabled = false;
+    pbtn.title = "";
+  }
+}
+
+function conflictRow(a, isRelink){
+  const cur = a.dispatcharr_current || {};
+  const warning = isRelink
+    ? 'This looks like the same channel, just not yet linked to probarr.'
+    : 'This will OVERWRITE channel '+a.number+' in Dispatcharr. It currently '+
+      'contains \u201c'+esc(cur.name||"")+'\u201d ('+esc(cur.group||"no group")+', '+
+      (cur.streams||0)+' stream(s)). It will be replaced with \u201c'+esc(a.name)+
+      '\u201d. This cannot be undone from here.';
+  return '<div class="dm-row '+a.kind+'" data-dispatcharr-id="'+esc(cur.id)+
+    '" data-channel-key="'+esc(a.key||"")+'" data-channel-name="'+esc(a.name)+'">'+
+    '<span class="pname">'+(a.number!=null?a.number+' ':'')+esc(a.name)+
+    ' <span class="pchg">'+(isRelink ? '\u2014 looks like a match' : '\u2014 BLOCKED')+
+    '</span></span>'+
+    '<span class="dm-conflict-detail">Dispatcharr currently has \u201c'+
+    esc(cur.name||"")+'\u201d ('+esc(cur.group||"no group")+', '+(cur.streams||0)+
+    ' stream(s)) at number '+a.number+'.</span>'+
+    '<div class="dm-conflict-actions">'+
+    '<button class="resolve-claim" data-warn="'+esc(warning)+'">'+
+    (isRelink ? "Relink \u2014 this is the same channel" : "This is my channel \u2014 let me push it")+
+    '</button>'+
+    '<button class="resolve-skip">Skip for now</button>'+
+    '</div></div>';
+}
+
+document.getElementById("dm-plan").addEventListener("click", async e => {
+  const row = e.target.closest(".dm-row");
+  if(!row) return;
+  if(e.target.classList.contains("resolve-skip")){
+    row.remove();
+    unresolvedConflicts = Math.max(0, unresolvedConflicts - 1);
+    updatePushGate();
+    return;
+  }
+  if(!e.target.classList.contains("resolve-claim")) return;
+  const warn = e.target.dataset.warn || "";
+  if(!confirm(warn+"\n\nContinue?")) return;
+  e.target.disabled = true; e.target.textContent = "Linking\u2026";
+  try{
+    const r = await fetch("/api/dispatcharr/claim", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({dispatcharr_id: row.dataset.dispatcharrId,
+                            channel_key: row.dataset.channelKey,
+                            name: row.dataset.channelName,
+                            source: "run:"+DATA.run_id})});
+    const d = await r.json();
+    if(d.error){ alert("Could not link: "+d.error); e.target.disabled = false;
+                e.target.textContent = "Relink"; return; }
+    document.getElementById("dm-preview").click();
+  }catch(e2){ alert("Request failed."); e.target.disabled = false; }
 });
 function dmSummary(){
   const fb = document.querySelector('input[name="fbmode"]:checked');

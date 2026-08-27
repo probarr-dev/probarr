@@ -137,6 +137,11 @@ _NAV_SETUP = [("providers", "/providers", "Providers"),
               ("browse", "/browse", "Channels"),
               ("wantlists", "/wantlists", "Wantlists"),
               ("lineups", "/lineups", "Lineups"),
+              # What a push refuses to touch (a number collision with a
+              # Dispatcharr channel probarr has never claimed) has to have
+              # a place to send you -- otherwise "blocked" in a push
+              # preview is a dead end with no next step.
+              ("unclaimed", "/unclaimed", "Unclaimed"),
               ("settings", "/settings", "Settings")]
 _NAV_ITEMS = _NAV_DAILY + _NAV_SETUP   # kept for anything still iterating the flat list
 

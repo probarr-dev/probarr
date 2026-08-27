@@ -75,6 +75,37 @@ def _expand(channels, fallback_mode):
     return rows
 
 
+def _conflict(existing_ch, name, stream_ids):
+    """Why an untagged number collision is or isn't safe to skip past.
+
+    Called only when `existing_ch` is real (something is already sitting
+    at this number in Dispatcharr) and claims.py says probarr has never
+    tagged its id -- i.e. push() cannot prove this channel is one it
+    already owns. Two independent, cheap signals are checked before
+    treating it as a hard stop, because id-only matching has a real gap:
+    restoring Dispatcharr from a backup hands every channel a brand new
+    id even though a human would recognise it instantly as the same
+    channel as before. Flagging an entire restored lineup as "unknown,
+    might destroy" would be a wall of false alarms on the operator's own
+    channels.
+
+      "relink" -- the name matches, or at least one stream this push
+      would write is already attached to this channel. Almost certainly
+      the same real channel, just not (yet) tagged; offered as a
+      one-click "yes, that's mine" rather than the full destructive
+      warning.
+
+      "blocked" -- neither signal matches. Something else's channel
+      happens to be numbered the same; refuse outright.
+    """
+    existing_name = (existing_ch.get("name") or "").strip().casefold()
+    if existing_name and existing_name == name.strip().casefold():
+        return "relink"
+    if set(existing_ch.get("streams") or []) & set(stream_ids):
+        return "relink"
+    return "blocked"
+
+
 def _decide(existing_ch, name, stream_ids, target_group_id, logo_id, epg_data_id):
     """What this one channel row needs: ("create"|"update"|"unchanged", changes, payload).
 
@@ -113,7 +144,7 @@ def _decide(existing_ch, name, stream_ids, target_group_id, logo_id, epg_data_id
 
 
 def plan(client, channels, group_name=None, default_group_name="probarr",
-        fallback_mode="native"):
+        fallback_mode="native", claimed_ids=None):
     """What a push WOULD do, computed without writing anything.
 
     Exists because every silent-success bug this exporter has had shared a
@@ -129,6 +160,15 @@ def plan(client, channels, group_name=None, default_group_name="probarr",
     is reported as such rather than being brought into existence just to
     describe it -- planning must not have side effects, or previewing
     becomes as consequential as pushing.
+
+    `claimed_ids`: the set of Dispatcharr channel ids probarr already owns
+    (see claims.py). None (the default) means "no gate" -- every existing
+    caller that hasn't been taught about claims yet keeps its old
+    behaviour. Passed a real set, a number match against an unclaimed id
+    is reported as "relink" or "blocked" instead of "update" -- see
+    _conflict()'s docstring for the difference -- and push() refuses to
+    touch it until the operator resolves that, exactly mirroring what
+    push() itself will actually do.
     """
     existing = client.channels()
     by_number = {c["channel_number"]: c for c in existing
@@ -146,6 +186,19 @@ def plan(client, channels, group_name=None, default_group_name="probarr",
         if not stream_ids:
             continue
         existing_ch = by_number.get(float(number)) if number is not None else None
+        if existing_ch is not None and claimed_ids is not None \
+                and existing_ch.get("id") not in claimed_ids:
+            kind = _conflict(existing_ch, name, stream_ids)
+            actions.append({
+                "number": number, "name": name, "kind": kind, "changes": [],
+                "key": ch.get("key"),
+                "dispatcharr_current": {
+                    "id": existing_ch.get("id"),
+                    "name": existing_ch.get("name"),
+                    "group": group_names.get(existing_ch.get("channel_group_id")),
+                    "streams": len(existing_ch.get("streams") or [])},
+            })
+            continue
         if ch_group:
             wanted = ch_group
             target_group_id = groups_by_name.get(wanted.strip().lower())
@@ -183,9 +236,9 @@ def plan(client, channels, group_name=None, default_group_name="probarr",
                 c["from_name"] = logo_names.get(c["from"], "(none)")
                 c["to_name"] = logo_names.get(c["to"], str(c["to"]))
         actions.append({"number": number, "name": name, "kind": kind,
-                       "changes": changes})
+                       "changes": changes, "key": ch.get("key")})
 
-    counts = {"create": 0, "update": 0, "unchanged": 0}
+    counts = {"create": 0, "update": 0, "unchanged": 0, "relink": 0, "blocked": 0}
     for a in actions:
         counts[a["kind"]] += 1
     return {"actions": actions, "counts": counts}
@@ -193,7 +246,7 @@ def plan(client, channels, group_name=None, default_group_name="probarr",
 
 def push(client, channels, group_name=None, default_group_name="probarr",
         fallback_mode="native", log=None, progress_cb=None,
-        prune_empty_groups=True):
+        prune_empty_groups=True, claimed_ids=None):
     """Push curated channels into Dispatcharr.
 
     `channels`: list of dicts, each {number, name, primary: {stream_id...},
@@ -241,6 +294,15 @@ def push(client, channels, group_name=None, default_group_name="probarr",
     progress_cb(done, total, channel_name): called after each channel is
     processed (success or error), so a caller can report live push progress
     rather than only a single result at the very end.
+
+    `claimed_ids`: same meaning as plan()'s parameter of the same name --
+    the set of Dispatcharr channel ids probarr already owns. None (the
+    default) is the old, ungated behaviour: a number match updates
+    whatever is there, no questions asked. Passed a real set, a number
+    match against an id NOT in it is never written to -- recorded in the
+    returned summary's `blocked` list instead -- because push() is the
+    one place an actual overwrite happens, and the caller's plan() preview
+    is only as trustworthy as push() actually agreeing with it.
     """
     log = log or (lambda msg: None)
     progress_cb = progress_cb or (lambda done, total, name: None)
@@ -277,6 +339,16 @@ def push(client, channels, group_name=None, default_group_name="probarr",
     logo_by_url = {l["url"]: l["id"] for l in client.logos()}
 
     created, updated, errors, changed_ids = 0, 0, [], []
+    # Every channel this push actually wrote to, with the id Dispatcharr
+    # confirmed for it -- the caller (web.py) claims each of these right
+    # after a successful push, which is what makes claiming automatic and
+    # certain for anything probarr itself pushes: no guessing needed, we
+    # just did it and Dispatcharr just told us the id.
+    touched = []
+    # Number collisions with an id claims.py doesn't recognise -- left
+    # completely untouched, unlike everything above. See the docstring's
+    # `claimed_ids` paragraph for why this exists at all.
+    blocked = []
     # Channels a curator explicitly picked an EPG source for (see epg_data_id
     # below) -- excluded from the generic match_epg() bulk auto-match at the
     # end, because that call re-matches against WHATEVER Dispatcharr's own
@@ -297,6 +369,16 @@ def push(client, channels, group_name=None, default_group_name="probarr",
             if not stream_ids:
                 continue
             existing_ch = by_number.get(float(number)) if number is not None else None
+            if existing_ch is not None and claimed_ids is not None \
+                    and existing_ch.get("id") not in claimed_ids:
+                blocked.append({
+                    "number": number, "name": name,
+                    "kind": _conflict(existing_ch, name, stream_ids),
+                    "dispatcharr_name": existing_ch.get("name"),
+                    "dispatcharr_id": existing_ch.get("id")})
+                log(f"  {name}: BLOCKED -- number {number} belongs to an "
+                   f"unclaimed Dispatcharr channel ({existing_ch.get('name')!r})")
+                continue
             if ch_group:
                 # An explicit per-channel group beats everything: it is a
                 # decision about THIS channel, more specific than the
@@ -324,6 +406,8 @@ def push(client, channels, group_name=None, default_group_name="probarr",
                 client.update_channel(existing_ch["id"], payload)
                 updated += 1
                 changed_ids.append(existing_ch["id"])
+                touched.append({"key": ch.get("key"), "id": existing_ch["id"],
+                               "name": name})
                 log(f"  {name}: updated ("
                    + ", ".join(c["field"] for c in changes) + ")")
             elif kind == "create":
@@ -332,9 +416,19 @@ def push(client, channels, group_name=None, default_group_name="probarr",
                 new_ch = client.create_channel(payload)
                 created += 1
                 changed_ids.append(new_ch["id"])
+                touched.append({"key": ch.get("key"), "id": new_ch["id"],
+                               "name": name})
                 log(f"  {name}: created")
             else:
                 unchanged += 1
+                # Still touched: an id claims.py has never seen before (the
+                # channel was created outside probarr, then a wantlist entry
+                # was later pointed at its number by hand) should still end
+                # up tagged the first time a push confirms it is genuinely
+                # unchanged, not only on an update.
+                if existing_ch is not None:
+                    touched.append({"key": ch.get("key"), "id": existing_ch["id"],
+                                   "name": name})
                 log(f"  {name}: unchanged")
             if epg_data_id:
                 explicit_epg_ids.add(
@@ -370,4 +464,5 @@ def push(client, channels, group_name=None, default_group_name="probarr",
             log(f"  group prune skipped: {e}")
 
     return {"created": created, "updated": updated, "unchanged": unchanged,
-           "errors": errors, "changed": len(changed_ids), "pruned": pruned}
+           "errors": errors, "changed": len(changed_ids), "pruned": pruned,
+           "touched": touched, "blocked": blocked}

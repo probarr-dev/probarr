@@ -1601,6 +1601,150 @@ class TestDispatcharrLogoPush(unittest.TestCase):
         self.assertEqual(action["kind"], "unchanged")
 
 
+class TestClaimsRegistry(Temp):
+    """claims.py: which Dispatcharr channel ids probarr already owns. Kept
+    as its own tiny persistence module -- see claims.py's docstring for why
+    this is checked before push() knows anything about numbers at all."""
+
+    def test_claim_then_read_all_round_trips(self):
+        from probarr import claims
+        claims.claim(self.root, 42, "BBCONE", "BBC One", source="run:r1")
+        all_claims = claims.read_all(self.root)
+        self.assertIn(42, all_claims)
+        self.assertEqual(all_claims[42]["key"], "BBCONE")
+        self.assertEqual(all_claims[42]["name"], "BBC One")
+        self.assertTrue(claims.is_claimed(self.root, 42))
+        self.assertFalse(claims.is_claimed(self.root, 999))
+
+    def test_unclaim_removes_it(self):
+        from probarr import claims
+        claims.claim(self.root, 7, "X", "X")
+        self.assertTrue(claims.unclaim(self.root, 7))
+        self.assertFalse(claims.is_claimed(self.root, 7))
+        self.assertFalse(claims.unclaim(self.root, 7),
+                         "unclaiming something already gone should say so, not error")
+
+
+class TestDispatcharrPushRefusesUnclaimedNumberCollisions(unittest.TestCase):
+    """Real user-reported worry: on an established Dispatcharr instance, a
+    push previously matched purely by channel_number (see plan()/push()'s
+    old `by_number` lookup) -- so pushing "BBC One" at number 101 would
+    silently overwrite whatever ALREADY occupied number 101, even a
+    completely unrelated hand-added channel. claimed_ids is the fix:
+    a number match against an id claims.py has never seen is refused, not
+    applied, unless it's a soft "relink" match with a resolution already on
+    file (i.e. actually in claimed_ids).
+    """
+
+    def _channel(self, key="BBCONE", number=101, name="BBC One", stream_id=1):
+        return {"key": key, "number": number, "name": name,
+                "primary": {"stream_id": stream_id}, "fallback": None,
+                "logo_url": ""}
+
+    def test_plan_blocks_a_number_collision_with_no_name_or_stream_match(self):
+        from probarr.dispatcharr_export import plan
+        existing_ch = {"id": 7, "channel_number": 101, "name": "YoMamaTV",
+                      "streams": [999], "channel_group_id": 9}
+        client = FakeDispatcharrClient(existing_channels=[existing_ch],
+                                      existing_groups=[{"id": 9, "name": "probarr"}])
+        result = plan(client, [self._channel()], default_group_name="probarr",
+                     claimed_ids=set())
+        action = next(a for a in result["actions"] if a["number"] == 101)
+        self.assertEqual(action["kind"], "blocked")
+        self.assertEqual(action["dispatcharr_current"]["name"], "YoMamaTV")
+        self.assertEqual(result["counts"]["blocked"], 1)
+
+    def test_plan_offers_a_relink_when_the_name_matches(self):
+        """The backup-restore case: Dispatcharr hands out a new id for a
+        channel that is, to a human, obviously the same one as before.
+        Matching name is enough to treat it as a soft conflict, not a
+        scary unknown one."""
+        from probarr.dispatcharr_export import plan
+        existing_ch = {"id": 7, "channel_number": 101, "name": "BBC One",
+                      "streams": [999], "channel_group_id": 9}
+        client = FakeDispatcharrClient(existing_channels=[existing_ch],
+                                      existing_groups=[{"id": 9, "name": "probarr"}])
+        result = plan(client, [self._channel()], default_group_name="probarr",
+                     claimed_ids=set())
+        action = next(a for a in result["actions"] if a["number"] == 101)
+        self.assertEqual(action["kind"], "relink")
+        self.assertEqual(result["counts"]["relink"], 1)
+
+    def test_plan_offers_a_relink_when_a_stream_already_overlaps(self):
+        from probarr.dispatcharr_export import plan
+        existing_ch = {"id": 7, "channel_number": 101, "name": "Some Old Name",
+                      "streams": [1], "channel_group_id": 9}
+        client = FakeDispatcharrClient(existing_channels=[existing_ch],
+                                      existing_groups=[{"id": 9, "name": "probarr"}])
+        result = plan(client, [self._channel(stream_id=1)],
+                     default_group_name="probarr", claimed_ids=set())
+        action = next(a for a in result["actions"] if a["number"] == 101)
+        self.assertEqual(action["kind"], "relink")
+
+    def test_plan_treats_a_claimed_id_as_an_ordinary_update(self):
+        from probarr.dispatcharr_export import plan
+        existing_ch = {"id": 7, "channel_number": 101, "name": "BBC One",
+                      "streams": [1], "channel_group_id": 9}
+        client = FakeDispatcharrClient(existing_channels=[existing_ch],
+                                      existing_groups=[{"id": 9, "name": "probarr"}])
+        result = plan(client, [self._channel()], default_group_name="probarr",
+                     claimed_ids={7})
+        action = next(a for a in result["actions"] if a["number"] == 101)
+        self.assertEqual(action["kind"], "unchanged")
+
+    def test_plan_with_claimed_ids_none_keeps_old_ungated_behaviour(self):
+        """None is the default -- every caller that hasn't been taught
+        about claims yet (or a test not passing it) must see exactly the
+        pre-existing behaviour, not suddenly start blocking things."""
+        from probarr.dispatcharr_export import plan
+        existing_ch = {"id": 7, "channel_number": 101, "name": "YoMamaTV",
+                      "streams": [999], "channel_group_id": 9}
+        client = FakeDispatcharrClient(existing_channels=[existing_ch],
+                                      existing_groups=[{"id": 9, "name": "probarr"}])
+        result = plan(client, [self._channel()], default_group_name="probarr")
+        action = next(a for a in result["actions"] if a["number"] == 101)
+        self.assertEqual(action["kind"], "update")
+
+    def test_push_refuses_to_touch_an_unclaimed_number_collision(self):
+        from probarr.dispatcharr_export import push
+        existing_ch = {"id": 7, "channel_number": 101, "name": "YoMamaTV",
+                      "streams": [999], "channel_group_id": 9}
+        client = FakeDispatcharrClient(existing_channels=[existing_ch],
+                                      existing_groups=[{"id": 9, "name": "probarr"}])
+        result = push(client, [self._channel()], default_group_name="probarr",
+                     claimed_ids=set())
+        self.assertEqual(result["updated"], 0,
+                         "an unclaimed collision must never be updated")
+        self.assertEqual(client._channels[0]["name"], "YoMamaTV",
+                         "the unrelated channel's real data must be untouched")
+        self.assertEqual(len(result["blocked"]), 1)
+        self.assertEqual(result["blocked"][0]["dispatcharr_name"], "YoMamaTV")
+        self.assertEqual(result["touched"], [])
+
+    def test_push_updates_and_records_a_touch_once_claimed(self):
+        from probarr.dispatcharr_export import push
+        existing_ch = {"id": 7, "channel_number": 101, "name": "BBC One",
+                      "streams": [999], "channel_group_id": 9}
+        client = FakeDispatcharrClient(existing_channels=[existing_ch],
+                                      existing_groups=[{"id": 9, "name": "probarr"}])
+        result = push(client, [self._channel()], default_group_name="probarr",
+                     claimed_ids={7})
+        self.assertEqual(result["updated"], 1)
+        self.assertEqual(result["blocked"], [])
+        self.assertEqual(len(result["touched"]), 1)
+        self.assertEqual(result["touched"][0],
+                         {"key": "BBCONE", "id": 7, "name": "BBC One"})
+
+    def test_push_records_a_touch_for_a_brand_new_channel_it_creates(self):
+        from probarr.dispatcharr_export import push
+        client = FakeDispatcharrClient()
+        result = push(client, [self._channel()], default_group_name="probarr",
+                     claimed_ids=set())
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(len(result["touched"]), 1)
+        self.assertEqual(result["touched"][0]["key"], "BBCONE")
+
+
 class TestStore(Temp):
     def _store(self):
         s = RunStore(self.root, "run1")

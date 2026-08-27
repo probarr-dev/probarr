@@ -23,6 +23,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import backup as backup_mod
+from . import claims as claims_mod
 from . import curate, decisions, pages, probequeue, providers as providers_mod
 from . import epgcheck as epgcheck_mod
 from . import logos as logos_mod
@@ -234,6 +235,11 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json")
         if path == "/lineups":
             return self._send(pages.lineups_page())
+        if path == "/unclaimed":
+            return self._send(pages.unclaimed_page())
+        if path == "/api/runs":
+            return self._send(json.dumps({"runs": RunStore.list_runs(self.root)}),
+                              "application/json")
         if path == "/api/lineups":
             return self._send(json.dumps({"lineups": self._lineups()}),
                               "application/json")
@@ -718,6 +724,27 @@ class Handler(BaseHTTPRequestHandler):
             if sent:
                 return
             return self._renumber_channel(parts[2], body)
+
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "run" \
+                and parts[3] == "claim-unclaimed":
+            body, sent = self._json_body()
+            if sent:
+                return
+            return self._claim_into_run(parts[2], body)
+
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "dispatcharr" \
+                and parts[2] == "claim":
+            body, sent = self._json_body()
+            if sent:
+                return
+            return self._claim_dispatcharr_channel(body)
+
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "dispatcharr" \
+                and parts[2] == "unclaimed":
+            body, sent = self._json_body()
+            if sent:
+                return
+            return self._dispatcharr_unclaimed(body)
 
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "run" \
                 and parts[3] == "channel-duplicate":
@@ -1934,6 +1961,15 @@ class Handler(BaseHTTPRequestHandler):
                               "pending": len(store.read_removals())}),
                   "application/json")
 
+    def _claimed_ids(self):
+        """Dispatcharr channel ids probarr already owns -- see claims.py.
+
+        A plain set, cheap to recompute per request: claims.json is small
+        (one small dict entry per channel probarr has ever pushed or been
+        told about), and a push or preview only ever needs this once.
+        """
+        return set(claims_mod.read_all(self.root).keys())
+
     def _probed_channel_name(self, store, channel_key):
         """Best display name for a channel from its probe results alone,
         for the channel_key not (yet) in the wantlist -- same fallback
@@ -2068,6 +2104,103 @@ class Handler(BaseHTTPRequestHandler):
                     pass  # never let a preference write break the edit itself
             self._send(json.dumps({"ok": True, "number": number,
                                   "durable": bool(lineup)}), "application/json")
+
+    def _claim_dispatcharr_channel(self, body):
+        """Resolve a "relink" or "blocked" row from the push preview.
+
+        Recording the claim here, BEFORE any push, is what turns a refused
+        number collision into an ordinary update on the very next preview
+        or push -- see claims.py and push()'s `claimed_ids` gate. This
+        never touches Dispatcharr itself; it only ever writes to claims.json.
+        """
+        dispatcharr_id = body.get("dispatcharr_id")
+        if dispatcharr_id is None:
+            return self._send('{"error":"dispatcharr_id required"}',
+                              "application/json", 400)
+        try:
+            dispatcharr_id = int(dispatcharr_id)
+        except (TypeError, ValueError):
+            return self._send('{"error":"dispatcharr_id must be a number"}',
+                              "application/json", 400)
+        claims_mod.claim(self.root, dispatcharr_id,
+                         (body.get("channel_key") or "").strip() or None,
+                         (body.get("name") or "").strip() or None,
+                         source=(body.get("source") or "").strip() or None)
+        self._send(json.dumps({"ok": True}), "application/json")
+
+    def _dispatcharr_unclaimed(self, body):
+        """Every Dispatcharr channel no lineup or run has ever claimed.
+
+        Read-only -- exactly like _export_plan, this only ever reads from
+        Dispatcharr, never writes. Meant to be run any time, including
+        against an established instance that has never seen probarr
+        before, which is precisely when this list is least empty and most
+        useful. See claims.py's module docstring for why "claimed" is
+        tracked by id rather than by the channel's current number.
+        """
+        provider_name = (body.get("provider") or "").strip()
+        prov = providers_mod.get(self.root, provider_name)
+        if not prov or prov.get("scheme") != "dispatcharr":
+            return self._send(
+                '{"error":"provider not found, or not a Dispatcharr connection"}',
+                "application/json", 404)
+        client = client_from_spec(prov["spec"])
+        claimed = self._claimed_ids()
+        groups = {g["id"]: g.get("name") for g in client.groups()}
+        out = []
+        for ch in client.channels():
+            if ch.get("id") in claimed:
+                continue
+            num = ch.get("channel_number")
+            out.append({
+                "dispatcharr_id": ch.get("id"), "name": ch.get("name") or "",
+                "number": (int(num) if num is not None and float(num).is_integer()
+                          else num),
+                "group": groups.get(ch.get("channel_group_id"), ""),
+                "streams": len(ch.get("streams") or [])})
+        out.sort(key=lambda c: (c["number"] is None, c["number"] or 0))
+        self._send(json.dumps({"ok": True, "channels": out}), "application/json")
+
+    def _claim_into_run(self, run_id, body):
+        """Assign an Unclaimed Dispatcharr channel to a run's wantlist.
+
+        Appends it with its REAL Dispatcharr number and name already set
+        (unlike the catalogue "+" add, which invents a placeholder 9000+
+        number for a channel that doesn't exist in Dispatcharr yet -- this
+        one already does, so there is a real number to keep), and claims
+        its id in the same step so it never shows up in Unclaimed again.
+        """
+        with self._wantlist_lock_for(run_id):
+            dispatcharr_id = body.get("dispatcharr_id")
+            name = (body.get("name") or "").strip()
+            if dispatcharr_id is None or not name:
+                return self._send('{"error":"dispatcharr_id and name required"}',
+                                  "application/json", 400)
+            try:
+                dispatcharr_id = int(dispatcharr_id)
+            except (TypeError, ValueError):
+                return self._send('{"error":"dispatcharr_id must be a number"}',
+                                  "application/json", 400)
+            number = body.get("number")
+            store = RunStore(self.root, run_id)
+            if not os.path.exists(store.results_path):
+                return self._send('{"error":"no such run"}', "application/json", 404)
+            key = self._norm().key(name)
+            if not key:
+                return self._send('{"error":"name normalises to nothing"}',
+                                  "application/json", 400)
+            want = store.read_wantlist()
+            wanted = list(want.get("wanted") or [])
+            if any(w.get("key") == key for w in wanted):
+                return self._send(
+                    '{"error":"a channel with this name is already in this run"}',
+                    "application/json", 409)
+            wanted.append({"number": number, "name": name, "tvg_id": "",
+                          "key": key, "imported_from": "dispatcharr"})
+            store.write_wantlist_raw(wanted, want.get("missing") or [])
+            claims_mod.claim(self.root, dispatcharr_id, key, name,
+                             source=f"run:{run_id}")
+            self._send(json.dumps({"ok": True, "key": key}), "application/json")
 
     def _duplicate_channel(self, run_id, body):
         """Copy a channel within a run so it can sit in a second group."""
@@ -3838,6 +3971,7 @@ class Handler(BaseHTTPRequestHandler):
             channels = []
             for i, ch in enumerate(curated):
                 channels.append({
+                    "key": ch["key"],
                     "number": ch["number"], "name": ch["name"],
                     "logo_url": ch["logo_url"],
                     "group": ch.get("group"),
@@ -3887,7 +4021,19 @@ class Handler(BaseHTTPRequestHandler):
                 client, channels, group_name=group_name,
                 default_group_name=default_group_name,
                 fallback_mode=fallback_mode, log=log_lines.append,
-                progress_cb=on_progress, prune_empty_groups=prune_empty)
+                progress_cb=on_progress, prune_empty_groups=prune_empty,
+                claimed_ids=self._claimed_ids())
+            # The one moment probarr can tag a Dispatcharr channel with
+            # total certainty rather than a guess: it just told Dispatcharr
+            # what to do with this exact id, and Dispatcharr just confirmed
+            # it. See claims.py's module docstring for why identity is
+            # tracked by id rather than by number at all.
+            for t in summary.get("touched") or []:
+                try:
+                    claims_mod.claim(self.root, t["id"], t.get("key"),
+                                     t.get("name"), source=f"run:{store.run_id}")
+                except Exception:
+                    pass  # never let claim bookkeeping fail an otherwise-good push
             # Must happen AFTER push() actually writes epg_data_id to
             # Dispatcharr, not before -- the import task decides which
             # channels count as "mapped" (and therefore worth fetching
@@ -4006,6 +4152,7 @@ class Handler(BaseHTTPRequestHandler):
                 return url_map.get(self._real_url(store, cand["stream_id"]), "new")
 
             channels = [{
+                "key": ch["key"],
                 "number": ch["number"], "name": ch["name"],
                 "logo_url": ch["logo_url"],
                 # Carried through explicitly: _resolve_curated() attaches
@@ -4025,7 +4172,8 @@ class Handler(BaseHTTPRequestHandler):
             result = dispatcharr_export.plan(
                 client, channels, group_name=group_name,
                 default_group_name=default_group_name,
-                fallback_mode=body.get("fallback_mode") or "native")
+                fallback_mode=body.get("fallback_mode") or "native",
+                claimed_ids=self._claimed_ids())
             # Both blocks below need to know what is currently live in the
             # target, so it is fetched at most once for the pair.
             by_number = None

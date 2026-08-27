@@ -2236,3 +2236,119 @@ def lineups_page():
     return (LINEUPS_PAGE
             .replace("__TOPBAR__", topbar("lineups", active="lineups"))
             .replace("__CSS__", CSS).replace("__EXTRA__", LINEUPS_EXTRA))
+
+
+UNCLAIMED_EXTRA = NEWRUN_EXTRA + """
+.uc-row{display:flex;gap:10px;align-items:center;padding:9px 0;flex-wrap:wrap;
+  border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
+.uc-row:last-child{border-bottom:0}
+.uc-row .n{color:var(--faint);min-width:34px;font-variant-numeric:tabular-nums}
+.uc-row .nm{flex:1 1 160px;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uc-row .meta{color:var(--faint);font-size:11.5px;flex:0 1 auto;white-space:nowrap}
+.uc-row select{max-width:220px;flex:1 1 160px}
+.uc-row .assign{flex:none}
+"""
+
+UNCLAIMED_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>probarr &middot; unclaimed</title><style>__CSS____EXTRA__</style></head><body>
+
+__TOPBAR__
+
+<div class="page">
+  <div class="card">
+    <h2>Unclaimed channels</h2>
+    <div class="lead">Every channel Dispatcharr has that no probarr lineup or run
+      has ever claimed &mdash; added by hand, imported from somewhere else, or
+      left over from before probarr was involved. A push never touches these
+      until you assign one somewhere: see the "blocked" rows in a push preview
+      for why a number collision refuses to overwrite something unrecognised.</div>
+    <div class="field">
+      <div class="lab">Dispatcharr connection</div>
+      <div class="ctl"><select id="provider"><option value="">Choose a connection&hellip;</option></select></div>
+    </div>
+    <div class="startbar">
+      <button class="primary" id="check">Check now</button>
+      <span class="muted" id="status"></span>
+    </div>
+    <div id="list" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+let RUNS = [];
+
+async function loadOptions(){
+  const [p, r] = await Promise.all([
+    (await fetch("/api/providers")).json(),
+    (await fetch("/api/runs")).json()]);
+  const dp = (p.providers || []).filter(x => x.scheme === "dispatcharr");
+  $("provider").innerHTML = '<option value="">Choose a connection&hellip;</option>' +
+    dp.map(x => '<option value="'+esc(x.name)+'">'+esc(x.name)+'</option>').join("");
+  RUNS = r.runs || [];
+}
+
+function runPicker(){
+  return '<option value="">Assign to run&hellip;</option>' +
+    RUNS.map(r => '<option value="'+esc(r.run_id)+'">'+esc(r.run_id)+'</option>').join("");
+}
+
+async function check(){
+  const provider = $("provider").value;
+  if(!provider){ $("status").textContent = "choose a connection first"; return; }
+  $("check").disabled = true; $("status").textContent = "checking…";
+  $("list").innerHTML = "";
+  try{
+    const r = await fetch("/api/dispatcharr/unclaimed",
+      {method:"POST", headers:{"Content-Type":"application/json"},
+       body: JSON.stringify({provider})});
+    const d = await r.json();
+    $("check").disabled = false;
+    if(d.error){ $("status").textContent = "Error: "+d.error; return; }
+    const chans = d.channels || [];
+    $("status").textContent = chans.length
+      ? chans.length+" unclaimed channel(s)"
+      : "nothing unclaimed — every Dispatcharr channel here is accounted for";
+    $("list").innerHTML = chans.map(c =>
+      '<div class="uc-row" data-id="'+c.dispatcharr_id+'" data-name="'+esc(c.name)+
+      '" data-number="'+(c.number!=null?c.number:"")+'">'+
+      '<span class="n">'+(c.number!=null?c.number:"—")+'</span>'+
+      '<span class="nm">'+esc(c.name)+'</span>'+
+      '<span class="meta">'+esc(c.group||"no group")+' &middot; '+c.streams+' stream(s)</span>'+
+      '<select class="run">'+runPicker()+'</select>'+
+      '<button class="assign">Assign</button>'+
+      '</div>').join("");
+  }catch(e){ $("check").disabled = false; $("status").textContent = "Request failed."; }
+}
+$("check").addEventListener("click", check);
+
+$("list").addEventListener("click", async e => {
+  if(!e.target.classList.contains("assign")) return;
+  const row = e.target.closest(".uc-row");
+  const run_id = row.querySelector(".run").value;
+  if(!run_id){ alert("Choose a run to assign this channel to first."); return; }
+  e.target.disabled = true; e.target.textContent = "Assigning…";
+  try{
+    const r = await fetch("/api/run/"+encodeURIComponent(run_id)+"/claim-unclaimed",
+      {method:"POST", headers:{"Content-Type":"application/json"},
+       body: JSON.stringify({dispatcharr_id: row.dataset.id, name: row.dataset.name,
+                             number: row.dataset.number ? Number(row.dataset.number) : null})});
+    const d = await r.json();
+    if(d.error){ alert("Could not assign: "+d.error); e.target.disabled = false;
+                e.target.textContent = "Assign"; return; }
+    row.remove();
+  }catch(e2){ alert("Request failed."); e.target.disabled = false; e.target.textContent = "Assign"; }
+});
+
+loadOptions();
+</script></body></html>
+"""
+
+
+def unclaimed_page():
+    return (UNCLAIMED_PAGE
+            .replace("__TOPBAR__", topbar("unclaimed", active="unclaimed"))
+            .replace("__CSS__", CSS).replace("__EXTRA__", UNCLAIMED_EXTRA))
