@@ -1136,10 +1136,12 @@ function renderDetail(){
       // that is exactly the thing worth seeing while debugging a "blocked"
       // row in the push preview: is THIS channel tagged, and as what.
       (ch.claim
-        ? '<span class="claimtag claimtag-on" title="Tagged as Dispatcharr '+
-          'channel #'+esc(ch.claim.dispatcharr_id)+' \u2014 push() will treat '+
-          'a number match against this id as an ordinary update, not a '+
-          'blocked/relink conflict.">linked \u00b7 Dispatcharr #'+
+        ? '<span class="claimtag claimtag-on" title="Tagged to Dispatcharr\u2019s '+
+          'internal id '+esc(ch.claim.dispatcharr_id)+' for this channel \u2014 '+
+          'NOT the channel number shown on the left, which Dispatcharr lets '+
+          'change at any time. This id is what push() actually checks, so a '+
+          'number match against it is treated as an ordinary update, not a '+
+          'blocked/relink conflict.">linked \u00b7 Dispatcharr id '+
           esc(ch.claim.dispatcharr_id)+'</span>'
         : '<span class="claimtag claimtag-off" title="Not yet tagged to any '+
           'Dispatcharr channel. If this channel\u2019s number collides with an '+
