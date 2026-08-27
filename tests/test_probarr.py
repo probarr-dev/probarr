@@ -3066,6 +3066,80 @@ class TestClaimIntoRun(Temp):
         self.assertEqual(wanted["ITV"]["number"], 103)
 
 
+class TestClaimIntoRunBulk(Temp):
+    """The "select 500 channels, assign them all" case -- one request
+    instead of one per channel, sharing the same relink-or-append logic
+    as the single-channel endpoint via _claim_one_into_wantlist."""
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        web_mod.Handler._wantlist_locks = {}
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_assigns_a_mix_of_relinked_and_new_channels_in_one_call(self):
+        import json
+        from probarr import claims
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok"})
+        h, sent = self._handler()
+        h._claim_into_run_bulk("run1", {"channels": [
+            {"dispatcharr_id": 1, "name": "BBC One", "number": 101},
+            {"dispatcharr_id": 2, "name": "ITV", "number": 103},
+            {"dispatcharr_id": 3, "name": "Channel 4", "number": 104},
+        ]})
+        code, body = sent[-1]
+        d = json.loads(body)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(d["assigned"], 3)
+        self.assertEqual(d["relinked"], 1)
+        self.assertEqual(d["errors"], [])
+        wanted = {w["key"]: w for w in RunStore(self.root, "run1").read_wantlist()["wanted"]}
+        self.assertEqual(len(wanted), 3,
+                         "the already-curated BBC One must be relinked, not duplicated")
+        self.assertEqual(wanted["ITV"]["number"], 103)
+        self.assertEqual(wanted["CHANNEL4"]["number"], 104)
+        for did in (1, 2, 3):
+            self.assertTrue(claims.is_claimed(self.root, did))
+
+    def test_one_bad_entry_does_not_block_the_rest_of_the_batch(self):
+        import json
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([], [])
+        store.append({"rec_key": "X|s1", "channel_key": "X", "stream_id": "s1",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h._claim_into_run_bulk("run1", {"channels": [
+            {"dispatcharr_id": 1, "name": "ITV", "number": 103},
+            {"dispatcharr_id": None, "name": "Broken", "number": 999},
+        ]})
+        d = json.loads(sent[-1][1])
+        self.assertEqual(d["assigned"], 1)
+        self.assertEqual(len(d["errors"]), 1)
+        self.assertEqual(d["errors"][0]["name"], "Broken")
+        wanted = RunStore(self.root, "run1").read_wantlist()["wanted"]
+        self.assertEqual(len(wanted), 1)
+        self.assertEqual(wanted[0]["key"], "ITV")
+
+    def test_requires_a_non_empty_channel_list(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.append({"rec_key": "X|s1", "channel_key": "X", "stream_id": "s1",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h._claim_into_run_bulk("run1", {"channels": []})
+        self.assertEqual(sent[-1][0], 400)
+
+
 class TestRenumberChannel(Temp):
     """Curate now shows a channel with no number in bright red (it would
     otherwise be silently dropped from every export by _resolve_curated in

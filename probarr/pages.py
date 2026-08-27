@@ -2265,6 +2265,13 @@ UNCLAIMED_EXTRA = NEWRUN_EXTRA + """
 .uc-row .meta{color:var(--faint);font-size:11.5px;flex:0 1 auto;white-space:nowrap}
 .uc-row select{max-width:220px;flex:1 1 160px}
 .uc-row .assign{flex:none}
+.uc-row .uc-sel{flex:none;width:16px;height:16px;accent-color:var(--accent)}
+.uc-bulkbar{display:none;gap:12px;align-items:center;margin-top:12px;padding:9px 11px;
+  background:var(--bg2);border:1px solid var(--line);border-radius:var(--radius);
+  flex-wrap:wrap}
+.uc-selall{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--dim);
+  cursor:pointer;user-select:none}
+.uc-selall input{width:16px;height:16px;accent-color:var(--accent)}
 """
 
 UNCLAIMED_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -2289,6 +2296,12 @@ __TOPBAR__
       <button class="primary" id="check">Check now</button>
       <span class="muted" id="status"></span>
     </div>
+    <div class="uc-bulkbar" id="bulkbar" style="display:none">
+      <label class="uc-selall"><input type="checkbox" id="selall"> select all</label>
+      <span class="muted" id="selcount"></span>
+      <select id="bulkrun" style="max-width:220px"></select>
+      <button class="primary" id="bulkassign">Assign selected</button>
+    </div>
     <div id="list" style="margin-top:14px"></div>
   </div>
 </div>
@@ -2298,6 +2311,12 @@ const $ = id => document.getElementById(id);
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 let RUNS = [];
+// Keyed by dispatcharr_id (string) rather than tracked via checkbox state
+// alone -- selection needs to survive re-rendering the list after a
+// partial bulk assign, where rows for the just-assigned channels vanish
+// but everything else's checked state should not reset.
+let SELECTED = new Set();
+let CHANS = [];
 
 async function loadOptions(){
   const [p, r] = await Promise.all([
@@ -2307,6 +2326,9 @@ async function loadOptions(){
   $("provider").innerHTML = '<option value="">Choose a connection&hellip;</option>' +
     dp.map(x => '<option value="'+esc(x.name)+'">'+esc(x.name)+'</option>').join("");
   RUNS = r.runs || [];
+  const picker = '<option value="">Assign to run&hellip;</option>' +
+    RUNS.map(r2 => '<option value="'+esc(r2.run_id)+'">'+esc(r2.run_id)+'</option>').join("");
+  $("bulkrun").innerHTML = picker;
 }
 
 function runPicker(){
@@ -2314,10 +2336,37 @@ function runPicker(){
     RUNS.map(r => '<option value="'+esc(r.run_id)+'">'+esc(r.run_id)+'</option>').join("");
 }
 
+function renderRows(){
+  $("list").innerHTML = CHANS.map(c => {
+    const id = String(c.dispatcharr_id);
+    return '<div class="uc-row" data-id="'+id+'" data-name="'+esc(c.name)+
+      '" data-number="'+(c.number!=null?c.number:"")+'">'+
+      '<input type="checkbox" class="uc-sel" data-id="'+id+'"'+
+        (SELECTED.has(id)?' checked':'')+'>'+
+      '<span class="n">'+(c.number!=null?c.number:"—")+'</span>'+
+      '<span class="nm">'+esc(c.name)+'</span>'+
+      '<span class="meta">'+esc(c.group||"no group")+' &middot; '+c.streams+' stream(s)</span>'+
+      '<select class="run">'+runPicker()+'</select>'+
+      '<button class="assign">Assign</button>'+
+      '</div>';
+  }).join("");
+  updateBulkbar();
+}
+
+function updateBulkbar(){
+  $("bulkbar").style.display = CHANS.length ? "flex" : "none";
+  $("selcount").textContent = SELECTED.size
+    ? SELECTED.size+" selected" : "none selected";
+  $("bulkassign").disabled = SELECTED.size === 0;
+  $("selall").checked = CHANS.length > 0
+    && CHANS.every(c => SELECTED.has(String(c.dispatcharr_id)));
+}
+
 async function check(){
   const provider = $("provider").value;
   if(!provider){ $("status").textContent = "choose a connection first"; return; }
   $("check").disabled = true; $("status").textContent = "checking…";
+  SELECTED = new Set();
   $("list").innerHTML = "";
   try{
     const r = await fetch("/api/dispatcharr/unclaimed",
@@ -2326,22 +2375,27 @@ async function check(){
     const d = await r.json();
     $("check").disabled = false;
     if(d.error){ $("status").textContent = "Error: "+d.error; return; }
-    const chans = d.channels || [];
-    $("status").textContent = chans.length
-      ? chans.length+" unclaimed channel(s)"
+    CHANS = d.channels || [];
+    $("status").textContent = CHANS.length
+      ? CHANS.length+" unclaimed channel(s)"
       : "nothing unclaimed — every Dispatcharr channel here is accounted for";
-    $("list").innerHTML = chans.map(c =>
-      '<div class="uc-row" data-id="'+c.dispatcharr_id+'" data-name="'+esc(c.name)+
-      '" data-number="'+(c.number!=null?c.number:"")+'">'+
-      '<span class="n">'+(c.number!=null?c.number:"—")+'</span>'+
-      '<span class="nm">'+esc(c.name)+'</span>'+
-      '<span class="meta">'+esc(c.group||"no group")+' &middot; '+c.streams+' stream(s)</span>'+
-      '<select class="run">'+runPicker()+'</select>'+
-      '<button class="assign">Assign</button>'+
-      '</div>').join("");
+    renderRows();
   }catch(e){ $("check").disabled = false; $("status").textContent = "Request failed."; }
 }
 $("check").addEventListener("click", check);
+
+$("selall").addEventListener("change", () => {
+  if($("selall").checked) CHANS.forEach(c => SELECTED.add(String(c.dispatcharr_id)));
+  else SELECTED.clear();
+  renderRows();
+});
+
+$("list").addEventListener("change", e => {
+  if(!e.target.classList.contains("uc-sel")) return;
+  const id = e.target.dataset.id;
+  if(e.target.checked) SELECTED.add(id); else SELECTED.delete(id);
+  updateBulkbar();
+});
 
 $("list").addEventListener("click", async e => {
   if(!e.target.classList.contains("assign")) return;
@@ -2357,8 +2411,47 @@ $("list").addEventListener("click", async e => {
     const d = await r.json();
     if(d.error){ alert("Could not assign: "+d.error); e.target.disabled = false;
                 e.target.textContent = "Assign"; return; }
-    row.remove();
+    SELECTED.delete(row.dataset.id);
+    CHANS = CHANS.filter(c => String(c.dispatcharr_id) !== row.dataset.id);
+    renderRows();
   }catch(e2){ alert("Request failed."); e.target.disabled = false; e.target.textContent = "Assign"; }
+});
+
+$("bulkassign").addEventListener("click", async () => {
+  const run_id = $("bulkrun").value;
+  if(!run_id){ alert("Choose a run to assign the selected channels to first."); return; }
+  const picked = CHANS.filter(c => SELECTED.has(String(c.dispatcharr_id)));
+  if(!picked.length) return;
+  const btn = $("bulkassign");
+  btn.disabled = true; btn.textContent = "Assigning "+picked.length+"…";
+  try{
+    const r = await fetch("/api/run/"+encodeURIComponent(run_id)+"/claim-unclaimed-bulk",
+      {method:"POST", headers:{"Content-Type":"application/json"},
+       body: JSON.stringify({channels: picked.map(c => ({
+         dispatcharr_id: c.dispatcharr_id, name: c.name, number: c.number}))})});
+    const d = await r.json();
+    btn.textContent = "Assign selected";
+    if(d.error){ alert("Could not assign: "+d.error); btn.disabled = false; return; }
+    const assignedIds = new Set(picked.map(c => String(c.dispatcharr_id)));
+    // Errors are reported by name, not id (the bulk endpoint validates
+    // each channel independently and doesn't know which ones failed by
+    // id alone) -- anything not in the error list is assumed to have
+    // succeeded and drops out of the list; the rest stays for another try.
+    const failedNames = new Set((d.errors||[]).map(e => e.name));
+    CHANS = CHANS.filter(c => !assignedIds.has(String(c.dispatcharr_id))
+                            || failedNames.has(c.name));
+    SELECTED = new Set([...SELECTED].filter(id => {
+      const c = CHANS.find(x => String(x.dispatcharr_id) === id);
+      return c && failedNames.has(c.name);
+    }));
+    let msg = d.assigned+" assigned";
+    if(d.relinked) msg += " ("+d.relinked+" already curated here, just linked)";
+    if(d.errors && d.errors.length) msg += ", "+d.errors.length+" failed: "+
+      d.errors.map(e=>e.name+" ("+e.error+")").join(", ");
+    $("status").textContent = msg;
+    renderRows();
+    btn.disabled = SELECTED.size === 0;
+  }catch(e2){ alert("Request failed."); btn.disabled = false; btn.textContent = "Assign selected"; }
 });
 
 loadOptions();

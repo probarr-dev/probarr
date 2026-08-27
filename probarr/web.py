@@ -737,6 +737,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             return self._claim_into_run(parts[2], body)
 
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "run" \
+                and parts[3] == "claim-unclaimed-bulk":
+            body, sent = self._json_body()
+            if sent:
+                return
+            return self._claim_into_run_bulk(parts[2], body)
+
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "dispatcharr" \
                 and parts[2] == "claim":
             body, sent = self._json_body()
@@ -2202,8 +2209,16 @@ class Handler(BaseHTTPRequestHandler):
         out.sort(key=lambda c: (c["number"] is None, c["number"] or 0))
         self._send(json.dumps({"ok": True, "channels": out}), "application/json")
 
-    def _claim_into_run(self, run_id, body):
-        """Assign an Unclaimed Dispatcharr channel to a run's wantlist.
+    def _claim_one_into_wantlist(self, wanted, dispatcharr_id, name, number):
+        """The pure part of assigning one Unclaimed channel: mutate `wanted`
+        in place and report what happened. Split out of _claim_into_run so
+        the bulk endpoint can apply many of these against ONE read/write of
+        the wantlist file instead of one full read-modify-write cycle per
+        channel -- the difference between a few hundred channels taking a
+        handful of disk writes and taking a few hundred.
+
+        Returns (key, relinked) on success, or an (error_message, None)
+        pair -- checked by the caller, which knows how to report each shape.
 
         The common case (see claims.py's module docstring): this "unclaimed"
         channel is one probarr has been curating and pushing all along --
@@ -2218,39 +2233,87 @@ class Handler(BaseHTTPRequestHandler):
         erroring; only a channel key genuinely new to this run gets a
         freshly appended entry.
         """
+        if dispatcharr_id is None or not name:
+            return False, "dispatcharr_id and name required"
+        try:
+            dispatcharr_id = int(dispatcharr_id)
+        except (TypeError, ValueError):
+            return False, "dispatcharr_id must be a number"
+        key = self._norm().key(name)
+        if not key:
+            return False, "name normalises to nothing"
+        existing = next((w for w in wanted if w.get("key") == key), None)
+        if existing:
+            if existing.get("number") is None and number is not None:
+                existing["number"] = number
+        else:
+            wanted.append({"number": number, "name": name, "tvg_id": "",
+                          "key": key, "imported_from": "dispatcharr"})
+        return True, {"dispatcharr_id": dispatcharr_id, "key": key,
+                     "relinked": existing is not None}
+
+    def _claim_into_run(self, run_id, body):
+        """Assign a single Unclaimed Dispatcharr channel to a run's wantlist.
+        See _claim_one_into_wantlist for the shared logic; _claim_into_run_bulk
+        for assigning many at once."""
         with self._wantlist_lock_for(run_id):
-            dispatcharr_id = body.get("dispatcharr_id")
-            name = (body.get("name") or "").strip()
-            if dispatcharr_id is None or not name:
-                return self._send('{"error":"dispatcharr_id and name required"}',
-                                  "application/json", 400)
-            try:
-                dispatcharr_id = int(dispatcharr_id)
-            except (TypeError, ValueError):
-                return self._send('{"error":"dispatcharr_id must be a number"}',
-                                  "application/json", 400)
-            number = body.get("number")
             store = RunStore(self.root, run_id)
             if not os.path.exists(store.results_path):
                 return self._send('{"error":"no such run"}', "application/json", 404)
-            key = self._norm().key(name)
-            if not key:
-                return self._send('{"error":"name normalises to nothing"}',
-                                  "application/json", 400)
             want = store.read_wantlist()
             wanted = list(want.get("wanted") or [])
-            existing = next((w for w in wanted if w.get("key") == key), None)
-            if existing:
-                if existing.get("number") is None and number is not None:
-                    existing["number"] = number
-            else:
-                wanted.append({"number": number, "name": name, "tvg_id": "",
-                              "key": key, "imported_from": "dispatcharr"})
+            ok, payload = self._claim_one_into_wantlist(
+                wanted, body.get("dispatcharr_id"),
+                (body.get("name") or "").strip(), body.get("number"))
+            if not ok:
+                return self._send(json.dumps({"error": payload}),
+                                  "application/json", 400)
             store.write_wantlist_raw(wanted, want.get("missing") or [])
-            claims_mod.claim(self.root, dispatcharr_id, key, name,
-                             source=f"run:{run_id}")
-            self._send(json.dumps({"ok": True, "key": key,
-                                  "relinked": existing is not None}),
+            claims_mod.claim(self.root, payload["dispatcharr_id"], payload["key"],
+                             body.get("name"), source=f"run:{run_id}")
+            self._send(json.dumps({"ok": True, "key": payload["key"],
+                                  "relinked": payload["relinked"]}),
+                      "application/json")
+
+    def _claim_into_run_bulk(self, run_id, body):
+        """Assign many Unclaimed Dispatcharr channels to a run in one go --
+        the "select 500 channels, assign them all" case. One wantlist
+        read/write and one lock acquisition for the whole batch rather than
+        one per channel, which is the difference between this finishing
+        instantly and it taking as long as 500 individual requests would.
+
+        A single bad entry (a blank name, say) is recorded per-item in
+        `errors` and does not stop the rest of the batch -- the same
+        "don't let one failure poison an otherwise-good batch" reasoning
+        as push()'s own per-channel try/except.
+        """
+        with self._wantlist_lock_for(run_id):
+            store = RunStore(self.root, run_id)
+            if not os.path.exists(store.results_path):
+                return self._send('{"error":"no such run"}', "application/json", 404)
+            channels = body.get("channels") or []
+            if not channels:
+                return self._send('{"error":"channels required"}', "application/json", 400)
+            want = store.read_wantlist()
+            wanted = list(want.get("wanted") or [])
+            assigned, relinked_count, errors = 0, 0, []
+            to_claim = []
+            for c in channels:
+                name = (c.get("name") or "").strip()
+                ok, payload = self._claim_one_into_wantlist(
+                    wanted, c.get("dispatcharr_id"), name, c.get("number"))
+                if not ok:
+                    errors.append({"name": name, "error": payload})
+                    continue
+                to_claim.append((payload["dispatcharr_id"], payload["key"], name))
+                assigned += 1
+                relinked_count += payload["relinked"]
+            store.write_wantlist_raw(wanted, want.get("missing") or [])
+            for dispatcharr_id, key, name in to_claim:
+                claims_mod.claim(self.root, dispatcharr_id, key, name,
+                                 source=f"run:{run_id}")
+            self._send(json.dumps({"ok": True, "assigned": assigned,
+                                  "relinked": relinked_count, "errors": errors}),
                       "application/json")
 
     def _duplicate_channel(self, run_id, body):
