@@ -2211,6 +2211,81 @@ class TestCredentials(Temp):
         self.assertEqual(redacted["concurrency"], 3)
 
 
+class TestSameOriginWriteGuard(Temp):
+    """probarr-tj0: /api/settings and /api/backup/import had no auth at all
+    -- any device on the LAN could blind-POST and overwrite provider
+    credentials with a bare curl, no session or browser required.
+    _same_origin() closes that without needing a login system: a real
+    same-origin page write always carries an Origin or Referer naming this
+    host, so their absence or mismatch is treated as untrusted.
+    """
+
+    def _handler(self, headers):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        h.headers = headers
+        return h
+
+    def test_rejects_request_with_no_origin_or_referer(self):
+        h = self._handler({"Host": "192.168.1.243:7799"})
+        self.assertFalse(h._same_origin())
+
+    def test_rejects_mismatched_origin(self):
+        h = self._handler({"Host": "192.168.1.243:7799",
+                            "Origin": "http://evil.example:1234"})
+        self.assertFalse(h._same_origin())
+
+    def test_accepts_matching_origin(self):
+        h = self._handler({"Host": "192.168.1.243:7799",
+                            "Origin": "http://192.168.1.243:7799"})
+        self.assertTrue(h._same_origin())
+
+    def test_accepts_matching_referer_when_origin_absent(self):
+        h = self._handler({"Host": "192.168.1.243:7799",
+                            "Referer": "http://192.168.1.243:7799/settings"})
+        self.assertTrue(h._same_origin())
+
+    def test_rejects_with_no_host_header_at_all(self):
+        h = self._handler({"Origin": "http://192.168.1.243:7799"})
+        self.assertFalse(h._same_origin())
+
+    def test_settings_post_rejects_cross_origin_write(self):
+        from probarr import web as web_mod
+        from probarr import settings as settings_mod
+        h = self._handler({"Host": "192.168.1.243:7799",
+                            "Origin": "http://evil.example"})
+        h.path = "/api/settings"
+        h.command = "POST"
+        payload = json.dumps({"concurrency": 99}).encode("utf-8")
+        h.headers["Content-Length"] = str(len(payload))
+        import io
+        h.rfile = io.BytesIO(payload)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: sent.append((body, code))
+        h._do_POST()
+        self.assertEqual(sent[0][1], 403)
+        # The blind write must never have reached settings.write() at all.
+        self.assertNotEqual(settings_mod.read(self.root).get("concurrency"), 99)
+
+    def test_settings_post_accepts_same_origin_write(self):
+        from probarr import web as web_mod
+        from probarr import settings as settings_mod
+        h = self._handler({"Host": "192.168.1.243:7799",
+                            "Origin": "http://192.168.1.243:7799"})
+        h.path = "/api/settings"
+        h.command = "POST"
+        payload = json.dumps({"concurrency": 5}).encode("utf-8")
+        h.headers["Content-Length"] = str(len(payload))
+        import io
+        h.rfile = io.BytesIO(payload)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: sent.append((body, code))
+        h._do_POST()
+        self.assertEqual(sent[0][1], 200)
+        self.assertEqual(settings_mod.read(self.root)["concurrency"], 5)
+
+
 class TestPageTemplates(unittest.TestCase):
     """The bug class that broke the Curate page twice: JavaScript written
     inside a Python string, with escapes the interpreter silently ate."""
@@ -2889,6 +2964,10 @@ class TestSettingsPostIsAlsoRedacted(Temp):
         h._json_body = lambda: (
             {"source": "xtream://user:sup3rs3cret@host:8080"}, False)
         h.path = "/api/settings"
+        # Same-origin write guard (probarr-tj0) now runs ahead of every
+        # settings write; a same-origin Referer is what a real browser save
+        # sends, and is what this redaction test needs to get past it.
+        h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/settings"}
         return h, sent
 
     def test_the_save_response_does_not_echo_the_raw_credential(self):

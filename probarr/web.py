@@ -162,6 +162,34 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _same_origin(self):
+        """True if this write request's Origin/Referer names this same host.
+
+        probarr has no login system (LAN appliance, team-decided low risk
+        for read paths) but a POST with no Origin/Referer check at all lets
+        any other device on the LAN -- or a malicious page loaded in a
+        browser that also has this tab open -- blind-write config with a
+        bare curl/fetch, no session or credentials required. Checking that
+        the write actually originated from this app's own page closes that
+        gap without needing any auth system.
+
+        Same-origin browsers always send at least one of these headers on a
+        cross-origin-capable request; their absence (a raw script/curl) is
+        treated as untrusted, not waved through.
+        """
+        host = self.headers.get("Host", "")
+        if not host:
+            return False
+        for header in ("Origin", "Referer"):
+            value = self.headers.get(header)
+            if not value:
+                continue
+            netloc = urllib.parse.urlparse(value).netloc
+            if netloc == host:
+                return True
+            return False  # present but mismatched -- explicit reject
+        return False  # neither header present
+
     def do_GET(self):
         try:
             return self._do_GET()
@@ -408,6 +436,9 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in path.split("/") if p]
 
         if path == "/api/settings":
+            if not self._same_origin():
+                return self._send(json.dumps({"error": "cross-origin write rejected"}),
+                                  "application/json", 403)
             body, sent = self._json_body()
             if sent:
                 return
@@ -424,6 +455,9 @@ class Handler(BaseHTTPRequestHandler):
                 "application/json")
 
         if path == "/api/backup/import":
+            if not self._same_origin():
+                return self._send(json.dumps({"error": "cross-origin write rejected"}),
+                                  "application/json", 403)
             # A restore rewrites providers, lineups, wantlists and every
             # run's own state in place -- deliberately no merge, the backup
             # IS the new truth, same reasoning as any other restore. 200MB
