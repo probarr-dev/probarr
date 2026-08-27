@@ -3112,6 +3112,108 @@ class TestClaimIntoRun(Temp):
         self.assertEqual(wanted["ITV"]["number"], 103)
 
 
+class TestDeleteUnclaimedChannel(Temp):
+    """Real user request: Unclaimed needs a way to delete a channel from
+    Dispatcharr outright, not just assign it somewhere. Deliberately
+    immediate rather than staged through a push preview -- see
+    _delete_unclaimed_channel's docstring for why an unclaimed channel has
+    no run/selection to stage the deletion against in the first place."""
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def _fake_client(self, calls):
+        client = unittest.mock.MagicMock()
+        def fake_api(method, path):
+            calls.append((method, path))
+            return {}
+        client.api.side_effect = fake_api
+        return client
+
+    def test_deletes_the_channel_and_clears_any_stale_claim(self):
+        import json
+        from probarr import web as web_mod, providers, claims
+        providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
+        claims.claim(self.root, 55, "OLDKEY", "Old Name")
+        calls = []
+        h, sent = self._handler()
+        with unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=self._fake_client(calls)):
+            h._delete_unclaimed_channel({"provider": "dp", "dispatcharr_id": 55})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        self.assertEqual(calls, [("DELETE", "/api/channels/channels/55/")])
+        self.assertFalse(claims.is_claimed(self.root, 55))
+
+    def test_rejects_a_provider_that_is_not_dispatcharr(self):
+        from probarr import providers
+        providers.save(self.root, "iptv", "http://example/x.m3u")
+        h, sent = self._handler()
+        h._delete_unclaimed_channel({"provider": "iptv", "dispatcharr_id": 55})
+        self.assertEqual(sent[-1][0], 404)
+
+    def test_reports_a_dispatcharr_error_without_crashing(self):
+        from probarr import web as web_mod, providers
+        providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
+        client = unittest.mock.MagicMock()
+        client.api.side_effect = RuntimeError("boom")
+        h, sent = self._handler()
+        with unittest.mock.patch.object(web_mod, "client_from_spec", return_value=client):
+            h._delete_unclaimed_channel({"provider": "dp", "dispatcharr_id": 55})
+        self.assertEqual(sent[-1][0], 502)
+
+
+class TestDeleteUnclaimedChannelsBulk(Temp):
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_deletes_several_and_reports_errors_separately(self):
+        import json
+        from probarr import web as web_mod, providers, claims
+        providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
+        claims.claim(self.root, 1, "A", "A")
+        claims.claim(self.root, 2, "B", "B")
+        calls = []
+        client = unittest.mock.MagicMock()
+        def fake_api(method, path):
+            calls.append((method, path))
+            if "/2/" in path:
+                raise RuntimeError("nope")
+            return {}
+        client.api.side_effect = fake_api
+        h, sent = self._handler()
+        with unittest.mock.patch.object(web_mod, "client_from_spec", return_value=client):
+            h._delete_unclaimed_channels_bulk({"provider": "dp",
+                                               "dispatcharr_ids": [1, 2]})
+        d = json.loads(sent[-1][1])
+        self.assertEqual(d["deleted"], 1)
+        self.assertEqual(len(d["errors"]), 1)
+        self.assertEqual(d["errors"][0]["dispatcharr_id"], 2)
+        self.assertFalse(claims.is_claimed(self.root, 1))
+        self.assertTrue(claims.is_claimed(self.root, 2),
+                        "a channel whose delete FAILED must keep its claim")
+
+    def test_requires_a_non_empty_id_list(self):
+        from probarr import providers
+        providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
+        h, sent = self._handler()
+        h._delete_unclaimed_channels_bulk({"provider": "dp", "dispatcharr_ids": []})
+        self.assertEqual(sent[-1][0], 400)
+
+
 class TestClaimIntoRunBulk(Temp):
     """The "select 500 channels, assign them all" case -- one request
     instead of one per channel, sharing the same relink-or-append logic

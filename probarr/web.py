@@ -758,6 +758,20 @@ class Handler(BaseHTTPRequestHandler):
                 return
             return self._dispatcharr_unclaimed(body)
 
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "dispatcharr" \
+                and parts[2] == "delete":
+            body, sent = self._json_body()
+            if sent:
+                return
+            return self._delete_unclaimed_channel(body)
+
+        if len(parts) == 3 and parts[0] == "api" and parts[1] == "dispatcharr" \
+                and parts[2] == "delete-bulk":
+            body, sent = self._json_body()
+            if sent:
+                return
+            return self._delete_unclaimed_channels_bulk(body)
+
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "run" \
                 and parts[3] == "channel-duplicate":
             body, sent = self._json_body()
@@ -2209,6 +2223,76 @@ class Handler(BaseHTTPRequestHandler):
                 "streams": len(ch.get("streams") or [])})
         out.sort(key=lambda c: (c["number"] is None, c["number"] or 0))
         self._send(json.dumps({"ok": True, "channels": out}), "application/json")
+
+    def _delete_unclaimed_channel(self, body):
+        """Permanently delete ONE Dispatcharr channel straight away -- no
+        staging, no preview, unlike every other deletion in probarr.
+
+        That is deliberate here, not an oversight: Remove-from-run's
+        "also delete in Dispatcharr" is staged because it is a decision
+        ABOUT a run's curated selection, reviewed in the same push preview
+        as everything else that selection changes. An Unclaimed channel is
+        the opposite case -- it belongs to no run and no lineup, there is
+        no selection to review it alongside, and it is the very definition
+        of "probarr doesn't recognise this" -- so there is nothing to
+        preview it against. The UI's own confirmation dialog, naming
+        exactly what's being destroyed, is the only safety net there is.
+        """
+        provider_name = (body.get("provider") or "").strip()
+        dispatcharr_id = body.get("dispatcharr_id")
+        prov = providers_mod.get(self.root, provider_name)
+        if not prov or prov.get("scheme") != "dispatcharr":
+            return self._send(
+                '{"error":"provider not found, or not a Dispatcharr connection"}',
+                "application/json", 404)
+        try:
+            dispatcharr_id = int(dispatcharr_id)
+        except (TypeError, ValueError):
+            return self._send('{"error":"dispatcharr_id must be a number"}',
+                              "application/json", 400)
+        client = client_from_spec(prov["spec"])
+        try:
+            client.api("DELETE", f"/api/channels/channels/{dispatcharr_id}/")
+        except Exception as e:
+            return self._send(json.dumps({"error": str(e)[:300]}),
+                              "application/json", 502)
+        # A channel that no longer exists cannot still be "unclaimed" --
+        # drop any stale claim for it too, so a channel deleted, then
+        # somehow recreated under the same id later, does not inherit a
+        # tag that no longer means anything.
+        claims_mod.unclaim(self.root, dispatcharr_id)
+        self._send(json.dumps({"ok": True}), "application/json")
+
+    def _delete_unclaimed_channels_bulk(self, body):
+        """Same as _delete_unclaimed_channel, for many at once -- see that
+        method's docstring for why this is immediate rather than staged.
+        Each id is deleted independently; one failure is recorded in
+        `errors` and does not stop the rest of the batch."""
+        provider_name = (body.get("provider") or "").strip()
+        prov = providers_mod.get(self.root, provider_name)
+        if not prov or prov.get("scheme") != "dispatcharr":
+            return self._send(
+                '{"error":"provider not found, or not a Dispatcharr connection"}',
+                "application/json", 404)
+        ids = body.get("dispatcharr_ids") or []
+        if not ids:
+            return self._send('{"error":"dispatcharr_ids required"}', "application/json", 400)
+        client = client_from_spec(prov["spec"])
+        deleted, errors = 0, []
+        for raw_id in ids:
+            try:
+                dispatcharr_id = int(raw_id)
+            except (TypeError, ValueError):
+                errors.append({"dispatcharr_id": raw_id, "error": "not a number"})
+                continue
+            try:
+                client.api("DELETE", f"/api/channels/channels/{dispatcharr_id}/")
+                claims_mod.unclaim(self.root, dispatcharr_id)
+                deleted += 1
+            except Exception as e:
+                errors.append({"dispatcharr_id": dispatcharr_id, "error": str(e)[:200]})
+        self._send(json.dumps({"ok": True, "deleted": deleted, "errors": errors}),
+                  "application/json")
 
     def _claim_one_into_wantlist(self, wanted, dispatcharr_id, name, number):
         """The pure part of assigning one Unclaimed channel: mutate `wanted`

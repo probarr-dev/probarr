@@ -3554,7 +3554,9 @@ document.getElementById("dm-preview").addEventListener("click", async () => {
         (relink.length ? ', <b>'+relink.length+'</b> need relinking' : '')+'</div>'+
         (blocked.length + relink.length
           ? '<div class="warn">Push will skip '+(blocked.length+relink.length)+
-            ' channel(s) below until you resolve them.</div>'
+            ' channel(s) below until you resolve them. Bulk-resolving a lot '+
+            'at once (e.g. after a Dispatcharr restore)? '+
+            '<a href="/unclaimed" target="_blank" rel="noopener">Open Unclaimed ↗</a></div>'
           : '')+
         blocked.map(a => conflictRow(a, false)).join("") +
         relink.map(a => conflictRow(a, true)).join("") +
@@ -3621,6 +3623,11 @@ function conflictRow(a, isRelink){
     (isRelink ? "Relink \u2014 this is the same channel" : "This is my channel \u2014 let me push it")+
     '</button>'+
     '<button class="resolve-skip">Skip for now</button>'+
+    // Same underlying claims.json this button writes to, just the other
+    // door in -- Unclaimed also shows bulk assign/delete, useful when a
+    // whole batch of these came from the same cause (a Dispatcharr
+    // restore, say) rather than resolving one at a time here.
+    '<a href="/unclaimed" target="_blank" rel="noopener">Manage in Unclaimed \u2197</a>'+
     '</div></div>';
 }
 

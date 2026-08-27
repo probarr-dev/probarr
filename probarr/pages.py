@@ -2272,6 +2272,10 @@ UNCLAIMED_EXTRA = NEWRUN_EXTRA + """
 .uc-selall{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--dim);
   cursor:pointer;user-select:none}
 .uc-selall input{width:16px;height:16px;accent-color:var(--accent)}
+button.danger{color:var(--bad);border-color:var(--bad)}
+button.danger:hover{background:rgba(240,80,80,.12)}
+.uc-row .delbtn{flex:none;color:var(--bad);border-color:var(--bad)}
+.uc-row .delbtn:hover{background:rgba(240,80,80,.12)}
 """
 
 UNCLAIMED_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -2301,6 +2305,7 @@ __TOPBAR__
       <span class="muted" id="selcount"></span>
       <select id="bulkrun" style="max-width:220px"></select>
       <button class="primary" id="bulkassign">Assign selected</button>
+      <button class="danger" id="bulkdelete" title="Permanently delete every selected channel from Dispatcharr. This cannot be undone.">Delete selected from Dispatcharr</button>
     </div>
     <div id="list" style="margin-top:14px"></div>
   </div>
@@ -2348,6 +2353,7 @@ function renderRows(){
       '<span class="meta">'+esc(c.group||"no group")+' &middot; '+c.streams+' stream(s)</span>'+
       '<select class="run">'+runPicker()+'</select>'+
       '<button class="assign">Assign</button>'+
+      '<button class="delbtn">Delete</button>'+
       '</div>';
   }).join("");
   updateBulkbar();
@@ -2398,23 +2404,75 @@ $("list").addEventListener("change", e => {
 });
 
 $("list").addEventListener("click", async e => {
-  if(!e.target.classList.contains("assign")) return;
   const row = e.target.closest(".uc-row");
-  const run_id = row.querySelector(".run").value;
-  if(!run_id){ alert("Choose a run to assign this channel to first."); return; }
-  e.target.disabled = true; e.target.textContent = "Assigning…";
+  if(!row) return;
+  if(e.target.classList.contains("assign")){
+    const run_id = row.querySelector(".run").value;
+    if(!run_id){ alert("Choose a run to assign this channel to first."); return; }
+    e.target.disabled = true; e.target.textContent = "Assigning…";
+    try{
+      const r = await fetch("/api/run/"+encodeURIComponent(run_id)+"/claim-unclaimed",
+        {method:"POST", headers:{"Content-Type":"application/json"},
+         body: JSON.stringify({dispatcharr_id: row.dataset.id, name: row.dataset.name,
+                               number: row.dataset.number ? Number(row.dataset.number) : null})});
+      const d = await r.json();
+      if(d.error){ alert("Could not assign: "+d.error); e.target.disabled = false;
+                  e.target.textContent = "Assign"; return; }
+      SELECTED.delete(row.dataset.id);
+      CHANS = CHANS.filter(c => String(c.dispatcharr_id) !== row.dataset.id);
+      renderRows();
+    }catch(e2){ alert("Request failed."); e.target.disabled = false; e.target.textContent = "Assign"; }
+    return;
+  }
+  if(e.target.classList.contains("delbtn")){
+    const numTxt = row.dataset.number ? "number "+row.dataset.number+" " : "";
+    if(!confirm("Permanently delete "+numTxt+"“"+row.dataset.name+"” "+
+                "from Dispatcharr?\n\nThis cannot be undone.")) return;
+    e.target.disabled = true; e.target.textContent = "Deleting…";
+    try{
+      const r = await fetch("/api/dispatcharr/delete",
+        {method:"POST", headers:{"Content-Type":"application/json"},
+         body: JSON.stringify({provider: $("provider").value,
+                               dispatcharr_id: row.dataset.id})});
+      const d = await r.json();
+      if(d.error){ alert("Could not delete: "+d.error); e.target.disabled = false;
+                  e.target.textContent = "Delete"; return; }
+      SELECTED.delete(row.dataset.id);
+      CHANS = CHANS.filter(c => String(c.dispatcharr_id) !== row.dataset.id);
+      renderRows();
+    }catch(e2){ alert("Request failed."); e.target.disabled = false; e.target.textContent = "Delete"; }
+  }
+});
+
+$("bulkdelete").addEventListener("click", async () => {
+  const picked = CHANS.filter(c => SELECTED.has(String(c.dispatcharr_id)));
+  if(!picked.length) return;
+  if(!confirm("Permanently delete these "+picked.length+" channel(s) from "+
+              "Dispatcharr?\n\n"+
+              picked.slice(0,10).map(c=>"• "+(c.number!=null?c.number+" ":"")+c.name).join("\n")+
+              (picked.length>10 ? "\n…and "+(picked.length-10)+" more" : "")+
+              "\n\nThis cannot be undone.")) return;
+  const btn = $("bulkdelete");
+  btn.disabled = true; btn.textContent = "Deleting "+picked.length+"…";
   try{
-    const r = await fetch("/api/run/"+encodeURIComponent(run_id)+"/claim-unclaimed",
+    const r = await fetch("/api/dispatcharr/delete-bulk",
       {method:"POST", headers:{"Content-Type":"application/json"},
-       body: JSON.stringify({dispatcharr_id: row.dataset.id, name: row.dataset.name,
-                             number: row.dataset.number ? Number(row.dataset.number) : null})});
+       body: JSON.stringify({provider: $("provider").value,
+                             dispatcharr_ids: picked.map(c=>c.dispatcharr_id)})});
     const d = await r.json();
-    if(d.error){ alert("Could not assign: "+d.error); e.target.disabled = false;
-                e.target.textContent = "Assign"; return; }
-    SELECTED.delete(row.dataset.id);
-    CHANS = CHANS.filter(c => String(c.dispatcharr_id) !== row.dataset.id);
+    btn.textContent = "Delete selected from Dispatcharr";
+    if(d.error){ alert("Could not delete: "+d.error); btn.disabled = false; return; }
+    const failedIds = new Set((d.errors||[]).map(e => String(e.dispatcharr_id)));
+    CHANS = CHANS.filter(c => !SELECTED.has(String(c.dispatcharr_id))
+                            || failedIds.has(String(c.dispatcharr_id)));
+    SELECTED = new Set([...SELECTED].filter(id => failedIds.has(id)));
+    let msg = d.deleted+" deleted";
+    if(d.errors && d.errors.length) msg += ", "+d.errors.length+" failed";
+    $("status").textContent = msg;
     renderRows();
-  }catch(e2){ alert("Request failed."); e.target.disabled = false; e.target.textContent = "Assign"; }
+    btn.disabled = SELECTED.size === 0;
+  }catch(e2){ alert("Request failed."); btn.disabled = false;
+             btn.textContent = "Delete selected from Dispatcharr"; }
 });
 
 $("bulkassign").addEventListener("click", async () => {
