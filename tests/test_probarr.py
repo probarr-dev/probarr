@@ -2694,6 +2694,90 @@ class TestWantlistWritesAreSerializedPerRun(Temp):
                          "one rename was silently lost to the other's write")
 
 
+class TestRenumberChannel(Temp):
+    """Curate now shows a channel with no number in bright red (it would
+    otherwise be silently dropped from every export by _resolve_curated in
+    web.py) and lets it be fixed in place, mirroring the existing rename
+    endpoint. _renumber_channel is the server half of that."""
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        web_mod.Handler._wantlist_locks = {}
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_sets_a_missing_number(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "A", "number": None, "name": "A"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h._renumber_channel("run1", {"channel_key": "A", "number": 101})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        wanted = RunStore(self.root, "run1").read_wantlist()["wanted"]
+        self.assertEqual(wanted[0]["number"], 101,
+                         "the new number was not written back to the wantlist")
+
+    def test_rejects_a_number_already_used_by_another_channel(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "A", "number": None, "name": "A"},
+             {"key": "B", "number": 202, "name": "B"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h._renumber_channel("run1", {"channel_key": "A", "number": 202})
+        code, body = sent[-1]
+        self.assertEqual(code, 409,
+                         "assigning a number another channel already owns must "
+                         "be rejected, not silently overwrite that channel's "
+                         "identity in Dispatcharr")
+        wanted = {w["key"]: w["number"] for w in
+                 RunStore(self.root, "run1").read_wantlist()["wanted"]}
+        self.assertIsNone(wanted["A"])
+
+    def test_rejects_non_positive_numbers(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": None, "name": "A"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h._renumber_channel("run1", {"channel_key": "A", "number": 0})
+        self.assertEqual(sent[-1][0], 400)
+        h._renumber_channel("run1", {"channel_key": "A", "number": "not-a-number"})
+        self.assertEqual(sent[-1][0], 400)
+
+    def test_promotes_the_number_to_the_lineup_so_it_survives_a_rebuild(self):
+        """Without this, a number set by hand in Curate would revert to
+        unset the next time the wantlist is rebuilt from the provider --
+        the exact loss the rename endpoint already avoids for names."""
+        from probarr.store import RunStore
+        from probarr import lineups as lineups_mod
+        lineups_mod.save(self.root, "my-lineup", provider="p1")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({"lineup": "my-lineup"})
+        store.write_wantlist_raw(
+            [{"key": "A", "number": None, "name": "A"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h._renumber_channel("run1", {"channel_key": "A", "number": 55})
+        self.assertEqual(sent[-1][0], 200, sent[-1])
+        prefs = lineups_mod.preferences(self.root, "my-lineup")
+        self.assertEqual(prefs.get("A", {}).get("number"), 55,
+                         "the number was not promoted to the lineup, so a "
+                         "fresh run would lose it again")
+
+
 class TestMediaDurationUsesConfiguredTimeout(unittest.TestCase):
     """Real bug found on a full-codebase review: _media_duration() used a
     bare 15s literal timeout while every other ffprobe/ffmpeg call in

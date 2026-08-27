@@ -51,6 +51,10 @@ aside .tools input[type=search]{width:100%}
 .chan:hover{background:var(--panel)}
 .chan.sel{background:var(--panel2);box-shadow:inset 3px 0 0 var(--accent)}
 .chan .num{color:var(--faint);font-size:11px;min-width:30px;font-variant-numeric:tabular-nums}
+.chan .num.nonum{color:#fff;background:var(--bad);font-weight:700;letter-spacing:.3px;
+  padding:1px 5px;border-radius:3px;min-width:auto}
+.dhead .num.nonum{display:inline-block;color:#fff;background:var(--bad);font-weight:700;
+  font-size:13px;letter-spacing:.3px;padding:2px 7px;border-radius:3px;vertical-align:middle}
 .chlogo{height:18px;width:18px;object-fit:contain;flex:none;background:var(--bg);
   border-radius:3px}
 .chlogo-empty{visibility:hidden}
@@ -949,7 +953,9 @@ function renderList(){
     return '<div class="chan'+(current===ch.key?' sel':'')+(ch.missing?' missing':'')+
     (MARKED.has(ch.key)?' marked':'')+'" data-k="'+esc(ch.key)+'">'+
       '<span class="dot '+st+'" title="'+esc(STATE_LABEL[st]||st)+'"></span>'+
-      '<span class="num">'+(ch.number!=null?ch.number:"")+'</span>'+
+      (ch.number!=null?'<span class="num">'+ch.number+'</span>'
+        :'<span class="num nonum" title="No channel number set — this channel '+
+          'will be dropped from every export until it has one">NO #</span>')+
       (logoUrl ? '<img class="chlogo" src="'+esc(logoUrl)+'" alt="" loading="lazy">'
                : '<span class="chlogo chlogo-empty"></span>')+
       '<span class="nm">'+esc(ch.title)+
@@ -1089,7 +1095,15 @@ function renderDetail(){
     '</button>';
   const dLogoUrl = listLogo(ch);
   d.innerHTML =
-    '<div class="dhead"><h1>'+(ch.number!=null?ch.number+' &middot; ':'')+
+    '<div class="dhead"><h1>'+
+      '<span id="numtext" tabindex="0" title="'+
+        (ch.number!=null?'Click to change this channel’s number'
+          :'No channel number set — this channel is dropped from every '+
+           'export until it has one. Click to set it.')+'">'+
+        (ch.number!=null?esc(String(ch.number)):
+          '<span class="num nonum">NO #</span>')+'</span>'+
+      (ch.number!=null?' &middot; ':' ')+
+      '<button id="numedit" title="Set this channel’s number">✎</button> '+
       (dLogoUrl ? '<img class="dhlogo" src="'+esc(dLogoUrl)+'" alt="">' : '')+
       '<span id="titletext" tabindex="0" title="Click to rename">'+esc(ch.title)+'</span>'+
       '<button id="titleedit" title="Rename this channel">\u270e</button></h1>'+
@@ -2321,6 +2335,51 @@ function startRename(){
   input.addEventListener("blur", commit, {once: true});
 }
 
+// Same "click it, edit in place" pattern as the title, and for the same
+// reason it needs one at all: a channel with no number is invisible in
+// every export (see _resolve_curated in web.py), so fixing it has to be
+// possible from the exact place that warns about it, not a detour to some
+// other screen.
+function startRenumber(){
+  const span = document.getElementById("numtext"); if(!span) return;
+  const ch = DATA.channels.find(c=>c.key===current); if(!ch) return;
+  const input = document.createElement("input");
+  input.type = "number"; input.min = "1"; input.step = "1";
+  input.value = ch.number!=null ? ch.number : "";
+  input.id = "numinput";
+  input.style.cssText = "font:inherit;font-weight:inherit;background:var(--bg);" +
+    "color:var(--text);border:1px solid var(--accent);border-radius:4px;" +
+    "padding:1px 6px;width:6em";
+  span.replaceWith(input);
+  document.getElementById("numedit").style.display = "none";
+  input.focus(); input.select();
+  const restore = () => {
+    input.replaceWith(span);
+    document.getElementById("numedit").style.display = "";
+  };
+  const commit = async () => {
+    const v = input.value.trim();
+    const n = v === "" ? NaN : parseInt(v, 10);
+    if(!v || !Number.isInteger(n) || n <= 0 || n === ch.number){ restore(); return; }
+    try{
+      const r = await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+
+        "/channel-renumber",
+        {method:"POST", headers:{"Content-Type":"application/json"},
+         body: JSON.stringify({channel_key: current, number: n})});
+      const d = await r.json();
+      restore();
+      if(d.error){ alert("Could not set number: "+d.error); return; }
+      ch.number = n;
+      renderDetail(); renderList(); checkPending();
+    }catch(e){ restore(); alert("Request failed."); }
+  };
+  input.addEventListener("keydown", e => {
+    if(e.key === "Enter"){ e.preventDefault(); input.blur(); }
+    if(e.key === "Escape"){ e.preventDefault(); input.value = ch.number!=null?ch.number:""; input.blur(); }
+  });
+  input.addEventListener("blur", commit, {once: true});
+}
+
 // Same feed in two groups. Dispatcharr identifies a channel by its NUMBER,
 // so a copy at a different number is genuinely a second channel there --
 // which is what stops one group's push from undoing the other's. Results
@@ -3060,6 +3119,7 @@ function setPick(what,id){
 }
 document.getElementById("detail").addEventListener("click", e => {
   if(e.target.id === "titletext" || e.target.id === "titleedit") startRename();
+  if(e.target.closest("#numtext") || e.target.id === "numedit") startRenumber();
   const ct = e.target.closest("[data-chtoggle]");
   if(ct){
     const box = document.getElementById(ct.dataset.chtoggle);
@@ -3617,10 +3677,16 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
         # provider called it in the wantlist. Without this, renaming in one
         # run silently reverted to the provider's name in the next.
         pref_name = ((inherited or {}).get(key) or {}).get("name")
+        # Same reasoning as the rename above, for the number: a fresh run
+        # rebuilds its wantlist from the provider, which has no notion of a
+        # Dispatcharr number at all, so a number set by hand in Curate would
+        # otherwise vanish (and the channel would drop out of every export
+        # again) the moment the lineup was next re-run.
+        pref_number = ((inherited or {}).get(key) or {}).get("number")
         expected = next((r.get("expected") for r in ranked if r.get("expected")), None)
         channels.append({
             "key": key,
-            "number": w.get("number"),
+            "number": w.get("number") if w.get("number") is not None else pref_number,
             "title": pref_name or w.get("name")
                      or (ranked[0].get("stream_name") if ranked else key),
             "why": rank_mod.explain_choice(ranked),
@@ -3682,7 +3748,9 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
     # for.
     for w in wanted:
         if w["key"] not in by_channel:
-            channels.append({"key": w["key"], "number": w.get("number"),
+            channels.append({"key": w["key"],
+                             "number": w.get("number") if w.get("number") is not None
+                                       else ((inherited or {}).get(w["key"]) or {}).get("number"),
                              "title": (((inherited or {}).get(w["key"]) or {})
                                        .get("name") or w.get("name")), "why": "no candidate streams matched",
                              "expected": None, "epg_missing": False,

@@ -713,6 +713,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._rename_channel(parts[2], body)
 
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "run" \
+                and parts[3] == "channel-renumber":
+            body, sent = self._json_body()
+            if sent:
+                return
+            return self._renumber_channel(parts[2], body)
+
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "run" \
                 and parts[3] == "channel-duplicate":
             body, sent = self._json_body()
             if sent:
@@ -1973,6 +1980,61 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass  # never let a preference write break the rename itself
             self._send(json.dumps({"ok": True, "name": name,
+                                  "durable": bool(lineup)}), "application/json")
+
+    def _renumber_channel(self, run_id, body):
+        with self._wantlist_lock_for(run_id):
+            """Set a channel's Dispatcharr number within this run.
+
+            Same shape as _rename_channel, for the same reason: the number is
+            what everything downstream (Curate's own missing-number warning,
+            the M3U export, the push to Dispatcharr) already reads off the
+            wantlist, and what _resolve_curated drops the channel over when
+            it is absent -- so this is how a curator clears that warning
+            without leaving Curate.
+
+            Promoted to the run's lineup too, exactly like a rename, so it
+            survives the wantlist being rebuilt from the provider on the
+            next run instead of reverting to unnumbered.
+            """
+            channel_key = (body.get("channel_key") or "").strip()
+            raw = body.get("number")
+            try:
+                number = int(raw)
+            except (TypeError, ValueError):
+                return self._send('{"error":"number must be a whole number"}',
+                                  "application/json", 400)
+            if number <= 0:
+                return self._send('{"error":"number must be positive"}',
+                                  "application/json", 400)
+            store = RunStore(self.root, run_id)
+            if not os.path.exists(store.results_path):
+                return self._send('{"error":"no such run"}', "application/json", 404)
+            want = store.read_wantlist()
+            wanted = list(want.get("wanted") or [])
+            clash = next((w for w in wanted if w.get("key") != channel_key
+                         and w.get("number") == number), None)
+            if clash:
+                return self._send(
+                    json.dumps({"error": f"channel {number} is already used by "
+                                         f"“{clash.get('name', '')}”"}),
+                    "application/json", 409)
+            for w in wanted:
+                if w.get("key") == channel_key:
+                    w["number"] = number
+                    break
+            else:
+                return self._send('{"error":"channel not in this run\'s wantlist"}',
+                                  "application/json", 404)
+            store.write_wantlist_raw(wanted, want.get("missing") or [])
+            lineup = store.read_meta().get("lineup")
+            if lineup:
+                try:
+                    lineups_mod.set_preference(self.root, lineup, channel_key,
+                                               number=number)
+                except Exception:
+                    pass  # never let a preference write break the edit itself
+            self._send(json.dumps({"ok": True, "number": number,
                                   "durable": bool(lineup)}), "application/json")
 
     def _duplicate_channel(self, run_id, body):
