@@ -594,6 +594,11 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[3] == "delete":
                 ok = providers_mod.delete(self.root, parts[2])
                 return self._send(json.dumps({"ok": ok}), "application/json")
+            if len(parts) == 4 and parts[3] == "rename":
+                body, sent = self._json_body()
+                if sent:
+                    return
+                return self._rename_provider(parts[2], body)
             body, sent = self._json_body()
             if sent:
                 return
@@ -1959,6 +1964,42 @@ class Handler(BaseHTTPRequestHandler):
         self._send(json.dumps({"ok": True, "removed_results": removed,
                               "number": number, "staged": staged,
                               "pending": len(store.read_removals())}),
+                  "application/json")
+
+    def _rename_provider(self, old_name, body):
+        """Rename a saved provider, cascading the new name everywhere the
+        OLD one was remembered by name rather than by some stabler id.
+
+        Two places do that today: a lineup's `provider` field, and a run's
+        own `provider_name` (written once at start, read later to decide
+        whether a push target is "the same instance the run came from" --
+        see _run_export's same_instance check). Left unmigrated, a rename
+        would silently orphan every lineup built on this provider (its
+        dropdown would show nothing selected) and break that same-instance
+        detection for every existing run, right when a push into it would
+        otherwise have reused streams instead of creating new custom ones.
+        """
+        new_name = (body.get("new_name") or "").strip()
+        if not new_name:
+            return self._send('{"error":"new_name required"}', "application/json", 400)
+        try:
+            new_name = providers_mod.rename(self.root, old_name, new_name)
+        except ValueError as e:
+            return self._send(json.dumps({"error": str(e)}), "application/json", 400)
+        relinked_lineups = 0
+        for lu in lineups_mod.list_all(self.root):
+            if lu.get("provider") == old_name:
+                lineups_mod.save(self.root, lu["name"], provider=new_name)
+                relinked_lineups += 1
+        relinked_runs = 0
+        for r in RunStore.list_runs(self.root):
+            if r.get("provider_name") == old_name:
+                store = RunStore(self.root, r["run_id"])
+                store.write_meta({**r, "provider_name": new_name})
+                relinked_runs += 1
+        self._send(json.dumps({"ok": True, "name": new_name,
+                              "relinked_lineups": relinked_lineups,
+                              "relinked_runs": relinked_runs}),
                   "application/json")
 
     def _claimed_ids(self):

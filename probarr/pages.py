@@ -1165,11 +1165,29 @@ async function loadList(){
     '<span class="nm">'+esc(p.name)+'</span>'+
     '<span class="meta">'+esc(p.redacted)+
       (p.concurrency ? ' · max '+p.concurrency+' connection'+(p.concurrency===1?'':'s') : '')+'</span>'+
+    '<button data-rename="'+esc(p.name)+'">Rename</button>'+
     '<button data-edit="'+esc(p.name)+'">Edit</button>'+
     '<button data-del="'+esc(p.name)+'">Delete</button></div>').join("");
 }
 document.addEventListener("click", async e=>{
+  const rn=e.target.closest("[data-rename]");
   const ed=e.target.closest("[data-edit]"), dl=e.target.closest("[data-del]");
+  if(rn){
+    const oldName = rn.dataset.rename;
+    const next = prompt("Rename provider \""+oldName+"\" to:", oldName);
+    if(next === null || !next.trim() || next.trim() === oldName) return;
+    const r = await fetch("/api/providers/"+encodeURIComponent(oldName)+"/rename",
+      {method:"POST", headers:{"Content-Type":"application/json"},
+       body: JSON.stringify({new_name: next.trim()})});
+    const d = await r.json();
+    if(d.error){ alert("Could not rename: "+d.error); return; }
+    let note = "Renamed to “"+d.name+"”.";
+    if(d.relinked_lineups) note += " "+d.relinked_lineups+" lineup(s) updated.";
+    if(d.relinked_runs) note += " "+d.relinked_runs+" run(s) updated.";
+    alert(note);
+    loadList();
+    return;
+  }
   if(ed){
     const d = await (await fetch("/api/providers")).json();
     const p = d.providers.find(x=>x.name===ed.dataset.edit);

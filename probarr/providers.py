@@ -114,6 +114,41 @@ def set_last_group_name(root, name, group_name):
     return True
 
 
+def rename(root, old_name, new_name):
+    """Rename a saved provider in place -- same spec, concurrency and
+    remembered push group, just a new name.
+
+    Callers (see web.py's _rename_provider) are responsible for cascading
+    the new name into every lineup and run that references the OLD one by
+    name (lineups.json's `provider` field, a run's own `provider_name`) --
+    this function only touches providers.json itself, the same narrow
+    scope save() and delete() already keep.
+    """
+    import json
+    old = safe_name(old_name)
+    new = safe_name(new_name)
+    if not new:
+        raise ValueError("invalid provider name")
+    items = list_all(root)
+    if not any(p["name"] == old for p in items):
+        raise ValueError(f"no provider named {old_name!r}")
+    if old != new and any(p["name"] == new for p in items):
+        raise ValueError(f"a provider named {new_name!r} already exists")
+    for p in items:
+        if p["name"] == old:
+            p["name"] = new
+        # list_all() computes this fresh on every read; carrying it through
+        # to a write would freeze a stale value into providers.json.
+        p.pop("scheme", None)
+    items.sort(key=lambda p: p["name"].lower())
+    os.makedirs(root, exist_ok=True)
+    tmp = _path(root) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items, f, indent=2)
+    os.replace(tmp, _path(root))
+    return new
+
+
 def delete(root, name):
     import json
     n = safe_name(name)

@@ -1601,6 +1601,131 @@ class TestDispatcharrLogoPush(unittest.TestCase):
         self.assertEqual(action["kind"], "unchanged")
 
 
+class TestProviderRename(Temp):
+    """providers.rename(): renaming a saved provider in place, keeping its
+    spec/concurrency/last_group_name -- and the cascade in web.py that
+    keeps every lineup and run pointing at the SAME provider under its new
+    name, rather than orphaning them (see _rename_provider's docstring)."""
+
+    def test_rename_keeps_spec_and_concurrency(self):
+        from probarr import providers
+        providers.save(self.root, "old-name", "http://example/x.m3u", concurrency=3)
+        new = providers.rename(self.root, "old-name", "new-name")
+        self.assertEqual(new, "new-name")
+        self.assertIsNone(providers.get(self.root, "old-name"))
+        p = providers.get(self.root, "new-name")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["spec"], "http://example/x.m3u")
+        self.assertEqual(p["concurrency"], 3)
+
+    def test_rename_keeps_last_group_name(self):
+        from probarr import providers
+        providers.save(self.root, "old-name", "http://example/x.m3u")
+        providers.set_last_group_name(self.root, "old-name", "my group")
+        providers.rename(self.root, "old-name", "new-name")
+        p = providers.get(self.root, "new-name")
+        self.assertEqual(p["last_group_name"], "my group")
+
+    def test_rename_rejects_a_name_already_in_use(self):
+        from probarr import providers
+        providers.save(self.root, "one", "http://example/1.m3u")
+        providers.save(self.root, "two", "http://example/2.m3u")
+        with self.assertRaises(ValueError):
+            providers.rename(self.root, "one", "two")
+        # Neither provider should have been touched by the failed attempt.
+        self.assertIsNotNone(providers.get(self.root, "one"))
+        self.assertIsNotNone(providers.get(self.root, "two"))
+
+    def test_rename_rejects_an_unknown_provider(self):
+        from probarr import providers
+        with self.assertRaises(ValueError):
+            providers.rename(self.root, "does-not-exist", "whatever")
+
+    def test_stored_scheme_is_not_leaked_into_the_json_file(self):
+        """list_all() computes `scheme` fresh on every read (it is never
+        written to disk) -- rename() must not accidentally freeze a stale
+        copy of it into providers.json when it re-saves the list."""
+        from probarr import providers
+        import json
+        providers.save(self.root, "old-name", "http://example/x.m3u")
+        providers.rename(self.root, "old-name", "new-name")
+        with open(providers._path(self.root)) as f:
+            raw = json.load(f)
+        self.assertNotIn("scheme", raw[0])
+
+
+class TestProviderRenameCascades(Temp):
+    """The web.py endpoint: renaming must not orphan a lineup or run that
+    already points at the provider by its old name."""
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_renaming_updates_a_lineup_that_used_the_old_name(self):
+        import json
+        from probarr import providers, lineups
+        providers.save(self.root, "old-name", "http://example/x.m3u")
+        lineups.save(self.root, "my-lineup", provider="old-name")
+        h, sent = self._handler()
+        h._rename_provider("old-name", {"new_name": "new-name"})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertEqual(d["relinked_lineups"], 1)
+        lu = lineups.get(self.root, "my-lineup")
+        self.assertEqual(lu["provider"], "new-name")
+
+    def test_renaming_updates_a_runs_provider_name(self):
+        import json
+        from probarr import providers
+        from probarr.store import RunStore
+        providers.save(self.root, "old-name", "http://example/x.m3u")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({"provider_name": "old-name", "source": "http://example/x.m3u"})
+        h, sent = self._handler()
+        h._rename_provider("old-name", {"new_name": "new-name"})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertEqual(d["relinked_runs"], 1)
+        meta = RunStore(self.root, "run1").read_meta()
+        self.assertEqual(meta["provider_name"], "new-name")
+
+    def test_a_lineup_or_run_on_a_different_provider_is_left_alone(self):
+        import json
+        from probarr import providers, lineups
+        from probarr.store import RunStore
+        providers.save(self.root, "old-name", "http://example/x.m3u")
+        providers.save(self.root, "other", "http://example/y.m3u")
+        lineups.save(self.root, "other-lineup", provider="other")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({"provider_name": "other"})
+        h, sent = self._handler()
+        h._rename_provider("old-name", {"new_name": "new-name"})
+        d = json.loads(sent[-1][1])
+        self.assertEqual(d["relinked_lineups"], 0)
+        self.assertEqual(d["relinked_runs"], 0)
+        self.assertEqual(lineups.get(self.root, "other-lineup")["provider"], "other")
+        self.assertEqual(RunStore(self.root, "run1").read_meta()["provider_name"], "other")
+
+    def test_rejects_a_collision_and_reports_the_error(self):
+        import json
+        from probarr import providers
+        providers.save(self.root, "one", "http://example/1.m3u")
+        providers.save(self.root, "two", "http://example/2.m3u")
+        h, sent = self._handler()
+        h._rename_provider("one", {"new_name": "two"})
+        code, body = sent[-1]
+        self.assertEqual(code, 400)
+        self.assertIn("error", json.loads(body))
+
+
 class TestClaimsRegistry(Temp):
     """claims.py: which Dispatcharr channel ids probarr already owns. Kept
     as its own tiny persistence module -- see claims.py's docstring for why
