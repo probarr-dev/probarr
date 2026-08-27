@@ -577,6 +577,16 @@ Bug reports and code review from the Dispatcharr Discord have fixed real
 things here, including an EPG parser that held whole guides in memory and an
 export path that skipped dropped channels silently. Issues and PRs welcome.
 
+Particular thanks to **[knmplace](https://github.com/knmplace)**, whose PRs
+have landed real fixes and features here — credential redaction on the
+settings endpoint, the EPG cache stampede/memory fixes, Windows test-fixture
+bugs, the cross-origin write guard, the Browse Channels country/category
+filter and active-lineup view, and opt-in Dispatcharr M3U account creation
+among them — and to **Mandzo**, whose real-world testing (a provider naming
+its streams in small-caps/superscript Unicode, a local M3U source path that
+only existed on the host and not inside the container) surfaced bugs no
+amount of writing tests in a vacuum would have found.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
