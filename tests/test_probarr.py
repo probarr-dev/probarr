@@ -1740,6 +1740,24 @@ class TestM3UExport(unittest.TestCase, ):
         self.assertEqual(back[0].name, "Chan One")
         self.assertEqual(back[0].url, "http://s/1")
 
+    def test_a_missing_local_file_gives_an_actionable_error_not_a_bare_oserror(self):
+        """Real reported case: a run's local M3U source pointed at
+        '/config/uk-fta-snapshot.m3u', which existed on the host but
+        outside either container's own mounted config directory (test
+        and production use separate ./probarr/config and
+        ./probarr-vpn/config mounts) -- so it 404'd inside the container.
+        The error that reached the UI was a bare "[Errno 2] No such file
+        or directory: '/config/uk-fta-snapshot.m3u'", which explains
+        nothing about WHY a file the operator can see on the host isn't
+        visible to probarr. The message must at least point at the real,
+        actual cause (a container-local path, not a host path).
+        """
+        with self.assertRaises(ValueError) as ctx:
+            m3u.load("/config/does-not-exist.m3u")
+        msg = str(ctx.exception)
+        self.assertIn("does-not-exist.m3u", msg)
+        self.assertIn("container", msg)
+
 
 class TestExpand(unittest.TestCase):
     """_expand() -- the ordered-streams shape a push actually writes."""

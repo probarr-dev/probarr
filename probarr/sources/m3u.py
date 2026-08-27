@@ -101,8 +101,27 @@ def load(spec: str, timeout: int = 60, **_):
         label = spec.split("?")[0]
     else:
         path = spec[7:] if spec.lower().startswith("file://") else spec
-        with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read()
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError as e:
+            # A bare FileNotFoundError/PermissionError ("[Errno 2] No such
+            # file or directory: '/config/x.m3u'") means nothing to someone
+            # looking at it in the UI -- it doesn't say the one thing that
+            # actually explains it: probarr runs in a container, so a local
+            # M3U provider has to be a path INSIDE that container's own
+            # mounted config volume, not just anywhere on the host. Losing
+            # track of that (the file sitting one directory up on the host,
+            # or only ever copied into one of two separate environments --
+            # test and production commonly use different config mounts)
+            # is the actual, real, reported cause every time this fires.
+            raise ValueError(
+                f"can't read local file {path!r}: {e.strerror or e}. "
+                "A local M3U source has to be a path inside this "
+                "container's own mounted config directory -- check the "
+                "file was actually copied there (test and production "
+                "commonly use separate config folders, so a file present "
+                "in one is not automatically present in the other).") from e
         label = path
     streams = parse(text, source_name=label)
     if not streams and not looks_like_m3u(text):
