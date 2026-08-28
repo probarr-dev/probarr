@@ -4416,13 +4416,41 @@ class TestAtomicWriteHelperCoversEveryWriter(Temp):
             store.push_status_path, open(store.push_status_path, encoding="utf-8").read())
 
 
+class TestWizardRoute(Temp):
+    """/wizard: manually-launched setup wizard, never auto-triggered."""
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="text/html; charset=utf-8", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_serves_the_wizard_page(self):
+        h, sent = self._handler()
+        h.path = "/wizard"
+        h.do_GET()
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        self.assertIn("Add your provider", body)
+        self.assertIn("Connect Dispatcharr", body)
+
+    def test_nav_links_to_it(self):
+        from probarr.theme import _NAV_SETUP
+        self.assertIn(("wizard", "/wizard", "Setup wizard"), _NAV_SETUP)
+
+
 class TestPageTemplates(unittest.TestCase):
     """The bug class that broke the Curate page twice: JavaScript written
     inside a Python string, with escapes the interpreter silently ate."""
 
     def _pages(self):
         from probarr import web as web_mod
+        from probarr import wizard as wizard_mod
         return {"curate": curate.HTML, "runs_index": web_mod.INDEX,
+                "wizard": wizard_mod.WIZARD_PAGE,
                 **{n: getattr(pages, n) for n in
                    ("WANTLIST_PAGE", "SETTINGS_PAGE", "PROVIDERS_PAGE",
                     "NEWRUN_PAGE", "BROWSE_PAGE", "LINEUPS_PAGE")}}
@@ -4435,7 +4463,8 @@ class TestPageTemplates(unittest.TestCase):
         # that silently killed the whole script tag -- including the
         # unrelated Delete button's listener in the same block). Scanning
         # web.py here too is what would have caught it before it shipped.
-        for path in ("probarr/curate.py", "probarr/pages.py", "probarr/web.py"):
+        for path in ("probarr/curate.py", "probarr/pages.py", "probarr/web.py",
+                    "probarr/wizard.py"):
             # KNM fix (probarr-vyx): explicit encoding, not the platform
             # default -- on Windows that's cp1252, and web.py contains a
             # byte that isn't valid cp1252, erroring the test outright.
@@ -4454,9 +4483,11 @@ class TestPageTemplates(unittest.TestCase):
             self.assertNotIn(r"\\u", html, f"{name} has a doubled escape")
 
     def test_every_placeholder_is_substituted_when_rendered(self):
+        from probarr import wizard as wizard_mod
         rendered = [pages.wantlist_page(), pages.settings_page(),
                     pages.providers_page(), pages.new_run_page(),
-                    pages.browse_page(), pages.lineups_page()]
+                    pages.browse_page(), pages.lineups_page(),
+                    wizard_mod.wizard_page()]
         for html in rendered:
             leftover = re.findall(r"__[A-Z]+__", html)
             self.assertEqual(leftover, [], f"unsubstituted: {leftover}")

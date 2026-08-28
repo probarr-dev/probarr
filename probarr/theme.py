@@ -145,7 +145,8 @@ footer.bar{position:fixed;bottom:0;left:0;right:0;background:var(--bg2);
 # setup and will maybe touch again in a month". Setup items now live under
 # one "Setup" menu instead of five permanent tabs.
 _NAV_DAILY = [("runs", "/runs", "Runs")]
-_NAV_SETUP = [("providers", "/providers", "Providers"),
+_NAV_SETUP = [("wizard", "/wizard", "Setup wizard"),
+              ("providers", "/providers", "Providers"),
               # The channel browser was the answer to "I have a 55,000-line
               # playlist and no idea what is in it", and it was reachable
               # only from inside the Wantlists page -- so the one screen that

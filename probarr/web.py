@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import backup as backup_mod
 from . import claims as claims_mod
 from . import curate, decisions, pages, probequeue, providers as providers_mod
+from . import wizard as wizard_mod
 from . import epgcheck as epgcheck_mod
 from . import logos as logos_mod
 from . import aliases as aliases_mod
@@ -319,6 +320,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(text, "text/plain; charset=utf-8")
         if path == "/providers":
             return self._send(pages.providers_page())
+        if path == "/wizard":
+            return self._send(wizard_mod.wizard_page())
         if path == "/api/providers":
             # The spec carries the subscription credentials and, for a
             # Dispatcharr target, its admin password. It is never sent to a
