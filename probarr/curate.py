@@ -538,6 +538,26 @@ __TOPBAR__
   </div>
 </div>
 
+<div class="modal" id="epgsrcmodal">
+  <div class="modalbox">
+    <h3 id="epgsrc-title">Set EPG source</h3>
+    <div class="sub">Forces this channel (or a multi-selection) onto ONE saved
+      source, instead of whichever one Check EPG's automatic resolve() would
+      otherwise pick -- each channel still finds its own matching entry within
+      that source. Carried through to the lineup, the same as a group or
+      watermark pick.</div>
+    <div class="mfield">
+      <label>Saved sources</label>
+      <div id="epgsrc-list" class="grp-list"></div>
+    </div>
+    <div class="mrow">
+      <button id="epgsrc-cancel">Cancel</button>
+      <button id="epgsrc-clear">Clear override</button>
+      <button class="primary" id="epgsrc-save">Set</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="catmodal">
   <div class="modalbox">
     <h3>Add channels from the provider</h3>
@@ -1267,6 +1287,12 @@ function renderDetail(){
         '<button id="epgcheckbtn" title="Compare every saved EPG source\'s live '+
         '\u2018now playing\u2019 for this channel, side by side with what the guide said '+
         'at capture time.">Check EPG</button>'+
+        '<button id="epgsrcbtn" title="Force this channel (or a multi-selection) onto '+
+        'one saved EPG source, instead of whichever one Check EPG\u2019s automatic '+
+        'resolve() picks \u2014 each channel still resolves its OWN matching entry '+
+        'within that source. Carried through to the lineup the same as a group or '+
+        'watermark pick.">'+
+        (MARKED.size>1 ? 'Set EPG source ('+MARKED.size+')' : 'Set EPG source')+'</button>'+
         '<button id="watermarkbtn" title="Draw a box around this channel\u2019s logo/'+
         'watermark on a known-good picture. Every candidate then shows that same '+
         'area cropped out of its own frame, right next to its screenshot \u2014 so a '+
@@ -1528,6 +1554,7 @@ document.addEventListener("click", e=>{
   if(e.target.id==="findstreamsbtn"){ openStreams(); return; }
   if(e.target.id==="settlebtn"){ settleChannel(); return; }
   if(e.target.id==="epgcheckbtn"){ openEpgModal(); return; }
+  if(e.target.id==="epgsrcbtn"){ setEpgSource(); return; }
   if(e.target.id==="groupedit"){ setGroup(); return; }
   if(e.target.id==="watermarkbtn"){ openWatermarkModal(); return; }
   if(e.target.id==="clearwatermarkbtn"){
@@ -2747,6 +2774,50 @@ document.getElementById("grp-save").addEventListener("click", ()=>{
   const typed = document.getElementById("grp-new").value.trim();
   applyGroup(typed || grpChoice);
 });
+
+// Bulk EPG source: force many channels onto ONE saved source at once,
+// reusing every existing bit of the group-picker's own machinery (MARKED
+// selection, SEL[k] writes, save()'s existing epg_source -> lineup
+// promotion) rather than inventing a parallel mechanism. Each channel
+// still resolves its OWN matching entry within the forced source --
+// this picks WHICH source, never a specific guide channel, since a
+// single guide id can never be right for more than one probarr channel
+// at once.
+let epgSrcKeys = [], epgSrcChoice = "";
+async function setEpgSource(){
+  epgSrcKeys = MARKED.size ? [...MARKED] : (current ? [current] : []);
+  if(!epgSrcKeys.length) return;
+  epgSrcChoice = (SEL[epgSrcKeys[0]]||{}).epg_source || "";
+  document.getElementById("epgsrc-title").textContent = epgSrcKeys.length>1
+    ? "Set EPG source for "+epgSrcKeys.length+" channels" : "Set EPG source";
+  const box = document.getElementById("epgsrc-list");
+  box.innerHTML = "loading…";
+  document.getElementById("epgsrcmodal").classList.add("on");
+  let sources = [];
+  try{
+    sources = ((await (await fetch("/api/epg-sources", {cache:"no-store"})).json())
+      .epg_sources || []).map(s=>s.name);
+  }catch(e){}
+  box.innerHTML = sources.length
+    ? sources.map(s=>'<span class="grp-opt'+(s===epgSrcChoice?" on":"")+
+        '" data-s="'+esc(s)+'">'+esc(s)+'</span>').join("")
+    : '<span class="n">No EPG sources saved yet — add one on the Providers page.</span>';
+}
+document.getElementById("epgsrc-list").addEventListener("click", e=>{
+  const o = e.target.closest(".grp-opt"); if(!o) return;
+  epgSrcChoice = o.dataset.s;
+  [...document.querySelectorAll("#epgsrc-list .grp-opt")].forEach(x=>
+    x.classList.toggle("on", x===o));
+});
+function applyEpgSource(v){
+  epgSrcKeys.forEach(k => { SEL[k] = {...(SEL[k]||{}), epg_source: v || undefined}; });
+  save(); document.getElementById("epgsrcmodal").classList.remove("on");
+  renderList(); renderDetail(); checkPending();
+}
+document.getElementById("epgsrc-cancel").addEventListener("click", ()=>
+  document.getElementById("epgsrcmodal").classList.remove("on"));
+document.getElementById("epgsrc-clear").addEventListener("click", ()=> applyEpgSource(""));
+document.getElementById("epgsrc-save").addEventListener("click", ()=> applyEpgSource(epgSrcChoice));
 
 // Live per-source EPG comparison: what does each SAVED EPG source say is on
 // this channel RIGHT NOW, versus what the run's own guide said at capture
