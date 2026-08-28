@@ -286,6 +286,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/queue":
             return self._send(json.dumps(self._queue().snapshot()),
                               "application/json")
+        if path == "/api/diagnosing":
+            return self._diagnosing_snapshot()
         if path == "/wantlists":
             return self._send(pages.wantlist_page())
         if path == "/wantlists/template.txt":
@@ -3355,6 +3357,38 @@ class Handler(BaseHTTPRequestHandler):
                 lane_limit=cls._lane_limit,
                 viewer_count=cls._lane_viewer_count)
         return cls._pq
+
+    def _diagnosing_snapshot(self):
+        """Every in-flight Diagnose job, by channel AND stream -- the
+        topbar's "diagnosing" badge popover needs to say WHICH stream, not
+        just which channel, since Diagnose is often fired at several
+        candidates of the same channel at once.
+
+        snapshot()'s own `keys` only ever carries a stream_id (see its own
+        docstring on why it can't carry the rest of a job's payload) -- a
+        stream's human name lives in the run's OWN results, from whenever
+        it was first probed, which a diagnose re-probes rather than
+        discovers fresh. One RunStore.load() per distinct run currently
+        diagnosing (normally one), not per job.
+        """
+        snap = self._queue().snapshot()
+        by_run = {}
+        rows = []
+        for job in snap.get("keys", {}).values():
+            if not job.get("diagnose"):
+                continue
+            run_id = job.get("run_id") or ""
+            channel_key, _, stream_id = (job.get("rec_key") or "").partition("|")
+            if run_id not in by_run:
+                store = RunStore(self.root, run_id)
+                by_run[run_id] = ({r.get("stream_id"): r.get("stream_name")
+                                   for r in store.load()}
+                                  if os.path.exists(store.results_path) else {})
+            rows.append({
+                "run_id": run_id, "channel_key": channel_key,
+                "stream_name": by_run[run_id].get(stream_id) or stream_id,
+                "state": job.get("state"), "position": job.get("position")})
+        return self._send(json.dumps({"items": rows}), "application/json")
 
     # A diagnose pass samples much longer than a normal probe -- long enough
     # that a genuine ABR-switching stall or a slow-fetch stretch has a real

@@ -5086,6 +5086,85 @@ class TestDeleteReasons(Temp):
             reasons.add(self.root, "   ")
 
 
+class TestDiagnosingSnapshot(Temp):
+    """/api/diagnosing feeds the topbar's badge -- for each in-flight
+    Diagnose job it resolves the stream's human name from the run's own
+    already-probed results (a diagnose re-probes an existing candidate, so
+    the name is already on disk) and reports its queue state, rather than
+    the bare channel-key-only count the badge started with."""
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_resolves_stream_name_and_reports_state(self):
+        import json, time as time_mod
+        import threading
+        from probarr.store import RunStore
+        from probarr.probequeue import ProbeQueue
+        from probarr import web as web_mod
+
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "stream_name": "UK: BBC One HD",
+                     "status": "ok"})
+
+        release = threading.Event()
+        q = ProbeQueue(lambda payload: release.wait(2) or {"status": "ok"},
+                       concurrency=lambda: 1, gap=lambda: 0)
+        q.submit("run1|BBCONE|s1", {"run_id": "run1", "rec_key": "BBCONE|s1",
+                                    "lane": "mybunny", "diagnose": True})
+        web_mod.Handler._pq = q
+        try:
+            for _ in range(50):
+                snap = q.snapshot()
+                if snap["keys"].get("run1|BBCONE|s1", {}).get("state") == "running":
+                    break
+                time_mod.sleep(0.02)
+            h, sent = self._handler()
+            h._diagnosing_snapshot()
+        finally:
+            release.set()
+            web_mod.Handler._pq = None
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertEqual(len(d["items"]), 1)
+        item = d["items"][0]
+        self.assertEqual(item["run_id"], "run1")
+        self.assertEqual(item["channel_key"], "BBCONE")
+        self.assertEqual(item["stream_name"], "UK: BBC One HD")
+        self.assertEqual(item["state"], "running")
+
+    def test_a_non_diagnose_job_is_excluded(self):
+        import json
+        from probarr.probequeue import ProbeQueue
+        from probarr import web as web_mod
+        import threading
+
+        release = threading.Event()
+        q = ProbeQueue(lambda payload: release.wait(2) or {"status": "ok"},
+                       concurrency=lambda: 1, gap=lambda: 0)
+        q.submit("run1|BBCONE|s1", {"run_id": "run1", "rec_key": "BBCONE|s1",
+                                    "lane": "mybunny"})  # no diagnose flag
+        web_mod.Handler._pq = q
+        try:
+            h, sent = self._handler()
+            h._diagnosing_snapshot()
+        finally:
+            release.set()
+            web_mod.Handler._pq = None
+        code, body = sent[-1]
+        d = json.loads(body)
+        self.assertEqual(d["items"], [])
+
+
 class TestDeleteReasonsApiEndpoint(Temp):
 
     def _handler(self):

@@ -56,10 +56,11 @@ a.brand:hover{opacity:.8}
 .diagbadge b{color:var(--text)}
 .diagpop{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:60;
   background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
-  box-shadow:0 6px 18px rgba(0,0,0,.35);padding:8px 10px;min-width:180px;
-  max-height:260px;overflow-y:auto;font-size:12.5px;color:var(--text)}
+  box-shadow:0 6px 18px rgba(0,0,0,.35);padding:8px 10px;width:max-content;
+  max-width:340px;max-height:260px;overflow-y:auto;font-size:12.5px;color:var(--text)}
 .diagbadge:hover .diagpop{display:block}
-.diagpop div{padding:2px 0;white-space:nowrap}
+.diagpop div{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.diagpop div:last-child{border-bottom:0}
 input[type=search],select{background:var(--panel);color:var(--text);
   border:1px solid var(--line);border-radius:var(--radius);padding:6px 9px;font-size:13px}
 input[type=search]{min-width:200px}
@@ -216,14 +217,16 @@ def topbar(label="", active="", right="", home=True):
                'if(e.key==="Escape")m.classList.remove("on");});'
                '})();'
                '</script>')
-    # A count, not a list, is the header's whole job here -- Diagnose can be
-    # fired from several channels across several runs at once, and nothing
-    # else in the UI says "this is still working" once the modal that
-    # started it is gone. Genuinely absent (not shown-but-empty) when
-    # nothing is diagnosing, same as the rest of this header only shows
-    # what applies right now. Polls /api/queue -- already public, already
-    # polled elsewhere (Curate's own progress tracking) -- so this adds one
-    # more consumer, not a new surface.
+    # A count and a list, not just a count -- Diagnose is often fired at
+    # several candidates of the SAME channel at once, so "2 diagnosing"
+    # with no detail reads as one thing happening twice, not two different
+    # streams. Genuinely absent (not shown-but-empty) when nothing is
+    # diagnosing, same as the rest of this header only shows what applies
+    # right now. Polls /api/diagnosing (see web.py's _diagnosing_snapshot),
+    # which resolves each job's stream name from its run's own already-
+    # probed results and reports its queue state, so the popover reads
+    # "channel: stream name -- running/queued", real progress rather than
+    # a bare count.
     diagbadge = ""
     if home:
         diagbadge = (
@@ -240,21 +243,18 @@ def topbar(label="", active="", right="", home=True):
             'function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;")'
             '.replace(/</g,"&lt;").replace(/>/g,"&gt;");}'
             'function poll(){'
-            'fetch("/api/queue",{cache:"no-store"}).then(function(r){return r.json();})'
+            'fetch("/api/diagnosing",{cache:"no-store"}).then(function(r){return r.json();})'
             '.then(function(d){'
-            'var seen={},rows=[];'
-            'Object.values(d.keys||{}).forEach(function(j){'
-            'if(!j.diagnose)return;'
-            'var ch=String(j.rec_key||"").split("|")[0];'
-            'var k=(j.run_id||"")+"|"+ch;'
-            'if(seen[k])return; seen[k]=1;'
-            'rows.push({run_id:j.run_id,channel:ch});});'
+            'var rows=d.items||[];'
             'if(rows.length){'
             'badge.classList.add("show");'
             'count.textContent=rows.length;'
             'pop.innerHTML=rows.map(function(r){'
-            'return "<div>"+esc(r.channel)+"<span style=\\"color:var(--faint)\\"> \\u2014 "'
-            '+esc(r.run_id)+"</span></div>";}).join("");'
+            'var st=r.state==="running"?"running"'
+            ':"queued"+(r.position?" #"+r.position:"");'
+            'return "<div>"+esc(r.channel_key)+": "+esc(r.stream_name)+'
+            '"<span style=\\"color:var(--faint)\\"> \\u2014 "+esc(st)+"</span></div>";'
+            '}).join("");'
             '}else{badge.classList.remove("show"); pop.innerHTML="";}'
             '}).catch(function(){});'
             '}'
