@@ -49,6 +49,17 @@ a.brand:hover{opacity:.8}
 .navmenu button.on{background:var(--panel2);border-color:var(--faint);color:var(--text)}
 .runmeta{color:var(--dim);font-size:12px}
 .spacer{flex:1}
+.diagbadge{position:relative;display:none;align-items:center;gap:5px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:999px;
+  padding:4px 11px;font-size:12px;color:var(--dim)}
+.diagbadge.show{display:flex}
+.diagbadge b{color:var(--text)}
+.diagpop{display:none;position:absolute;top:calc(100% + 6px);right:0;z-index:60;
+  background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:0 6px 18px rgba(0,0,0,.35);padding:8px 10px;min-width:180px;
+  max-height:260px;overflow-y:auto;font-size:12.5px;color:var(--text)}
+.diagbadge:hover .diagpop{display:block}
+.diagpop div{padding:2px 0;white-space:nowrap}
 input[type=search],select{background:var(--panel);color:var(--text);
   border:1px solid var(--line);border-radius:var(--radius);padding:6px 9px;font-size:13px}
 input[type=search]{min-width:200px}
@@ -205,6 +216,51 @@ def topbar(label="", active="", right="", home=True):
                'if(e.key==="Escape")m.classList.remove("on");});'
                '})();'
                '</script>')
+    # A count, not a list, is the header's whole job here -- Diagnose can be
+    # fired from several channels across several runs at once, and nothing
+    # else in the UI says "this is still working" once the modal that
+    # started it is gone. Genuinely absent (not shown-but-empty) when
+    # nothing is diagnosing, same as the rest of this header only shows
+    # what applies right now. Polls /api/queue -- already public, already
+    # polled elsewhere (Curate's own progress tracking) -- so this adds one
+    # more consumer, not a new surface.
+    diagbadge = ""
+    if home:
+        diagbadge = (
+            '<div class="diagbadge" id="diagbadge" title="">'
+            '<b id="diagcount"></b><span>&nbsp;diagnosing</span>'
+            '<div class="diagpop" id="diagpop"></div>'
+            '</div>'
+            '<script>'
+            '(function(){'
+            'var badge=document.getElementById("diagbadge"),'
+            'count=document.getElementById("diagcount"),'
+            'pop=document.getElementById("diagpop");'
+            'if(!badge)return;'
+            'function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;")'
+            '.replace(/</g,"&lt;").replace(/>/g,"&gt;");}'
+            'function poll(){'
+            'fetch("/api/queue",{cache:"no-store"}).then(function(r){return r.json();})'
+            '.then(function(d){'
+            'var seen={},rows=[];'
+            'Object.values(d.keys||{}).forEach(function(j){'
+            'if(!j.diagnose)return;'
+            'var ch=String(j.rec_key||"").split("|")[0];'
+            'var k=(j.run_id||"")+"|"+ch;'
+            'if(seen[k])return; seen[k]=1;'
+            'rows.push({run_id:j.run_id,channel:ch});});'
+            'if(rows.length){'
+            'badge.classList.add("show");'
+            'count.textContent=rows.length;'
+            'pop.innerHTML=rows.map(function(r){'
+            'return "<div>"+esc(r.channel)+"<span style=\\"color:var(--faint)\\"> \\u2014 "'
+            '+esc(r.run_id)+"</span></div>";}).join("");'
+            '}else{badge.classList.remove("show"); pop.innerHTML="";}'
+            '}).catch(function(){});'
+            '}'
+            'poll(); setInterval(poll, 4000);'
+            '})();'
+            '</script>')
     # Two rows on purpose, not because the first one ran out of width.
     # What you DO on this page (export it, push it, start another run) and
     # where you can GO are different kinds of thing, and mixing them into one
@@ -215,6 +271,6 @@ def topbar(label="", active="", right="", home=True):
     return (f'<header class="topbar">'
             f'<div class="tbrow tbmain">{brand}'
             f'<div class="runmeta">{label}</div>'
-            f'<div class="spacer"></div>{right}{newrun}</div>'
+            f'<div class="spacer"></div>{diagbadge}{right}{newrun}</div>'
             + (f'<div class="tbrow tbnav">{nav}</div>' if nav else '')
             + '</header>')

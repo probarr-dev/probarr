@@ -580,6 +580,46 @@ class TestProbeQueueGate(unittest.TestCase):
         release.set()
 
 
+class TestProbeQueueSnapshotNeverLeaksSeedUrls(unittest.TestCase):
+    """snapshot() feeds /api/queue, a public endpoint every page's topbar
+    now polls for the "diagnosing" badge. A never-before-queued candidate's
+    payload carries a `seed` dict with the stream's REAL url (credentials
+    and all, same as every other place in this app that redacts a URL
+    before it reaches a browser) -- snapshot() must expose only the fields
+    the badge actually needs (run_id/rec_key/lane/diagnose), never the raw
+    payload."""
+
+    def test_snapshot_omits_seed_and_url_entirely(self):
+        import time as time_mod
+        from probarr.probequeue import ProbeQueue
+        release = __import__("threading").Event()
+
+        def runner(payload):
+            release.wait(2)
+            return {"status": "ok"}
+
+        q = ProbeQueue(runner, concurrency=lambda: 1, gap=lambda: 0)
+        q.submit("k1", {"run_id": "run1", "rec_key": "BBCONE|s1", "lane": "mybunny",
+                        "diagnose": True,
+                        "seed": {"url": "http://user:pass@provider.example/live/1"}})
+        snap = None
+        for _ in range(50):
+            snap = q.snapshot()
+            if snap["keys"]:
+                break
+            time_mod.sleep(0.02)
+        release.set()
+        raw = __import__("json").dumps(snap)
+        self.assertNotIn("seed", raw)
+        self.assertNotIn("user:pass", raw)
+        self.assertNotIn("provider.example", raw)
+        entry = snap["keys"]["k1"]
+        self.assertEqual(entry["run_id"], "run1")
+        self.assertEqual(entry["rec_key"], "BBCONE|s1")
+        self.assertEqual(entry["lane"], "mybunny")
+        self.assertTrue(entry["diagnose"])
+
+
 class TestVerifyStop(Temp):
     def test_should_stop_actually_cuts_a_concurrent_run_short(self):
         # Real bug: with concurrency>1, ThreadPoolExecutor.submit() only

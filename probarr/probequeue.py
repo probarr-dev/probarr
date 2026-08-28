@@ -213,7 +213,22 @@ class ProbeQueue:
                     "running": sum(1 for j in self._active.values()
                                    if j["state"] == RUNNING),
                     "keys": {k: {"state": j["state"],
-                                 "position": self._position_locked(k)}
+                                 "position": self._position_locked(k),
+                                 # Only the fields safe to hand a browser --
+                                 # NOT the rest of the payload, whose `seed`
+                                 # (a fresh/never-queued-before candidate)
+                                 # carries the stream's real URL, credentials
+                                 # and all, exactly the thing every OTHER
+                                 # response in this file redacts before it
+                                 # leaves the process. Enough here to tell
+                                 # what's running -- run/channel/whether it's
+                                 # a diagnose -- see the topbar's "diagnosing"
+                                 # badge, which needs to say WHAT, not just
+                                 # HOW MANY.
+                                 "run_id": j["payload"].get("run_id"),
+                                 "rec_key": j["payload"].get("rec_key"),
+                                 "lane": j["payload"].get("lane"),
+                                 "diagnose": bool(j["payload"].get("diagnose"))}
                              for k, j in self._active.items()}}
 
     # -- internals ---------------------------------------------------------
