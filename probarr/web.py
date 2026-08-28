@@ -212,7 +212,15 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json", 400)
 
     def _do_GET(self):
-        path = urllib.parse.urlparse(self.path).path
+        # unquote: a run id, provider name, or wantlist name typed with a
+        # space or other reserved character is percent-encoded by the
+        # browser's encodeURIComponent() before it ever reaches here --
+        # without decoding it back, `parts[2]` below is compared against
+        # in-memory/on-disk keys that were saved with the literal
+        # character, so lookups for e.g. run id "F1 only test" silently
+        # miss and read back as "unknown run" even while the run itself
+        # is progressing fine in the background.
+        path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         if path == "/":
             # The runs list used to live here; it moved to /runs (still on
             # the Runs nav tab) so "/" itself can go straight to the thing
@@ -449,7 +457,8 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json", 400)
 
     def _do_POST(self):
-        path = urllib.parse.urlparse(self.path).path
+        # See _do_GET's unquote for why this can't be left encoded.
+        path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         parts = [p for p in path.split("/") if p]
         # Applied to EVERY write, not just settings/backup (where it was
         # first added). probarr has no login, so the only thing standing

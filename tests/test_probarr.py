@@ -2147,6 +2147,52 @@ class TestProviderAsSource(Temp):
         self.assertEqual(p["as_source"], False)
 
 
+class TestPercentEncodedPathSegments(Temp):
+    """A run id, provider name, or wantlist name typed with a space (or any
+    other character encodeURIComponent() escapes) arrives here still
+    percent-encoded -- do_GET/do_POST must decode it back before comparing
+    against in-memory job keys or on-disk directory names, or every lookup
+    for that id silently misses (see _do_GET's unquote)."""
+
+    def _handler(self, path):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        h.path = path
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_progress_polling_finds_a_run_id_with_a_space_in_it(self):
+        import json
+        from probarr import runs as runs_mod
+        run_id = "F1 only test"
+        with runs_mod._LOCK:
+            runs_mod._JOBS[run_id] = {"run_id": run_id, "log": [],
+                                       "state": "running",
+                                       "stop_requested": False, "error": None}
+        h, sent = self._handler("/api/run/" + run_id.replace(" ", "%20") + "/progress")
+        h.do_GET()
+        code, body = sent[-1]
+        d = json.loads(body)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(d["state"], "running")
+        self.assertNotEqual(d.get("error"), "unknown run")
+
+    def test_progress_polling_falls_back_to_disk_for_a_run_id_with_a_space(self):
+        import json
+        from probarr.store import RunStore
+        run_id = "F1 only test"
+        RunStore(self.root, run_id, create=True).write_meta({"run_state": "done"})
+        h, sent = self._handler("/api/run/" + run_id.replace(" ", "%20") + "/progress")
+        h.do_GET()
+        code, body = sent[-1]
+        d = json.loads(body)
+        self.assertEqual(code, 200, body)
+        self.assertEqual(d["state"], "done")
+
+
 class TestProviderRenameCascades(Temp):
     """The web.py endpoint: renaming must not orphan a lineup or run that
     already points at the provider by its old name."""
