@@ -2724,9 +2724,14 @@ class TestEpgProgrammeSearchEndpoint(Temp):
         return h, sent
 
     def test_finds_the_right_channel_from_the_candidates_own_probe_time(self):
-        import json, datetime
+        import json, datetime, time
         from probarr.store import RunStore
-        probed_at = 1787905151.0
+        # Relative to "now", not a fixed timestamp -- the guide loader's
+        # own retention window is centred on real "now" at load time, not
+        # on this candidate's probed_at, so a hardcoded absolute value
+        # eventually falls outside that window as real time passes and
+        # starts failing this test through no fault of the code under test.
+        probed_at = time.time() - 3600
         at = datetime.datetime.fromtimestamp(probed_at, datetime.timezone.utc)
         self._guide("sky-guide", [
             ("c1", "Sky Cinema Action", "Green Lantern",
@@ -3777,6 +3782,52 @@ class TestGuideKeepsAWindowSpanningProgramme(Temp):
                              "a programme spanning the whole retention "
                              "window must not be dropped by it")
         self.assertEqual(now["title"], "All Day")
+
+
+class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
+    """Real reported bug: a combined guide carries separate SD and HD rows
+    for the same channel (confirmed live: sheffield_hd.xml's "Sky Atlantic"
+    / "Sky Atlantic HD", each its own <channel> id with its own independent
+    programme list) -- once "HD" strips as a quality tag both normalise to
+    the same key, and a bare setdefault() silently kept whichever parsed
+    first. If Dispatcharr happened to be linked to the OTHER one of the
+    pair, every check against this guide reported a permanent false
+    mismatch, because the SD/HD copies simply drift out of sync with each
+    other from feed processing, not because either link was wrong."""
+
+    def _guide(self, entries):
+        """entries: [(channel_id, display_name)]"""
+        from probarr.epg import Guide
+        g = Guide()
+        for cid, name in entries:
+            g.display_names.setdefault(cid, []).append(name)
+        return g
+
+    def test_an_sd_hd_pair_refuses_to_resolve_by_name(self):
+        from probarr.normalize import Normalizer
+        g = self._guide([("1412.sky.uk", "Sky Atlantic"),
+                         ("4053.sky.uk", "Sky Atlantic HD")])
+        g.build_name_index(Normalizer())
+        self.assertIsNone(g.resolve(None, "Sky Atlantic", Normalizer()))
+
+    def test_an_unambiguous_channel_still_resolves_fine(self):
+        from probarr.normalize import Normalizer
+        g = self._guide([("1412.sky.uk", "Sky Atlantic"),
+                         ("4053.sky.uk", "Sky Atlantic HD"),
+                         ("2201.sky.uk", "Sky Witness")])
+        g.build_name_index(Normalizer())
+        self.assertEqual(g.resolve(None, "Sky Witness", Normalizer()), "2201.sky.uk")
+
+    def test_an_exact_tvg_id_still_wins_even_when_the_name_is_ambiguous(self):
+        # resolve()'s tvg_id branch is checked first and needs no name
+        # index at all -- an explicit id must not be defeated by an
+        # unrelated name collision elsewhere in the same guide.
+        from probarr.normalize import Normalizer
+        g = self._guide([("1412.sky.uk", "Sky Atlantic"),
+                         ("4053.sky.uk", "Sky Atlantic HD")])
+        g.build_name_index(Normalizer())
+        self.assertEqual(g.resolve("4053.sky.uk", "Sky Atlantic", Normalizer()),
+                         "4053.sky.uk")
 
 
 class TestDoublePushIsRejected(Temp):

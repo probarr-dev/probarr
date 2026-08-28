@@ -213,13 +213,44 @@ class Guide:
 
     # -- indexing -----------------------------------------------------------
     def build_name_index(self, normalizer):
-        """Index display names through the same normaliser used for streams."""
+        """Index display names through the same normaliser used for streams.
+
+        Real reported bug: a combined guide routinely carries an SD and an
+        HD row for the SAME channel as two entirely separate <channel>
+        elements with distinct ids and their own independent programme
+        lists ("Sky Atlantic" / "Sky Atlantic HD", confirmed live in the
+        sheffield_hd.xml feed) -- and once "HD" strips as a quality tag,
+        both normalise to the identical key. A bare setdefault() kept
+        whichever one happened to parse first and silently discarded the
+        other, with no signal that a choice was even made. If Dispatcharr
+        (or a fresh install) ends up linked to the OTHER one of the pair,
+        every comparison against this guide reports a permanent, false
+        "wrong programme" mismatch for that channel -- not because either
+        link is actually wrong, but because the SD and HD copies just
+        happen to be showing something different at THIS particular
+        moment, same as any two live variants of one broadcast naturally
+        drift out of sync from feed processing.
+
+        resolve()'s own docstring already commits to refusing ambiguity
+        rather than guessing -- previously true only on the fuzzy-prefix
+        path. A key two DIFFERENT channel ids both genuinely earn is
+        exactly that same ambiguity, and gets the same refusal here now:
+        removed from the index entirely rather than arbitrarily kept.
+        """
         self._by_key = {}
+        ambiguous = set()
         for cid, names in self.display_names.items():
             for n in names:
                 k = normalizer.key(n)
-                if k:
+                if not k:
+                    continue
+                existing = self._by_key.get(k)
+                if existing is not None and existing != cid:
+                    ambiguous.add(k)
+                else:
                     self._by_key.setdefault(k, cid)
+        for k in ambiguous:
+            self._by_key.pop(k, None)
         return self
 
     MIN_FUZZY_LEN = 6
