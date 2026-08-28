@@ -1504,6 +1504,8 @@ select{background:var(--bg);color:var(--text);border:1px solid var(--line);
   max-height:220px;overflow-y:auto;white-space:pre-wrap}
 .pdone{display:none;margin-top:12px}
 .pdone.show{display:flex;gap:10px;align-items:center}
+.field select:disabled,.field input:disabled,#lineup:disabled,
+#lineupChange:disabled{opacity:.5;cursor:not-allowed}
 """
 
 NEWRUN_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -1749,6 +1751,19 @@ function checkScope(){
 $("wantlist").addEventListener("change", checkScope);
 $("regions").addEventListener("input", checkScope);
 
+// Every other field on this form is read as "what the run will start with",
+// so leaving them editable WHILE a run is going on is misleading twice over:
+// nothing typed there does anything until the next run, and the values sit
+// there looking like live configuration for the one already progressing
+// below. Locking them for the duration makes that honest -- re-enabled the
+// moment the run reaches a terminal state, same as the Start button itself.
+const RUNLOCK_IDS = ["lineup", "lineupChange", "provider", "prefer_dispatcharr_proxy",
+  "wantlist", "epgselect", "epg", "regions", "strict_region", "region_tags",
+  "concurrency", "run_id"];
+function setRunLocked(locked){
+  RUNLOCK_IDS.forEach(id => { const el = $(id); if(el) el.disabled = locked; });
+}
+
 $("start").addEventListener("click", async ()=>{
   if($("scopewarn").style.display !== "none" && $("scopewarn").innerHTML &&
      !confirm("This run may probe far more than you intend -- see the warning " +
@@ -1780,6 +1795,7 @@ $("start").addEventListener("click", async ()=>{
   if(!d.ok){ $("startmsg").textContent = "error: "+(d.error||"failed"); $("start").disabled=false; return; }
   $("startmsg").textContent = "";
   currentRunId = d.run_id;
+  setRunLocked(true);
   $("progresswrap").classList.add("show");
   $("stopverify").style.display = "";
   $("stopverify").disabled = false;
@@ -1803,7 +1819,8 @@ function poll(){
     try{ d = await (await fetch("/api/run/"+encodeURIComponent(currentRunId)+"/progress",
                                 {cache:"no-store"})).json(); }
     catch(e){ return; }
-    if(d.error){ $("pstate").textContent = "error: "+d.error; clearInterval(poller); return; }
+    if(d.error){ $("pstate").textContent = "error: "+d.error; clearInterval(poller);
+      $("start").disabled = false; setRunLocked(false); return; }
     const p = d.progress;
     if(p){
       $("pdone").textContent = p.done; $("ptotal").textContent = p.total;
@@ -1817,6 +1834,7 @@ function poll(){
     if(d.state === "done" || d.state === "error" || d.state === "stopped"){
       clearInterval(poller);
       $("start").disabled = false;
+      setRunLocked(false);
       $("stopverify").style.display = "none";
       if(d.state === "done"){
         $("pdonebar").classList.add("show");
