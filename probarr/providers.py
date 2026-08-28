@@ -63,10 +63,11 @@ def save(root, name, spec, concurrency=None, as_source=None):
     a Dispatcharr connection saved purely to push curated channels back
     into, never probed from directly. None (the default) means "leave
     it as whatever it already was, or true for a brand new provider" --
-    every provider saved before this existed, and every plain M3U/Xtream
-    one, is a source; a Dispatcharr connection added specifically via the
-    Providers page's own "Connect Dispatcharr" card starts as False
-    (export target only) unless its own checkbox says otherwise. Always
+    every provider saved before this existed, every plain M3U/Xtream one,
+    and a fresh Dispatcharr connection from the Providers page's "Connect
+    Dispatcharr" card (its own checkbox defaults on) all default to being
+    a source; only an explicit uncheck turns a Dispatcharr connection into
+    a push-target-only one. Always
     ignored for whether a Dispatcharr provider can be an EXPORT target --
     that's a separate concern this flag deliberately never touches (see
     web.py's push-target provider list, which lists every dispatcharr:

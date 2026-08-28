@@ -1060,7 +1060,7 @@ __TOPBAR__
     </div>
 
     <label class="row" style="margin-top:12px;align-items:center;gap:8px">
-      <input type="checkbox" id="disp-assource" style="width:auto">
+      <input type="checkbox" id="disp-assource" style="width:auto" checked>
       <span>Use Dispatcharr as a provider (offer it as something a run can probe streams from,
         not just push to)</span>
     </label>
@@ -1316,7 +1316,7 @@ $("disp-save").addEventListener("click", async ()=>{
   if(d.ok){
     $("disp-name").value=""; $("disp-spec").value=""; $("disp-concurrency").value="";
     $("disp-host").value=""; $("disp-user").value=""; $("disp-pass").value="";
-    $("disp-assource").checked = false;
+    $("disp-assource").checked = true;
     $("disp-testresult").className="testresult";
   }
   loadList();
