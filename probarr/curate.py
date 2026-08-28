@@ -152,6 +152,8 @@ main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
   justify-content:center;gap:4px}
 .cand .actions{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
 .cand .actions button{font-size:11.5px;padding:3px 8px}
+.reprobe-pair{display:inline-flex;gap:1px}
+.reprobe-pair button{padding:3px 6px}
 @media(max-width:860px){.cand .shot{width:104px}}
 /* Curate was built around a fixed 320px sidebar sitting beside the detail
    pane -- fine on a desktop window, but on a phone-width viewport 320px
@@ -758,6 +760,16 @@ __TOPBAR__
     <div class="sub">The stream itself survives (Find streams can and will
       offer it again) -- a reason shows up next to it if it does. Optional;
       pick one, type your own, or leave it blank.</div>
+    <div class="sub" style="margin-top:-6px">
+      <a href="#" id="dr-epgtoggle">Not sure this is the right channel? Search the guide for what was actually playing&hellip;</a>
+    </div>
+    <div id="dr-epgsearch" style="display:none;margin:4px 0 10px">
+      <div style="display:flex;gap:6px">
+        <input type="text" id="dr-epgq" placeholder="what's actually on screen, e.g. Grease" style="flex:1">
+        <button id="dr-epggo">Search</button>
+      </div>
+      <div id="dr-epgresults" style="margin-top:6px;font-size:12.5px"></div>
+    </div>
     <div id="dr-presets" class="tagchips" style="margin:10px 0"></div>
     <div class="mfield"><input type="text" id="dr-other" placeholder="or type a reason&hellip;"></div>
     <div class="mresult" id="dr-result"></div>
@@ -784,6 +796,9 @@ const DATA = __DATA__;
 // still completely empty, which nothing earlier in this session had
 // happened to hit.
 const AUTO_FALLBACK_DEPTH = 4;
+// Mirrors web.py's Handler.DIAGNOSE_SAMPLE_SECONDS -- shown in the deep-reprobe
+// button's tooltip so it says the true sample length rather than a guess.
+const DIAGNOSE_SAMPLE_SECONDS = 25;
 function autoPick(ch){
   const usable = (ch.candidates||[]).filter(c => c.status==="ok" || c.status==="dirty");
   return {include: usable.length>0 && usable[0].status==="ok",
@@ -934,10 +949,11 @@ function reviewReasons(ch){
   if (cs.some(c=>c.offcad))
     out.push("a candidate is another country's feed (wrong frame rate)");
   if (ch.epg_mismatch)
-    out.push("Dispatcharr is showing \u201c"+ch.epg_mismatch.dispatcharr.title+
-      "\u201d for this channel, but the guide says it should be \u201c"+
-      ch.epg_mismatch.probarr.guide_name+"\u201d ("+ch.epg_mismatch.probarr.source+
-      ") \u2014 push again to correct it, or Check EPG to pick a different source first.");
+    out.push("Dispatcharr's linked guide currently shows \u201c"+
+      ch.epg_mismatch.dispatcharr.title+"\u201d playing here, but probarr "+
+      "resolves this channel to a different guide entry (\u201c"+
+      ch.epg_mismatch.probarr.guide_name+"\u201d, "+ch.epg_mismatch.probarr.source+
+      ") \u2014 push again to correct the link, or Check EPG to pick a different source first.");
   if ((ch.changes||[]).length) out.push(...ch.changes);
   return out;
 }
@@ -1325,9 +1341,15 @@ function renderDetail(){
                 'from the channel entirely: its probe results and frames go '+
                 'too. Not the same as removing it from the pushed list.">'+
                 'Delete stream</button>'+
-              '<button data-act="reprobe" title="Re-probe this stream now, '+
-                'including a fresh clip \u2014 updates its status, picture and '+
-                'the clip together.">\u21bb</button>'+
+              '<span class="reprobe-pair">'+
+              '<button data-act="reprobe" title="Re-probe this stream now '+
+                '\u2014 updates its status, picture and a short clip together.">'+
+                '\u21bb</button>'+
+              '<button data-act="reprobe-deep" title="Re-probe with a longer, '+
+                'diagnose-style sample and clip ('+DIAGNOSE_SAMPLE_SECONDS+'s, same '+
+                'as Diagnose this channel) \u2014 without diagnosing every other '+
+                'candidate too.">\u25c9</button>'+
+              '</span>'+
             '</div></div></div>';}).join("");
         })()) + '</div>')+
     '<div class="hint">'+(s.confirmed?'Confirmed. ':'')+
@@ -1530,6 +1552,7 @@ document.addEventListener("click", e=>{
     const id=btn.closest(".cand").dataset.id;
     if(btn.dataset.act==="clip"){ watchClip(id); return; }
     if(btn.dataset.act==="reprobe"){ reprobe(id, btn); return; }
+    if(btn.dataset.act==="reprobe-deep"){ reprobe(id, btn, {diagnose: true}); return; }
     if(btn.dataset.act==="drop"){ dropStream(id, btn); return; }
     if(btn.dataset.act==="use"){ toggleUse(id); return; }
   }
@@ -1562,8 +1585,49 @@ function dropStream(id, btn){
     '" style="cursor:pointer">'+esc(r)+'</span>').join("") ||
     '<span class="muted" style="font-size:11.5px">No saved reasons yet -- '+
     'type one below, or add some in Settings.</span>';
+  document.getElementById("dr-epgsearch").style.display = "none";
+  document.getElementById("dr-epgq").value = "";
+  document.getElementById("dr-epgresults").innerHTML = "";
   document.getElementById("dropreasonmodal").classList.add("on");
 }
+document.getElementById("dr-epgtoggle").addEventListener("click", e=>{
+  e.preventDefault();
+  const box = document.getElementById("dr-epgsearch");
+  box.style.display = box.style.display === "none" ? "" : "none";
+  if(box.style.display !== "none") document.getElementById("dr-epgq").focus();
+});
+async function runEpgProgrammeSearch(){
+  const q = document.getElementById("dr-epgq").value.trim();
+  const results = document.getElementById("dr-epgresults");
+  if(!q || !DR_ID) return;
+  results.textContent = "Searching\u2026";
+  try{
+    const d = await (await fetch("/run/"+encodeURIComponent(DATA.run_id)+
+      "/epg-programme-search?key="+encodeURIComponent(DR_ID)+
+      "&q="+encodeURIComponent(q))).json();
+    if(d.error){ results.textContent = d.error; return; }
+    if(!d.hits.length){
+      results.textContent = "No channel's guide shows \u201c"+q+
+        "\u201d airing around when this was captured.";
+      return;
+    }
+    // Informational, not a mutation -- confirming which channel this
+    // stream actually belongs to is a judgement call, so this hands back
+    // the answer and lets the operator act on it themselves (Find streams
+    // on the right channel, same as any other catalogue pick) rather than
+    // guessing at an automatic move.
+    results.innerHTML = d.hits.map(h =>
+      '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06)">'+
+      '<b>'+esc(h.guide_name)+'</b> \u2014 '+esc(h.title)+
+      ' <span class="muted">('+esc(h.window)+' \u00b7 '+esc(h.source)+')</span></div>'
+    ).join("") + '<div class="muted" style="margin-top:6px">Cancel here, then use '+
+      '<b>Find streams</b> on that channel to add this stream there instead.</div>';
+  }catch(e){ results.textContent = "Search failed."; }
+}
+document.getElementById("dr-epggo").addEventListener("click", runEpgProgrammeSearch);
+document.getElementById("dr-epgq").addEventListener("keydown", e=>{
+  if(e.key === "Enter"){ e.preventDefault(); runEpgProgrammeSearch(); }
+});
 document.getElementById("dr-presets").addEventListener("click", e=>{
   const chip = e.target.closest(".drpreset"); if(!chip) return;
   DR_PICKED = chip.dataset.reason;

@@ -408,6 +408,10 @@ class Handler(BaseHTTPRequestHandler):
                 qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 return self._epg_search(run_id, qs.get("source", [""])[0],
                                         qs.get("q", [""])[0])
+            if parts[2] == "epg-programme-search":
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                return self._epg_programme_search(run_id, qs.get("key", [""])[0],
+                                                   qs.get("q", [""])[0])
             if parts[2] == "logo-countries":
                 return self._logo_countries(run_id)
             if parts[2] == "logo-search":
@@ -2794,6 +2798,35 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._send(json.dumps({"error": str(e)[:200]}), "application/json", 404)
         self._send(json.dumps({"hits": hits}), "application/json")
+
+    def _epg_programme_search(self, run_id, rec_key, query):
+        """Every saved EPG source's answer to "what channel was actually
+        showing `query` around the time THIS candidate was captured" --
+        for a candidate a human has recognised on sight but which plainly
+        does not match the channel it was probed under (a provider
+        playlist entry pointing at the wrong upstream feed). Surfaced from
+        Delete stream's own dialog: before removing a stream that's simply
+        wrong, this answers whether it might actually belong somewhere
+        else instead.
+
+        Anchored to the candidate's own `probed_at`, not "now" -- the
+        picture was captured then, and searching live schedules would
+        compare it against whatever airs at the moment of the search
+        instead of the moment the frame was actually taken.
+        """
+        store = RunStore(self.root, run_id)
+        if not os.path.exists(store.results_path):
+            return self._send('{"error":"no such run"}', "application/json", 404)
+        if not query.strip():
+            return self._send(json.dumps({"hits": []}), "application/json")
+        record = next((r for r in store.load() if r.get("rec_key") == rec_key), None)
+        if not record or not record.get("probed_at"):
+            return self._send('{"error":"no captured probe time for this candidate"}',
+                              "application/json", 404)
+        at = datetime.datetime.fromtimestamp(record["probed_at"], datetime.timezone.utc)
+        hits = epgcheck_mod.search_programmes_across_sources(
+            self.root, query, at, self._norm())
+        self._send(json.dumps({"hits": hits, "at": at.isoformat()}), "application/json")
 
     def _test_provider(self, spec):
         """Try loading a source spec and report what came back.

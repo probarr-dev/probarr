@@ -2535,6 +2535,135 @@ class TestStore(Temp):
         self.assertEqual(s.read_removals(), [])
 
 
+class TestSearchProgrammesAt(unittest.TestCase):
+    """Guide.search_programmes_at(): "which channel was actually showing
+    X around this time" -- the opposite question from now_playing(), for
+    identifying which channel a misassigned stream actually belongs to."""
+
+    def _guide(self, entries):
+        """entries: [(channel_id, display_name, title, start_dt, stop_dt_or_None)]"""
+        from probarr.epg import Guide
+        g = Guide()
+        for cid, name, title, start, stop in entries:
+            g.display_names.setdefault(cid, []).append(name)
+            g.programmes.setdefault(cid, []).append((start, stop, title, ""))
+        return g
+
+    def test_finds_a_title_match_on_a_different_channel(self):
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc)
+        g = self._guide([
+            ("c1", "Sky Cinema Action", "Green Lantern", now, now + datetime.timedelta(hours=2)),
+            ("c2", "Sky Cinema Comedy", "Grease", now, now + datetime.timedelta(hours=2)),
+        ])
+        hits = g.search_programmes_at("Grease", now)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["guide_id"], "c2")
+        self.assertEqual(hits[0]["guide_name"], "Sky Cinema Comedy")
+
+    def test_ignores_a_match_outside_the_tolerance_window(self):
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc)
+        g = self._guide([
+            ("c2", "Sky Cinema Comedy", "Grease",
+             now + datetime.timedelta(hours=6), now + datetime.timedelta(hours=8)),
+        ])
+        self.assertEqual(g.search_programmes_at("Grease", now, tolerance_minutes=90), [])
+
+    def test_case_insensitive_substring_match(self):
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc)
+        g = self._guide([("c2", "Sky Cinema Comedy", "GREASE (1978)", now, now)])
+        hits = g.search_programmes_at("grease", now)
+        self.assertEqual(len(hits), 1)
+
+    def test_a_programme_with_no_stop_is_treated_as_a_few_hours_long(self):
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc)
+        g = self._guide([("c2", "Sky Cinema Comedy", "Grease",
+                          now - datetime.timedelta(minutes=30), None)])
+        hits = g.search_programmes_at("Grease", now)
+        self.assertEqual(len(hits), 1)
+
+
+class TestEpgProgrammeSearchEndpoint(Temp):
+    """/api/run/<id>/epg-programme-search backs Delete stream's "search the
+    guide first" escape hatch -- before removing a stream that's plainly
+    wrong for its channel, this answers whether it might belong elsewhere."""
+
+    def _guide(self, name, entries):
+        import datetime
+        xml = os.path.join(self.root, name + ".xml")
+        body = "".join(
+            f'<channel id="{cid}"><display-name>{cname}</display-name></channel>'
+            f'<programme channel="{cid}" start="{start.strftime("%Y%m%d%H%M%S +0000")}" '
+            f'stop="{stop.strftime("%Y%m%d%H%M%S +0000")}">'
+            f'<title>{title}</title></programme>'
+            for cid, cname, title, start, stop in entries)
+        with open(xml, "w", encoding="utf-8") as f:
+            f.write(f'<?xml version="1.0"?><tv>{body}</tv>')
+        from probarr import epgsources
+        epgsources.save(self.root, name, pathlib.Path(xml).as_uri())
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_finds_the_right_channel_from_the_candidates_own_probe_time(self):
+        import json, datetime
+        from probarr.store import RunStore
+        probed_at = 1787905151.0
+        at = datetime.datetime.fromtimestamp(probed_at, datetime.timezone.utc)
+        self._guide("sky-guide", [
+            ("c1", "Sky Cinema Action", "Green Lantern",
+             at - datetime.timedelta(minutes=10), at + datetime.timedelta(hours=1)),
+            ("c2", "Sky Cinema Comedy", "Grease",
+             at - datetime.timedelta(minutes=10), at + datetime.timedelta(hours=1)),
+        ])
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
+                     "stream_id": "s1", "stream_name": "Sky Cinema Action",
+                     "status": "ok", "probed_at": probed_at})
+        h, sent = self._handler()
+        h._epg_programme_search("run1", "SKYCINEMAACTION|s1", "Grease")
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertEqual(len(d["hits"]), 1)
+        self.assertEqual(d["hits"][0]["guide_name"], "Sky Cinema Comedy")
+
+    def test_unknown_candidate_is_a_404(self):
+        import json
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok", "probed_at": 1787905151.0})
+        h, sent = self._handler()
+        h._epg_programme_search("run1", "NOPE|s1", "Grease")
+        code, body = sent[-1]
+        self.assertEqual(code, 404, body)
+
+    def test_blank_query_returns_no_hits_without_erroring(self):
+        import json
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "status": "ok", "probed_at": 1787905151.0})
+        h, sent = self._handler()
+        h._epg_programme_search("run1", "BBCONE|s1", "")
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["hits"], [])
+
+
 class TestEpgList(Temp):
     def _guide(self, channels):
         xml = os.path.join(self.root, "guide.xml")

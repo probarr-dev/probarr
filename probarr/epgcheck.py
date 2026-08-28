@@ -260,6 +260,26 @@ def prewarm_all_sources(root, normalizer):
             pass
 
 
+def search_programmes_across_sources(root, query, at, normalizer,
+                                     tolerance_minutes=90, limit=25):
+    """Every saved EPG source's answer to "what channel was actually
+    showing `query` around `at`" -- see Guide.search_programmes_at() for
+    why this exists. A source that fails to load is skipped, same as
+    check_all()'s own per-source try/except: one broken source must not
+    hide a working one's answer.
+    """
+    out = []
+    for src in epgsources_mod.list_all(root):
+        try:
+            g = _indexed_guide(src["url"], normalizer, root)
+        except Exception:
+            continue
+        for hit in g.search_programmes_at(query, at, tolerance_minutes, limit):
+            out.append({**hit, "source": src["name"]})
+    out.sort(key=lambda h: h["start"])
+    return out[:limit]
+
+
 def search_source(root, source_name, query, normalizer, limit=25):
     """Search one saved EPG source's channel names for `query`, live --
     the manual counterpart to resolve(): a person filtering a real list of

@@ -275,6 +275,49 @@ class Guide:
         return out
 
     # -- lookup -------------------------------------------------------------
+    def search_programmes_at(self, query, at, tolerance_minutes=90, limit=25):
+        """Every programme, on ANY channel, whose title contains `query`
+        (substring, case-insensitive) and whose scheduled window falls
+        within `tolerance_minutes` of `at`.
+
+        The other lookups here answer "what's on THIS channel" -- this
+        answers the opposite question: a captured picture obviously does
+        not match the channel it was probed as (a human recognised the
+        film on screen), so which channel's own schedule actually explains
+        it? Real, if rare, cause: a provider's playlist entry pointing at
+        the wrong upstream feed under a channel name that has nothing to
+        do with what it actually serves.
+
+        A programme with no `stop` (some feeds omit it) is treated as
+        running 3 hours -- long enough to cover any real broadcast slot,
+        short enough that an all-day placeholder does not swallow every
+        query regardless of `at`.
+        """
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+        tol = datetime.timedelta(minutes=tolerance_minutes)
+        lo, hi = at - tol, at + tol
+        out = []
+        for cid, progs in self.programmes.items():
+            for start, stop, title, desc in progs:
+                if q not in title.lower():
+                    continue
+                end = stop or (start + datetime.timedelta(hours=3))
+                if start <= hi and end >= lo:
+                    names = self.display_names.get(cid) or []
+                    out.append({
+                        "guide_id": cid, "guide_name": names[0] if names else cid,
+                        "title": title,
+                        "start": start.isoformat(), "stop": stop.isoformat() if stop else None,
+                        "window": (f"{start.astimezone().strftime('%H:%M')}"
+                                  f"-{stop.astimezone().strftime('%H:%M')}" if stop else
+                                  start.astimezone().strftime('%H:%M')),
+                    })
+                    if len(out) >= limit:
+                        return out
+        return out
+
     def now_playing(self, channel_id, at):
         """The programme scheduled on `channel_id` at `at`. None if unknown."""
         if not channel_id:
