@@ -971,8 +971,6 @@ function reviewReasons(ch){
   }
   if (cs.some(c=>c.dup))
     out.push("a candidate is the provider's holding card, not the channel");
-  if (cs.some(c=>c.lowmo))
-    out.push("a candidate barely moves \u2014 check the picture is really live");
   if (cs.some(c=>c.offcad))
     out.push("a candidate is another country's feed (wrong frame rate)");
   if (ch.epg_mismatch)
@@ -988,7 +986,7 @@ function needsReview(ch){
   if (ch.missing) return true;
   const cs = ch.candidates||[];
   if (!cs.some(c=>c.status==="ok")) return true;
-  if (cs.some(c=>c.dup||c.lowmo)) return true;
+  if (cs.some(c=>c.dup)) return true;
   if (ch.epg_mismatch) return true;
   if (ch.epg_missing) return false;
   return false;
