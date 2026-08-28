@@ -2094,6 +2094,59 @@ class TestProviderRename(Temp):
         self.assertNotIn("scheme", raw[0])
 
 
+class TestProviderAsSource(Temp):
+    """as_source: whether a saved provider is offered as something a run
+    can probe FROM (New Run / Browse / Lineups dropdowns), as opposed to a
+    Dispatcharr connection kept purely as a push target."""
+
+    def test_default_is_a_source_when_not_specified(self):
+        from probarr import providers
+        providers.save(self.root, "plain", "http://example/x.m3u")
+        p = providers.get(self.root, "plain")
+        self.assertNotIn("as_source", p)  # absent means "treat as True"
+
+    def test_can_be_saved_as_false(self):
+        from probarr import providers
+        providers.save(self.root, "push-only", "dispatcharr://u:p@host:9191",
+                        as_source=False)
+        p = providers.get(self.root, "push-only")
+        self.assertEqual(p["as_source"], False)
+
+    def test_can_be_saved_as_true_explicitly(self):
+        from probarr import providers
+        providers.save(self.root, "d1", "dispatcharr://u:p@host:9191",
+                        as_source=True)
+        p = providers.get(self.root, "d1")
+        self.assertEqual(p["as_source"], True)
+
+    def test_re_saving_with_none_leaves_existing_value_untouched(self):
+        from probarr import providers
+        providers.save(self.root, "d1", "dispatcharr://u:p@host:9191",
+                        as_source=False)
+        providers.save(self.root, "d1", "dispatcharr://u:p@host:9191",
+                        concurrency=2)
+        p = providers.get(self.root, "d1")
+        self.assertEqual(p["as_source"], False)
+        self.assertEqual(p["concurrency"], 2)
+
+    def test_api_list_exposes_as_source(self):
+        import json
+        from probarr import web as web_mod, providers
+        providers.save(self.root, "push-only", "dispatcharr://u:p@host:9191",
+                        as_source=False)
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        h.path = "/api/providers"
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        h.do_GET()
+        code, body = sent[-1]
+        d = json.loads(body)
+        p = next(x for x in d["providers"] if x["name"] == "push-only")
+        self.assertEqual(p["as_source"], False)
+
+
 class TestProviderRenameCascades(Temp):
     """The web.py endpoint: renaming must not orphan a lineup or run that
     already points at the provider by its old name."""

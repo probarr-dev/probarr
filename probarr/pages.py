@@ -1030,52 +1030,80 @@ __TOPBAR__
 <div class="page">
 
   <div class="card">
-    <h2>Add a provider</h2>
+    <h2>Connect Dispatcharr</h2>
+    <div class="lead">Optional. Lets probarr push curated channels back into
+      Dispatcharr, and (if you tick the box below) probe streams through it too
+      &mdash; skip this entirely if you're only using probarr to export an M3U
+      file.</div>
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="disp-name" placeholder="Name, e.g. My Dispatcharr">
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="disp-host" placeholder="IP or hostname" style="flex:1">
+      <input type="number" id="disp-port" placeholder="Port" style="width:110px" value="9191">
+    </div>
+    <div class="pwrap">
+      <input type="text" id="disp-user" placeholder="Username">
+      <input type="password" id="disp-pass" style="flex:1" placeholder="Password">
+      <button id="disp-toggle" type="button">Show</button>
+    </div>
+    <div class="hint2">Its own admin login, not the Xtream/M3U playback credentials &mdash;
+      this is what pushes curated channels back into Dispatcharr.</div>
+
+    <div class="hint2" style="margin-top:10px">
+      <a href="#" id="disp-advtoggle">Paste a raw connection string instead&hellip;</a>
+    </div>
+    <div class="pwrap" id="disp-advwrap" style="display:none;margin-top:8px">
+      <input type="password" id="disp-spec" style="flex:1"
+        placeholder="dispatcharr://user:pass@host:port">
+      <button id="disp-spectoggle" type="button">Show</button>
+    </div>
+
+    <label class="row" style="margin-top:12px;align-items:center;gap:8px">
+      <input type="checkbox" id="disp-assource" style="width:auto">
+      <span>Use Dispatcharr as a provider (offer it as something a run can probe streams from,
+        not just push to)</span>
+    </label>
+
+    <div class="row" style="margin-top:12px">
+      <input type="number" id="disp-concurrency" min="1" style="width:90px"
+        placeholder="default" title="Max simultaneous probe connections for THIS provider. Blank uses the global default in Settings.">
+      <span class="muted" style="align-self:center">max connections (blank = default)</span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="disp-test">Test connection</button>
+      <button class="primary" id="disp-save">Save</button>
+      <span class="muted" id="disp-savemsg"></span>
+    </div>
+    <div class="testresult" id="disp-testresult"></div>
+  </div>
+
+  <div class="card">
+    <h2>Add an M3U / Xtream provider</h2>
     <div class="row" style="margin-bottom:10px">
       <input type="text" id="name" placeholder="Name, e.g. My IPTV">
     </div>
 
-    <div class="row" style="margin-bottom:10px">
-      <button type="button" id="ptype-iptv" class="ptype on">IPTV</button>
-      <button type="button" id="ptype-dispatcharr" class="ptype">Dispatcharr</button>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="iptv-url" style="flex:1"
+        placeholder="Playlist URL, or just the provider's host/domain">
     </div>
-
-    <div id="ptype-iptv-fields">
-      <div class="row" style="margin-bottom:8px">
-        <input type="text" id="iptv-url" style="flex:1"
-          placeholder="Playlist URL, or just the provider's host/domain">
-      </div>
-      <div class="pwrap">
-        <input type="text" id="iptv-user" placeholder="Username (only if not already in the URL)">
-        <input type="password" id="iptv-pass" style="flex:1"
-          placeholder="Password (only if not already in the URL)">
-        <button id="iptv-toggle" type="button">Show</button>
-      </div>
-      <div class="hint2">Paste the full playlist URL your provider gave you (username/password
-        stay blank) &mdash; or, if you were given an Xtream login instead of a link, just the
-        host/domain plus your username and password.</div>
+    <div class="pwrap">
+      <input type="text" id="iptv-user" placeholder="Username (only if not already in the URL)">
+      <input type="password" id="iptv-pass" style="flex:1"
+        placeholder="Password (only if not already in the URL)">
+      <button id="iptv-toggle" type="button">Show</button>
     </div>
-
-    <div id="ptype-dispatcharr-fields" style="display:none">
-      <div class="row" style="margin-bottom:8px">
-        <input type="text" id="disp-host" placeholder="IP or hostname" style="flex:1">
-        <input type="number" id="disp-port" placeholder="Port" style="width:110px" value="9191">
-      </div>
-      <div class="pwrap">
-        <input type="text" id="disp-user" placeholder="Username">
-        <input type="password" id="disp-pass" style="flex:1" placeholder="Password">
-        <button id="disp-toggle" type="button">Show</button>
-      </div>
-      <div class="hint2">Its own admin login, not the Xtream/M3U playback credentials &mdash;
-        this is what pushes curated channels back into Dispatcharr.</div>
-    </div>
+    <div class="hint2">Paste the full playlist URL your provider gave you (username/password
+      stay blank) &mdash; or, if you were given an Xtream login instead of a link, just the
+      host/domain plus your username and password.</div>
 
     <div class="hint2" style="margin-top:10px">
       <a href="#" id="advtoggle">Paste a raw connection string instead&hellip;</a>
     </div>
     <div class="pwrap" id="advwrap" style="display:none;margin-top:8px">
       <input type="password" id="spec" style="flex:1"
-        placeholder="M3U URL, xtream://user:pass@host:port, or dispatcharr://user:pass@host:port">
+        placeholder="M3U URL, or xtream://user:pass@host:port">
       <button id="toggle" type="button">Show</button>
     </div>
 
@@ -1116,7 +1144,6 @@ __TOPBAR__
 
 <script>
 const $ = id => document.getElementById(id);
-let PTYPE = "iptv";
 
 function pwToggle(fieldId, btnId){
   $(btnId).addEventListener("click", ()=>{
@@ -1128,38 +1155,25 @@ function pwToggle(fieldId, btnId){
 pwToggle("spec", "toggle");
 pwToggle("iptv-pass", "iptv-toggle");
 pwToggle("disp-pass", "disp-toggle");
+pwToggle("disp-spec", "disp-spectoggle");
 
-$("ptype-iptv").addEventListener("click", ()=>{
-  PTYPE = "iptv";
-  $("ptype-iptv").classList.add("on"); $("ptype-dispatcharr").classList.remove("on");
-  $("ptype-iptv-fields").style.display = ""; $("ptype-dispatcharr-fields").style.display = "none";
-});
-$("ptype-dispatcharr").addEventListener("click", ()=>{
-  PTYPE = "dispatcharr";
-  $("ptype-dispatcharr").classList.add("on"); $("ptype-iptv").classList.remove("on");
-  $("ptype-dispatcharr-fields").style.display = ""; $("ptype-iptv-fields").style.display = "none";
-});
 $("advtoggle").addEventListener("click", (e)=>{
   e.preventDefault();
   $("advwrap").style.display = $("advwrap").style.display === "none" ? "" : "none";
 });
+$("disp-advtoggle").addEventListener("click", (e)=>{
+  e.preventDefault();
+  $("disp-advwrap").style.display = $("disp-advwrap").style.display === "none" ? "" : "none";
+});
 
 // Builds the same raw spec string the backend has always accepted
-// (xtream://user:pass@host:port, dispatcharr://user:pass@host:port, or a
-// bare M3U URL) from whichever structured fields are actually filled in,
-// so the backend never needed to change to get a friendlier form. The
-// advanced box, if open and non-empty, always wins -- it's an explicit
-// escape hatch for anything the structured fields can't express.
+// (xtream://user:pass@host:port or a bare M3U URL) from whichever
+// structured fields are actually filled in. The advanced box, if open and
+// non-empty, always wins -- it's an explicit escape hatch for anything the
+// structured fields can't express.
 function computeSpec(){
   const adv = $("spec").value.trim();
   if($("advwrap").style.display !== "none" && adv) return adv;
-  if(PTYPE === "dispatcharr"){
-    const host = $("disp-host").value.trim(), port = $("disp-port").value.trim();
-    const user = $("disp-user").value.trim(), pass = $("disp-pass").value.trim();
-    if(!host) return "";
-    return "dispatcharr://"+encodeURIComponent(user)+":"+encodeURIComponent(pass)+
-      "@"+host+(port?":"+port:"");
-  }
   const url = $("iptv-url").value.trim();
   const user = $("iptv-user").value.trim(), pass = $("iptv-pass").value.trim();
   if(!url) return "";
@@ -1173,9 +1187,26 @@ function computeSpec(){
 }
 function syncSpec(){ $("spec").value = computeSpec(); return $("spec").value; }
 
+// Same idea, for the Dispatcharr card: dispatcharr://user:pass@host:port,
+// unless the advanced box has its own raw string.
+function computeDispSpec(){
+  const adv = $("disp-spec").value.trim();
+  if($("disp-advwrap").style.display !== "none" && adv) return adv;
+  const host = $("disp-host").value.trim(), port = $("disp-port").value.trim();
+  const user = $("disp-user").value.trim(), pass = $("disp-pass").value.trim();
+  if(!host) return "";
+  return "dispatcharr://"+encodeURIComponent(user)+":"+encodeURIComponent(pass)+
+    "@"+host+(port?":"+port:"");
+}
+function syncDispSpec(){ $("disp-spec").value = computeDispSpec(); return $("disp-spec").value; }
+
 $("spec").addEventListener("input", ()=>{
   $("spec").style.borderColor = "";
   $("testresult").className = "testresult";
+});
+$("disp-spec").addEventListener("input", ()=>{
+  $("disp-spec").style.borderColor = "";
+  $("disp-testresult").className = "testresult";
 });
 
 $("test").addEventListener("click", async ()=>{
@@ -1213,8 +1244,7 @@ $("save").addEventListener("click", async ()=>{
     // existing provider's credentials), or the structured field a fresh
     // add is missing.
     const advOpen = $("advwrap").style.display !== "none";
-    const target = advOpen ? $("spec")
-      : PTYPE === "dispatcharr" ? $("disp-host") : $("iptv-url");
+    const target = advOpen ? $("spec") : $("iptv-url");
     target.style.borderColor = "var(--bad)";
     target.focus();
     $("testresult").className = "testresult show bad";
@@ -1235,8 +1265,59 @@ $("save").addEventListener("click", async ()=>{
   if(d.ok){
     $("name").value=""; $("spec").value=""; $("concurrency").value="";
     $("iptv-url").value=""; $("iptv-user").value=""; $("iptv-pass").value="";
-    $("disp-host").value=""; $("disp-user").value=""; $("disp-pass").value="";
     $("testresult").className="testresult";
+  }
+  loadList();
+});
+
+$("disp-test").addEventListener("click", async ()=>{
+  const spec = syncDispSpec();
+  const box = $("disp-testresult");
+  if(!spec){ box.className="testresult show bad"; box.textContent="Enter the Dispatcharr host first."; return; }
+  box.className="testresult show"; box.textContent="Testing\u2026";
+  try{
+    const r = await fetch("/api/providers/test", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({spec})});
+    const d = await r.json();
+    if(d.ok){
+      box.className="testresult show good";
+      box.textContent="Connected \u2014 "+d.channels+" streams found.";
+    } else {
+      box.className="testresult show bad";
+      box.textContent="Could not connect: "+d.error;
+    }
+  }catch(e){ box.className="testresult show bad"; box.textContent="Request failed."; }
+});
+
+$("disp-save").addEventListener("click", async ()=>{
+  const name=$("disp-name").value.trim(), spec=syncDispSpec();
+  const concurrency = $("disp-concurrency").value.trim();
+  if(!name || !spec){
+    const advOpen = $("disp-advwrap").style.display !== "none";
+    const target = advOpen ? $("disp-spec") : $("disp-host");
+    target.style.borderColor = "var(--bad)";
+    target.focus();
+    $("disp-testresult").className = "testresult show bad";
+    $("disp-testresult").textContent = !name ? "Name is required."
+      : advOpen
+        ? "Paste the address again \u2014 it's cleared after Edit since it's "
+          + "never sent to the browser, and wasn't re-entered."
+        : "Fill in Dispatcharr's address first.";
+    return;
+  }
+  $("disp-spec").style.borderColor = "";
+  $("disp-savemsg").textContent="saving\u2026";
+  const r = await fetch("/api/providers/"+encodeURIComponent(name), {method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({spec, concurrency: concurrency ? parseInt(concurrency,10) : null,
+                          as_source: $("disp-assource").checked})});
+  const d = await r.json();
+  $("disp-savemsg").textContent = d.ok ? "saved" : ("error: "+(d.error||"failed"));
+  if(d.ok){
+    $("disp-name").value=""; $("disp-spec").value=""; $("disp-concurrency").value="";
+    $("disp-host").value=""; $("disp-user").value=""; $("disp-pass").value="";
+    $("disp-assource").checked = false;
+    $("disp-testresult").className="testresult";
   }
   loadList();
 });
@@ -1254,7 +1335,9 @@ async function loadList(){
     '<div class="saved"><span class="schemebadge">'+esc(p.scheme)+'</span>'+
     '<span class="nm">'+esc(p.name)+'</span>'+
     '<span class="meta">'+esc(p.redacted)+
-      (p.concurrency ? ' · max '+p.concurrency+' connection'+(p.concurrency===1?'':'s') : '')+'</span>'+
+      (p.concurrency ? ' · max '+p.concurrency+' connection'+(p.concurrency===1?'':'s') : '')+
+      (p.scheme === "dispatcharr" ? (p.as_source === false
+        ? ' · export target only' : ' · used as a provider') : '')+'</span>'+
     '<button data-rename="'+esc(p.name)+'">Rename</button>'+
     '<button data-edit="'+esc(p.name)+'">Edit</button>'+
     '<button data-del="'+esc(p.name)+'">Delete</button></div>').join("");
@@ -1281,24 +1364,36 @@ document.addEventListener("click", async e=>{
   if(ed){
     const d = await (await fetch("/api/providers")).json();
     const p = d.providers.find(x=>x.name===ed.dataset.edit);
+    if(!p) return;
     // The address is deliberately not sent to the browser, so editing means
     // re-entering it. Saving under the same name replaces the old one.
-    if(p){ $("name").value=p.name; $("spec").value="";
-           $("spec").placeholder = "re-enter the address for " + p.name;
-           $("spec").style.borderColor = "var(--bad)";
-           $("concurrency").value = p.concurrency || "";
-           // Editing still needs the raw box: the structured fields can't
-           // be pre-filled from a saved credential that's deliberately
-           // never sent to the browser, and re-deriving which of three
-           // formats it was from a redacted string isn't worth it when
-           // the box that already handles "enter a full spec string" does
-           // the job.
-           $("advwrap").style.display = "";
-           $("testresult").className = "testresult show bad";
-           $("testresult").textContent = "Address cleared for editing — it's never sent "
-             + "to the browser, so paste it again below before saving.";
-           window.scrollTo({top:0,behavior:"smooth"});
-           $("spec").focus(); }
+    if(p.scheme === "dispatcharr"){
+      $("disp-name").value=p.name; $("disp-spec").value="";
+      $("disp-spec").placeholder = "re-enter the address for " + p.name;
+      $("disp-spec").style.borderColor = "var(--bad)";
+      $("disp-concurrency").value = p.concurrency || "";
+      $("disp-assource").checked = p.as_source !== false;
+      // Editing still needs the raw box: the structured fields can't be
+      // pre-filled from a saved credential that's deliberately never sent
+      // to the browser.
+      $("disp-advwrap").style.display = "";
+      $("disp-testresult").className = "testresult show bad";
+      $("disp-testresult").textContent = "Address cleared for editing — it's never sent "
+        + "to the browser, so paste it again below before saving.";
+      window.scrollTo({top:0,behavior:"smooth"});
+      $("disp-spec").focus();
+      return;
+    }
+    $("name").value=p.name; $("spec").value="";
+    $("spec").placeholder = "re-enter the address for " + p.name;
+    $("spec").style.borderColor = "var(--bad)";
+    $("concurrency").value = p.concurrency || "";
+    $("advwrap").style.display = "";
+    $("testresult").className = "testresult show bad";
+    $("testresult").textContent = "Address cleared for editing — it's never sent "
+      + "to the browser, so paste it again below before saving.";
+    window.scrollTo({top:0,behavior:"smooth"});
+    $("spec").focus();
   }
   if(dl){
     if(!confirm("Delete provider \""+dl.dataset.del+"\"?")) return;
@@ -1569,13 +1664,17 @@ let currentRunId = null, poller = null;
 let RUN_PROVIDERS = [];
 async function loadProviders(){
   const d = await (await fetch("/api/providers")).json();
-  if(!d.providers.length){
+  // A Dispatcharr connection saved purely as a push target (as_source:
+  // false) isn't something a run can probe FROM -- only the export step
+  // ever sees it.
+  const sources = d.providers.filter(p => p.as_source !== false);
+  if(!sources.length){
     $("noproviders").style.display="block";
     $("start").disabled = true;
     return;
   }
-  RUN_PROVIDERS = d.providers;
-  $("provider").innerHTML = d.providers.map(p =>
+  RUN_PROVIDERS = sources;
+  $("provider").innerHTML = sources.map(p =>
     '<option value="'+esc(p.name)+'">'+esc(p.name)+' ('+esc(p.scheme)+')</option>').join("");
   updateDispProxyVisibility();
 }
@@ -1914,9 +2013,12 @@ function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"
 
 async function loadProviders(){
   const d = await (await fetch("/api/providers")).json();
-  PROVIDERS = d.providers;
-  if(!d.providers.length){ $("noproviders").style.display="block"; $("loadbar").style.display="none"; return; }
-  $("provider").innerHTML = d.providers.map(p =>
+  // A Dispatcharr connection saved purely as a push target isn't something
+  // Browse can pull candidate streams FROM.
+  const sources = d.providers.filter(p => p.as_source !== false);
+  PROVIDERS = sources;
+  if(!sources.length){ $("noproviders").style.display="block"; $("loadbar").style.display="none"; return; }
+  $("provider").innerHTML = sources.map(p =>
     '<option value="'+esc(p.name)+'">'+esc(p.name)+' ('+esc(p.scheme)+')</option>').join("");
   syncDispOpts();
 }
@@ -2190,9 +2292,12 @@ async function loadOptions(){
     (await fetch("/api/providers")).json(),
     (await fetch("/api/wantlists")).json(),
     (await fetch("/api/epg-sources")).json()]);
-  PROVIDERS = p.providers;
+  // A Dispatcharr connection saved purely as a push target isn't something
+  // a lineup can default a run's probe source to.
+  const sources = p.providers.filter(x => x.as_source !== false);
+  PROVIDERS = sources;
   $("provider").innerHTML = '<option value="">Choose when starting a run</option>' +
-    p.providers.map(x => '<option value="'+esc(x.name)+'">'+esc(x.name)+'</option>').join("");
+    sources.map(x => '<option value="'+esc(x.name)+'">'+esc(x.name)+'</option>').join("");
   $("wantlist").innerHTML = '<option value="">All channels in the source</option>' +
     w.wantlists.map(x => '<option value="'+esc(x.name)+'">'+esc(x.name)+
       ' ('+x.channels+' channels)</option>').join("");

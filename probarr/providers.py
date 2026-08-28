@@ -51,12 +51,26 @@ def get(root, name):
     return next((p for p in list_all(root) if p["name"] == n), None)
 
 
-def save(root, name, spec, concurrency=None):
+def save(root, name, spec, concurrency=None, as_source=None):
     """`concurrency`: this provider's own probe connection limit, if it
     differs from the global default in Settings -- e.g. a second provider
     on a 3-connection plan sitting alongside the main one's 1-connection
     limit. None means "use the global default", which is every provider's
     behaviour before this existed.
+
+    `as_source`: whether this provider is offered as something a RUN can
+    probe from (New Run / Lineups' provider dropdowns) -- as opposed to
+    a Dispatcharr connection saved purely to push curated channels back
+    into, never probed from directly. None (the default) means "leave
+    it as whatever it already was, or true for a brand new provider" --
+    every provider saved before this existed, and every plain M3U/Xtream
+    one, is a source; a Dispatcharr connection added specifically via the
+    Providers page's own "Connect Dispatcharr" card starts as False
+    (export target only) unless its own checkbox says otherwise. Always
+    ignored for whether a Dispatcharr provider can be an EXPORT target --
+    that's a separate concern this flag deliberately never touches (see
+    web.py's push-target provider list, which lists every dispatcharr:
+    scheme provider regardless).
     """
     import json
     n = safe_name(name)
@@ -64,10 +78,22 @@ def save(root, name, spec, concurrency=None):
         raise ValueError("invalid provider name")
     if not (spec or "").strip():
         raise ValueError("spec cannot be empty")
-    items = [p for p in list_all(root) if p["name"] != n]
+    # list_all() computes "scheme" fresh on every read and mutates the
+    # dicts it returns to carry it -- stripped again here before writing,
+    # or every OTHER existing provider gets a stale "scheme" baked into
+    # providers.json on every single save, not just the one being edited
+    # (confirmed live: exactly this had already happened on a real
+    # instance before this fix).
+    existing = next((p for p in list_all(root) if p["name"] == n), None)
+    items = [{k: v for k, v in p.items() if k != "scheme"}
+             for p in list_all(root) if p["name"] != n]
     entry = {"name": n, "spec": spec.strip(), "saved": time.time()}
     if concurrency:
         entry["concurrency"] = max(1, int(concurrency))
+    if as_source is not None:
+        entry["as_source"] = bool(as_source)
+    elif existing is not None and "as_source" in existing:
+        entry["as_source"] = existing["as_source"]
     items.append(entry)
     items.sort(key=lambda p: p["name"].lower())
     os.makedirs(root, exist_ok=True)

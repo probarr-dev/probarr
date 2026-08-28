@@ -644,8 +644,11 @@ class Handler(BaseHTTPRequestHandler):
             if sent:
                 return
             try:
+                as_source = body.get("as_source")
                 name = providers_mod.save(self.root, parts[2], body.get("spec") or "",
-                                          concurrency=body.get("concurrency"))
+                                          concurrency=body.get("concurrency"),
+                                          as_source=(None if as_source is None
+                                                    else bool(as_source)))
             except ValueError as e:
                 return self._send(json.dumps({"error": str(e)}),
                                   "application/json", 400)
