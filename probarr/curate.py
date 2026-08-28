@@ -1035,13 +1035,20 @@ function renderList(){
   document.getElementById("diagfilteredcount").textContent = list.length;
 }
 
-// The channel's own most common declared aspect ratio, not a hardcoded
-// 16:9 -- a handful of real UK channels are still 4:3 or otherwise
-// non-widescreen, and hardcoding 16:9 would flag every single one of
-// THEIR candidates as wrong instead of the genuinely mismatched one. Mode,
-// not mean: outliers (the actual thing being detected) must not be
-// allowed to drag the "normal" value toward themselves.
+// The channel's own true aspect ratio -- whatever is actually curated into
+// slot 1 (the operator's pick, or the auto-pick before anything has been
+// curated), not a hardcoded 16:9 or a bare majority vote across every
+// candidate. A pure vote got this backwards on a channel where more
+// candidates happen to be wrong than right: the genuinely correct, ALREADY
+// CHOSEN stream lost the vote to its own wrong alternates and got flagged
+// "aspect ratio off" itself, which is the one candidate this can never be
+// right to flag. Falls back to the old majority-vote guess only when slot
+// 1 has no dimensions to go on at all (nothing picked yet, or a dead pick).
 function dominantAspect(ch){
+  const ids = chosenIds(ch);
+  const primary = ids.length && (ch.candidates||[]).find(c => c.id === ids[0]);
+  if(primary && primary.w && primary.h)
+    return Math.round((primary.w/primary.h)*100)/100;
   const counts = new Map();
   for(const c of (ch.candidates||[])){
     if(!c.w || !c.h) continue;
