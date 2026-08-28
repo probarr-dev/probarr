@@ -2750,6 +2750,74 @@ class TestWatermarkCrop(Temp):
             fake_subprocess.run.assert_not_called()
         self.assertEqual(sent[0][0], 404)
 
+    def test_a_box_marked_on_an_earlier_run_of_the_same_lineup_still_crops(self):
+        """Real reported bug: Curate's own page correctly shows "Redraw
+        watermark area" for a channel whose box lives only on the lineup
+        (inherited, same as EPG source/group/name) -- but this endpoint used
+        to read ONLY the run's own selection.json, so the crop 404'd on
+        every fresh run of an existing lineup regardless of what the button
+        said."""
+        from probarr.store import RunStore
+        from probarr import lineups as lineups_mod
+        import unittest.mock
+        lineups_mod.save(self.root, "my-lineup")
+        lineups_mod.set_preference(self.root, "my-lineup", "BBCONE",
+                                   watermark_box={"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.1})
+        store = RunStore(self.root, "run1")
+        store.write_meta({"lineup": "my-lineup"})
+        store.write_selection({})  # nothing saved in THIS run
+        frame_path = store.frame_path("BBCONE|s1")
+        os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+        with open(frame_path, "wb") as f:
+            f.write(b"not a real jpeg, ffmpeg is mocked")
+        h, sent = self._handler()
+        with unittest.mock.patch("probarr.web.subprocess") as fake_subprocess:
+            fake_subprocess.CalledProcessError = Exception
+            fake_subprocess.TimeoutExpired = Exception
+
+            def fake_run(cmd, **kw):
+                with open(cmd[-1], "wb") as f:
+                    f.write(b"cropped")
+            fake_subprocess.run.side_effect = fake_run
+            h._watermark_crop("run1", "BBCONE|s1")
+        self.assertEqual(sent[0][0], "FILE")
+
+    def test_this_runs_own_box_wins_over_an_inherited_one(self):
+        from probarr.store import RunStore
+        from probarr import lineups as lineups_mod
+        import unittest.mock
+        lineups_mod.save(self.root, "my-lineup")
+        lineups_mod.set_preference(self.root, "my-lineup", "BBCONE",
+                                   watermark_box={"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.1})
+        store = RunStore(self.root, "run1")
+        store.write_meta({"lineup": "my-lineup"})
+        store.write_selection({"BBCONE": {"watermark_box":
+                               {"x": 0.5, "y": 0.5, "w": 0.1, "h": 0.1}}})
+        frame_path = store.frame_path("BBCONE|s1")
+        os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+        with open(frame_path, "wb") as f:
+            f.write(b"not a real jpeg, ffmpeg is mocked")
+        h, sent = self._handler()
+        with unittest.mock.patch("probarr.web.subprocess") as fake_subprocess:
+            fake_subprocess.CalledProcessError = Exception
+            fake_subprocess.TimeoutExpired = Exception
+            captured_cmd = []
+
+            def fake_run(cmd, **kw):
+                captured_cmd.append(cmd)
+                with open(cmd[-1], "wb") as f:
+                    f.write(b"cropped")
+            fake_subprocess.run.side_effect = fake_run
+            h._watermark_crop("run1", "BBCONE|s1")
+        self.assertEqual(sent[0][0], "FILE")
+        # The run's own box (0.5/0.5) hashes differently from the inherited
+        # one (0.1/0.1) -- the output filename baking in that hash is the
+        # cheapest way to confirm which box coordinates actually got used.
+        import hashlib
+        own_hash = hashlib.sha256(
+            b"0.5000:0.5000:0.1000:0.1000").hexdigest()[:10]
+        self.assertIn(own_hash, sent[0][1][1])
+
     def test_missing_frame_file_is_a_404(self):
         from probarr.store import RunStore
         store = RunStore(self.root, "run1")

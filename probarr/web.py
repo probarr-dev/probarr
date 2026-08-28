@@ -2650,11 +2650,22 @@ class Handler(BaseHTTPRequestHandler):
         any watermark work, not even a fast local one. This is the ONLY
         place that work happens, so this check is the entire enforcement
         of that.
+
+        `watermark_box` is a durable, lineup-level preference (see
+        curate.build_payload's own selection merge) -- a channel re-verified
+        in a brand new run inherits the box marked on some earlier run of
+        the same lineup, without needing to be redrawn. Real bug this
+        fixes: this endpoint used to read ONLY the run's own selection.json,
+        so a fresh run's Curate page correctly showed "Redraw watermark
+        area" (built from the merged, inherited data) while the crop
+        itself 404'd every time -- the one place actually doing the work
+        was the one place that forgot to do the same merge.
         """
         store = RunStore(self.root, run_id)
         channel_key = rec_key.split("|", 1)[0] if rec_key else ""
-        sel = (store.read_selection() or {}).get(channel_key) or {}
-        box = sel.get("watermark_box")
+        inherited = self._inherited(store).get(channel_key) or {}
+        own = (store.read_selection() or {}).get(channel_key) or {}
+        box = own.get("watermark_box") or inherited.get("watermark_box")
         if not box:
             return self._send('{"error":"no watermark area marked for this channel"}',
                               "application/json", 404)
