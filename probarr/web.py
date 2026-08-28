@@ -46,6 +46,7 @@ from .store import RunStore, InvalidRunId
 from .normalize import (Normalizer, group_candidates, declared_quality_rank,
                         split_group_title)
 from . import tagsettings as tagsettings_mod
+from . import reasons as reasons_mod
 from .probe import ProbeOptions, probe
 from .theme import CSS, topbar
 from .verify import annotate_placeholders
@@ -252,6 +253,11 @@ class Handler(BaseHTTPRequestHandler):
                 "quality_customised": tagsettings_mod.is_customised(self.root, "quality"),
             }), "application/json")
             return
+        if path == "/api/delete-reasons":
+            return self._send(json.dumps({
+                "reasons": reasons_mod.list_all(self.root),
+                "customised": reasons_mod.is_customised(self.root),
+            }), "application/json")
         if path == "/lineups":
             return self._send(pages.lineups_page())
         if path == "/unclaimed":
@@ -515,6 +521,26 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as e:
                 return self._send(json.dumps({"error": str(e)}), "application/json", 400)
             return self._send(json.dumps({"ok": True, "tags": result}), "application/json")
+
+        if path == "/api/delete-reasons":
+            body, sent = self._json_body()
+            if sent:
+                return
+            action = (body.get("action") or "").strip()
+            try:
+                if action == "add":
+                    result = reasons_mod.add(self.root, body.get("reason"))
+                elif action == "remove":
+                    result = reasons_mod.remove(self.root, body.get("reason"))
+                elif action == "restore":
+                    result = reasons_mod.restore_defaults(self.root)
+                else:
+                    return self._send(
+                        '{"error":"action must be \\"add\\", \\"remove\\" or \\"restore\\""}',
+                        "application/json", 400)
+            except ValueError as e:
+                return self._send(json.dumps({"error": str(e)}), "application/json", 400)
+            return self._send(json.dumps({"ok": True, "reasons": result}), "application/json")
 
         if path == "/api/backup/import":
             if not self._same_origin():
@@ -874,8 +900,18 @@ class Handler(BaseHTTPRequestHandler):
             record = next((r for r in store.load() if r.get("rec_key") == rec_key), None)
             removed = store.drop_stream(rec_key)
             if removed and record and record.get("channel_key") and record.get("stream_id"):
+                reason = body.get("reason") or ""
                 store.add_excluded(record["channel_key"], record["stream_id"],
-                                   record.get("stream_name") or "", body.get("reason") or "")
+                                   record.get("stream_name") or "", reason)
+                # A reason worth typing once is worth having as a one-click
+                # pick next time -- see reasons.py's own docstring. Silently
+                # skipped if it's already there (add() is a no-op then) or
+                # blank (nothing typed, nothing to remember).
+                if reason.strip():
+                    try:
+                        reasons_mod.add(self.root, reason)
+                    except ValueError:
+                        pass
             return self._send(json.dumps({"ok": True, "removed": removed}),
                               "application/json")
 

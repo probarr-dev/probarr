@@ -5005,6 +5005,144 @@ class TestTagSettings(Temp):
             tagsettings.add(self.root, "region", "   ")
 
 
+class TestDeleteReasons(Temp):
+    """A durable, user-editable list of preset reasons for Curate's Delete
+    stream dialog -- see reasons.py's own module docstring."""
+
+    def test_uncustomised_tracks_the_built_in_defaults(self):
+        from probarr import reasons
+        self.assertEqual(reasons.list_all(self.root), reasons.DEFAULT_REASONS)
+        self.assertFalse(reasons.is_customised(self.root))
+
+    def test_add_then_read_round_trips_and_keeps_casing(self):
+        from probarr import reasons
+        reasons.add(self.root, "Buffers constantly")
+        self.assertIn("Buffers constantly", reasons.list_all(self.root))
+        self.assertTrue(reasons.is_customised(self.root))
+
+    def test_add_is_idempotent(self):
+        from probarr import reasons
+        reasons.add(self.root, "Buffers constantly")
+        reasons.add(self.root, "Buffers constantly")
+        self.assertEqual(reasons.list_all(self.root).count("Buffers constantly"), 1)
+
+    def test_remove_only_touches_the_named_reason(self):
+        from probarr import reasons
+        reasons.remove(self.root, "Wrong channel")
+        current = reasons.list_all(self.root)
+        self.assertNotIn("Wrong channel", current)
+        self.assertIn("Wrong aspect ratio", current)
+
+    def test_restore_defaults_undoes_customisation(self):
+        from probarr import reasons
+        reasons.add(self.root, "Buffers constantly")
+        reasons.restore_defaults(self.root)
+        self.assertEqual(reasons.list_all(self.root), reasons.DEFAULT_REASONS)
+        self.assertFalse(reasons.is_customised(self.root))
+
+    def test_rejects_a_blank_reason(self):
+        from probarr import reasons
+        with self.assertRaises(ValueError):
+            reasons.add(self.root, "   ")
+
+
+class TestDeleteReasonsApiEndpoint(Temp):
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_add_via_endpoint(self):
+        import json, io
+        h, sent = self._handler()
+        h.path = "/api/delete-reasons"
+        h.command = "POST"
+        h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/settings"}
+        payload = json.dumps({"action": "add", "reason": "Buffers constantly"}).encode()
+        h.headers["Content-Length"] = str(len(payload))
+        h.rfile = io.BytesIO(payload)
+        h._do_POST()
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertIn("Buffers constantly", d["reasons"])
+
+    def test_get_returns_defaults_and_customised_flag(self):
+        import json
+        h, sent = self._handler()
+        h.path = "/api/delete-reasons"
+        h.command = "GET"
+        h.headers = {}
+        h._do_GET()
+        code, body = sent[-1]
+        d = json.loads(body)
+        self.assertEqual(code, 200, body)
+        self.assertFalse(d["customised"])
+        self.assertIn("Wrong channel", d["reasons"])
+
+
+class TestDeletingAStreamRemembersItsReason(Temp):
+    """candidate-remove's `reason` isn't just logged against this run's
+    excluded-stream note -- a genuinely new one also joins the durable
+    preset list, so it's a one-click pick on the NEXT delete too."""
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_a_freshly_typed_reason_is_added_to_the_saved_list(self):
+        import json, io
+        from probarr.store import RunStore
+        from probarr import reasons
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "stream_name": "BBC One",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h.path = "/api/run/run1/candidate-remove"
+        h.command = "POST"
+        h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/run/run1/curate"}
+        payload = json.dumps({"rec_key": "BBCONE|s1",
+                             "reason": "Buffers constantly"}).encode()
+        h.headers["Content-Length"] = str(len(payload))
+        h.rfile = io.BytesIO(payload)
+        h._do_POST()
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        self.assertIn("Buffers constantly", reasons.list_all(self.root))
+
+    def test_an_already_known_reason_is_not_duplicated(self):
+        import json, io
+        from probarr.store import RunStore
+        from probarr import reasons
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "stream_name": "BBC One",
+                     "status": "ok"})
+        h, sent = self._handler()
+        h.path = "/api/run/run1/candidate-remove"
+        h.command = "POST"
+        h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/run/run1/curate"}
+        payload = json.dumps({"rec_key": "BBCONE|s1",
+                             "reason": "Wrong channel"}).encode()
+        h.headers["Content-Length"] = str(len(payload))
+        h.rfile = io.BytesIO(payload)
+        h._do_POST()
+        self.assertEqual(reasons.list_all(self.root).count("Wrong channel"), 1)
+
+
 class TestTagsApiEndpoint(Temp):
 
     def _handler(self):

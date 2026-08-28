@@ -746,6 +746,23 @@ __TOPBAR__
   </div>
 </div>
 
+<div class="modal" id="dropreasonmodal">
+  <div class="modalbox" style="width:min(420px,92vw)">
+    <button class="modalx" id="dr-x" title="Close">✕</button>
+    <h3 id="dr-title">Delete stream</h3>
+    <div class="sub">The stream itself survives (Find streams can and will
+      offer it again) -- a reason shows up next to it if it does. Optional;
+      pick one, type your own, or leave it blank.</div>
+    <div id="dr-presets" class="tagchips" style="margin:10px 0"></div>
+    <div class="mfield"><input type="text" id="dr-other" placeholder="or type a reason&hellip;"></div>
+    <div class="mresult" id="dr-result"></div>
+    <div class="mrow">
+      <button id="dr-go" class="danger">Delete stream</button>
+      <button id="dr-close">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const DATA = __DATA__;
 // Matches the server's own auto-fallback depth (AUTO_FALLBACK_DEPTH in
@@ -1475,20 +1492,51 @@ document.addEventListener("click", e=>{
     if(btn.dataset.act==="use"){ toggleUse(id); return; }
   }
 });
-async function dropStream(id, btn){
+let DR_ID = null, DR_BTN = null, DR_PICKED = "";
+let DELETE_REASONS = [];
+async function loadDeleteReasons(){
+  try{
+    const d = await (await fetch("/api/delete-reasons")).json();
+    DELETE_REASONS = d.reasons || [];
+  }catch(e){ /* the modal still works with no presets */ }
+}
+loadDeleteReasons();
+
+// One dialog, not confirm() then a separate prompt() -- and the reason IS
+// the point: the stream itself survives (Find streams can and will offer
+// it again), so without a note here a future look has no way to tell "not
+// yet tried" from "tried, and here is why it was wrong". Presets (see
+// Settings -> Manage delete reasons) turn the common cases into a single
+// click instead of retyping the same phrase on every provider.
+function dropStream(id, btn){
   const ch = DATA.channels.find(c=>c.key===current); if(!ch) return;
   const c = (ch.candidates||[]).find(x=>x.id===id); if(!c) return;
-  // One dialog, not confirm() then a separate prompt() -- and the reason IS
-  // the point: the stream itself survives (Find streams can and will offer
-  // it again), so without a note here a future look has no way to tell "not
-  // yet tried" from "tried, and here is why it was wrong".
-  const reason = prompt(
-    "Remove \u201c"+c.name+"\u201d from "+ch.title+"?\n\n"+
-    "Its probe results and captured frames are deleted. The stream itself "+
-    "is untouched and can still turn up again in Find streams \u2014 so say "+
-    "why, and that shows up next to it if it does. Cancel to keep it.\n\n"+
-    "Reason (optional):", "");
-  if(reason === null) return;
+  DR_ID = id; DR_BTN = btn; DR_PICKED = "";
+  document.getElementById("dr-title").textContent = "Delete \u201c"+c.name+"\u201d";
+  document.getElementById("dr-other").value = "";
+  document.getElementById("dr-result").className = "mresult";
+  document.getElementById("dr-presets").innerHTML = DELETE_REASONS.map(r =>
+    '<span class="tagchip drpreset" data-reason="'+esc(r)+
+    '" style="cursor:pointer">'+esc(r)+'</span>').join("") ||
+    '<span class="muted" style="font-size:11.5px">No saved reasons yet -- '+
+    'type one below, or add some in Settings.</span>';
+  document.getElementById("dropreasonmodal").classList.add("on");
+}
+document.getElementById("dr-presets").addEventListener("click", e=>{
+  const chip = e.target.closest(".drpreset"); if(!chip) return;
+  DR_PICKED = chip.dataset.reason;
+  document.getElementById("dr-other").value = DR_PICKED;
+});
+function closeDropReasonModal(){
+  document.getElementById("dropreasonmodal").classList.remove("on");
+}
+document.getElementById("dr-x").addEventListener("click", closeDropReasonModal);
+document.getElementById("dr-close").addEventListener("click", closeDropReasonModal);
+document.getElementById("dr-go").addEventListener("click", async ()=>{
+  const id = DR_ID, btn = DR_BTN;
+  const reason = document.getElementById("dr-other").value.trim();
+  closeDropReasonModal();
+  if(!id || !btn) return;
   btn.disabled = true;
   try{
     const r = await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+
@@ -1497,9 +1545,10 @@ async function dropStream(id, btn){
       body: JSON.stringify({rec_key: id, reason})});
     const d = await r.json();
     if(d.error){ alert("Could not remove: "+d.error); btn.disabled=false; return; }
+    loadDeleteReasons();  // a freshly-typed reason just joined the saved list
     await refreshChannel(current);
   }catch(e){ alert("Request failed."); btn.disabled = false; }
-}
+});
 
 async function reprobe(id, btn, extra){
   btn.disabled=true;

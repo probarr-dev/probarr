@@ -718,6 +718,15 @@ __TOPBAR__
   </div>
 
   <div class="card">
+    <h2>Manage delete reasons</h2>
+    <div class="lead">Curate's "Delete stream" always asks why. These are
+      the one-click picks it offers -- typing a new one here (or from the
+      dialog itself) adds it to the list for next time; remove one you no
+      longer need, or restore the built-in pair.</div>
+    <div id="reasoncard"></div>
+  </div>
+
+  <div class="card">
     <h2>Dispatcharr failover evidence</h2>
     <div class="lead">Dispatcharr's own event log records when a channel
       genuinely failed over in real use -- not a probe's guess, the actual
@@ -919,6 +928,60 @@ document.getElementById("tagcards").addEventListener("keydown", e => {
   }
 });
 loadTags();
+
+// --- Manage delete reasons -------------------------------------------------
+async function loadReasons(){
+  const d = await (await fetch("/api/delete-reasons")).json();
+  $("reasoncard").innerHTML = '<div class="tagcard">'+
+    '<div class="tagcard-head">'+
+    (d.customised ? '<button class="reasonrestore" '+
+      'title="Un-does your own changes to this list, reverting to the '+
+      'built-in pair.">Restore defaults</button>'
+      : '<span class="muted" style="font-size:11.5px">using built-in defaults</span>')+
+    '</div>'+
+    '<div class="tagchips">'+d.reasons.map(r =>
+      '<span class="tagchip">'+esc(r)+
+      '<button class="reasonremove" data-reason="'+esc(r)+
+      '" title="Remove">×</button></span>').join("")+
+    '</div>'+
+    '<div class="tagadd">'+
+    '<input type="text" class="reasonaddinput" placeholder="add a reason&hellip;">'+
+    '<button class="reasonaddbtn">Add</button>'+
+    '</div></div>';
+}
+document.getElementById("reasoncard").addEventListener("click", async e => {
+  const rm = e.target.closest(".reasonremove");
+  const restore = e.target.closest(".reasonrestore");
+  const addBtn = e.target.closest(".reasonaddbtn");
+  if(rm){
+    await fetch("/api/delete-reasons", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({action: "remove", reason: rm.dataset.reason})});
+    loadReasons();
+  } else if(restore){
+    if(!confirm("Restore delete reasons to the built-in pair? Your own "+
+                "additions/removals to this list are discarded.")) return;
+    await fetch("/api/delete-reasons", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({action: "restore"})});
+    loadReasons();
+  } else if(addBtn){
+    const input = document.querySelector(".reasonaddinput");
+    const reason = input.value.trim();
+    if(!reason) return;
+    const r = await fetch("/api/delete-reasons", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({action: "add", reason})});
+    const d = await r.json();
+    if(d.error){ alert(d.error); return; }
+    input.value = "";
+    loadReasons();
+  }
+});
+document.getElementById("reasoncard").addEventListener("keydown", e => {
+  if(e.key === "Enter" && e.target.classList.contains("reasonaddinput")){
+    e.preventDefault();
+    document.querySelector(".reasonaddbtn").click();
+  }
+});
+loadReasons();
 
 // --- Ranking vs. you -----------------------------------------------------
 // The override log (decisions.jsonl) was write-only until this existed:
