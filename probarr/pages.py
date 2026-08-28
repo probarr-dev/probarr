@@ -944,8 +944,11 @@ async function loadReasons(){
       '<button class="reasonremove" data-reason="'+esc(r)+
       '" title="Remove">×</button></span>').join("")+
     '</div>'+
-    '<div class="tagadd">'+
-    '<input type="text" class="reasonaddinput" placeholder="add a reason&hellip;">'+
+    '<div class="tagadd" style="align-items:flex-start">'+
+    '<textarea class="reasonaddinput" rows="3" style="flex:1;resize:vertical;'+
+      'background:var(--bg);color:var(--text);border:1px solid var(--line);'+
+      'border-radius:var(--radius);padding:6px 9px;font-size:13px;font-family:inherit" '+
+      'placeholder="add reasons, one per line&hellip;"></textarea>'+
     '<button class="reasonaddbtn">Add</button>'+
     '</div></div>';
 }
@@ -965,18 +968,28 @@ document.getElementById("reasoncard").addEventListener("click", async e => {
     loadReasons();
   } else if(addBtn){
     const input = document.querySelector(".reasonaddinput");
-    const reason = input.value.trim();
-    if(!reason) return;
-    const r = await fetch("/api/delete-reasons", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({action: "add", reason})});
-    const d = await r.json();
-    if(d.error){ alert(d.error); return; }
+    // One per line -- lets several be pasted or typed in one go instead of
+    // a round trip per reason. Blank lines (a trailing newline, accidental
+    // double-Enter) are just skipped, not sent as an empty reason.
+    const lines = input.value.split("\n").map(s => s.trim()).filter(Boolean);
+    if(!lines.length) return;
+    for(const reason of lines){
+      const r = await fetch("/api/delete-reasons", {method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({action: "add", reason})});
+      const d = await r.json();
+      if(d.error){ alert(d.error); return; }
+    }
     input.value = "";
     loadReasons();
   }
 });
 document.getElementById("reasoncard").addEventListener("keydown", e => {
-  if(e.key === "Enter" && e.target.classList.contains("reasonaddinput")){
+  // Enter alone stays a newline (this is a multi-line, one-per-line box
+  // now) -- only Enter+Ctrl/Cmd submits, so typing several reasons in one
+  // sitting doesn't submit after the first line.
+  if(e.key === "Enter" && (e.ctrlKey || e.metaKey) &&
+     e.target.classList.contains("reasonaddinput")){
     e.preventDefault();
     document.querySelector(".reasonaddbtn").click();
   }
