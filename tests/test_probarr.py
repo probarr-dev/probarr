@@ -3829,6 +3829,31 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
         self.assertEqual(g.resolve("4053.sky.uk", "Sky Atlantic", Normalizer()),
                          "4053.sky.uk")
 
+    def test_the_fuzzy_fallback_does_not_resolve_to_the_channels_own_plus1(self):
+        # Real reported bug, the direct sequel to the SD/HD fix above: once
+        # "Sky Atlantic"/"Sky Atlantic HD" correctly refuse to resolve by
+        # exact name, the fuzzy prefix scan used to find "Sky Atlantic+1"
+        # as the only remaining startswith() candidate and resolve straight
+        # to it -- normalizer.key("Sky Atlantic+1") is "SKY ATLANTIC
+        # TIMESHIFT1", which IS a prefix match for "SKY ATLANTIC", even
+        # though a +1 channel is an hour-shifted, genuinely different
+        # schedule, not a spelling variant of the base channel.
+        from probarr.normalize import Normalizer
+        g = self._guide([("1412.sky.uk", "Sky Atlantic"),
+                         ("4053.sky.uk", "Sky Atlantic HD"),
+                         ("1413.sky.uk", "Sky Atlantic+1")])
+        g.build_name_index(Normalizer())
+        self.assertIsNone(g.resolve(None, "Sky Atlantic", Normalizer()))
+
+    def test_a_plus1_query_can_still_resolve_to_its_own_plus1_entry(self):
+        # The timeshift guard must not be so broad it blocks a genuine
+        # "+1" channel from ever resolving at all.
+        from probarr.normalize import Normalizer
+        g = self._guide([("1412.sky.uk", "Sky Atlantic"),
+                         ("1413.sky.uk", "Sky Atlantic+1")])
+        g.build_name_index(Normalizer())
+        self.assertEqual(g.resolve(None, "Sky Atlantic+1", Normalizer()), "1413.sky.uk")
+
 
 class TestDoublePushIsRejected(Temp):
     """Real bug found on a full-codebase review: the "is a push already

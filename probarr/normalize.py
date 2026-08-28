@@ -113,7 +113,21 @@ class Normalizer:
         self._inline_re = re.compile(rf"(?<![A-Za-z0-9])(?:{alt})(?![A-Za-z0-9])",
                                      re.IGNORECASE)
         self._bracket_re = re.compile(r"[\(\[\{][^\)\]\}]*[\)\]\}]")
-        self._timeshift_re = re.compile(r"(?<![A-Za-z0-9])[+\-]\s?\d{1,2}\s?(H|HR|HRS)?(?![A-Za-z0-9])",
+        # Deliberately NO lookbehind requiring a boundary before the +/- --
+        # real reported bug: the marker is routinely GLUED straight onto the
+        # channel name with no separator at all ("Sky Atlantic+1", "Sky
+        # Witness+1", confirmed live), which is the standard convention for
+        # a "+1" channel, not an edge case. A lookbehind here silently
+        # refused to recognise exactly that common case, is_timeshift()
+        # returned False, and the trailing "+1" fell through to be stripped
+        # as ordinary punctuation by _fold() -- leaving a residual digit
+        # that made the +1 entry's key merely LOOK different from the base
+        # channel's by coincidence, not because it was ever actually
+        # tagged as a different, hour-shifted schedule. The trailing
+        # lookahead alone (no more digits/letters immediately after) is
+        # enough to keep this from matching a number embedded inside a
+        # longer token.
+        self._timeshift_re = re.compile(r"[+\-]\s?\d{1,2}\s?(H|HR|HRS)?(?![A-Za-z0-9])",
                                         re.IGNORECASE)
 
     def is_timeshift(self, name: str) -> bool:

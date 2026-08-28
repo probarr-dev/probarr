@@ -267,6 +267,18 @@ class Guide:
         region's listings to a channel is worse than showing none: it would
         make the picture look like it disagreed with the schedule when the
         schedule was simply the wrong one.
+
+        Real reported bug: fuzzy prefix matching had no timeshift awareness,
+        so once an ambiguous SD/HD pair correctly refused to resolve by
+        exact name (see build_name_index()), the ONLY remaining candidate
+        left in a startswith scan was routinely the channel's own "+1"
+        entry ("SKY ATLANTIC" is a prefix of normalizer.key()'s own
+        "SKY ATLANTIC TIMESHIFT1") -- a single candidate, so the ambiguity
+        check never triggered, and a channel silently got linked to its own
+        hour-shifted sibling. normalize.py already treats a '+1' channel as
+        "a genuinely different channel, not a variant of the same one" for
+        exactly this reason; fuzzy matching here now honours that instead
+        of only guarding against it on the exact-match path.
         """
         if tvg_id and (tvg_id in self.programmes or tvg_id in self.display_names):
             return tvg_id
@@ -278,8 +290,14 @@ class Guide:
         hit = self._by_key.get(key)
         if hit or not fuzzy or len(key) < self.MIN_FUZZY_LEN:
             return hit
+        # A timeshift query only ever matches another timeshift key, and a
+        # plain query only ever matches another plain key -- never mixed,
+        # so "Sky Atlantic" can never fuzzy-resolve to its own "+1" sibling
+        # (or vice versa) purely because one is a prefix of the other.
+        query_is_timeshift = "TIMESHIFT" in key
         cands = [k for k in self._by_key
-                 if len(k) >= self.MIN_FUZZY_LEN and (k.startswith(key) or key.startswith(k))]
+                 if len(k) >= self.MIN_FUZZY_LEN and (k.startswith(key) or key.startswith(k))
+                 and ("TIMESHIFT" in k) == query_is_timeshift]
         if len(cands) != 1:
             return None
         return self._by_key[cands[0]]
