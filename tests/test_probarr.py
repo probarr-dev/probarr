@@ -2586,6 +2586,115 @@ class TestSearchProgrammesAt(unittest.TestCase):
         self.assertEqual(len(hits), 1)
 
 
+class TestMoveCandidate(Temp):
+    """store.move_candidate(): re-key one candidate onto a different
+    channel, keeping its probe results and images -- for a stream a human
+    has recognised as belonging elsewhere (wrong provider playlist entry)."""
+
+    def test_moves_the_record_to_the_new_channel(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
+                     "stream_id": "s1", "stream_name": "Sky Cinema Action",
+                     "status": "ok"})
+        new_rk = store.move_candidate("SKYCINEMAACTION|s1", "SKYCINEMADRAMA")
+        self.assertEqual(new_rk, "SKYCINEMADRAMA|s1")
+        rows = store.load()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["channel_key"], "SKYCINEMADRAMA")
+        self.assertEqual(rows[0]["rec_key"], "SKYCINEMADRAMA|s1")
+        # Left behind under its old identity entirely -- not still visible
+        # to the old channel too.
+        self.assertEqual([r for r in rows if r.get("channel_key") == "SKYCINEMAACTION"], [])
+
+    def test_moves_the_captured_frame_file_too(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
+                     "stream_id": "s1", "status": "ok", "frame": "frames/x.jpg"})
+        old_frame = store.frame_path("SKYCINEMAACTION|s1")
+        os.makedirs(os.path.dirname(old_frame), exist_ok=True)
+        with open(old_frame, "wb") as f:
+            f.write(b"a real frame")
+        store.move_candidate("SKYCINEMAACTION|s1", "SKYCINEMADRAMA")
+        new_frame = store.frame_path("SKYCINEMADRAMA|s1")
+        self.assertFalse(os.path.exists(old_frame))
+        self.assertTrue(os.path.exists(new_frame))
+        rows = store.load()
+        self.assertEqual(rows[0]["frame"],
+                         "frames/" + RunStore.safe_name("SKYCINEMADRAMA|s1") + ".jpg")
+
+    def test_clears_a_selection_that_pointed_at_the_old_rec_key(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
+                     "stream_id": "s1", "status": "ok"})
+        store.write_selection({"SKYCINEMAACTION": {"primary": "SKYCINEMAACTION|s1",
+                                                    "streams": ["SKYCINEMAACTION|s1"]}})
+        store.move_candidate("SKYCINEMAACTION|s1", "SKYCINEMADRAMA")
+        sel = store.read_selection()
+        self.assertNotIn("primary", sel["SKYCINEMAACTION"])
+        self.assertEqual(sel["SKYCINEMAACTION"]["streams"], [])
+
+    def test_unknown_rec_key_returns_none(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        self.assertIsNone(store.move_candidate("NOPE|s1", "ELSEWHERE"))
+
+
+class TestCandidateMoveEndpoint(Temp):
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, sent
+
+    def test_move_via_endpoint(self):
+        import json, io
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
+                     "stream_id": "s1", "status": "ok"})
+        h, sent = self._handler()
+        h.path = "/api/run/run1/candidate-move"
+        h.command = "POST"
+        h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/run/run1/curate"}
+        payload = json.dumps({"rec_key": "SKYCINEMAACTION|s1",
+                             "channel_key": "SKYCINEMADRAMA"}).encode()
+        h.headers["Content-Length"] = str(len(payload))
+        h.rfile = io.BytesIO(payload)
+        h._do_POST()
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        d = json.loads(body)
+        self.assertEqual(d["rec_key"], "SKYCINEMADRAMA|s1")
+
+    def test_unknown_candidate_is_a_404(self):
+        import json, io
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        h, sent = self._handler()
+        h.path = "/api/run/run1/candidate-move"
+        h.command = "POST"
+        h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/run/run1/curate"}
+        payload = json.dumps({"rec_key": "NOPE|s1", "channel_key": "ELSEWHERE"}).encode()
+        h.headers["Content-Length"] = str(len(payload))
+        h.rfile = io.BytesIO(payload)
+        h._do_POST()
+        code, body = sent[-1]
+        self.assertEqual(code, 404, body)
+
+
 class TestEpgProgrammeSearchEndpoint(Temp):
     """/api/run/<id>/epg-programme-search backs Delete stream's "search the
     guide first" escape hatch -- before removing a stream that's plainly

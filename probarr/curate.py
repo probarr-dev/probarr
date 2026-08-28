@@ -770,6 +770,13 @@ __TOPBAR__
       </div>
       <div id="dr-epgresults" style="margin-top:6px;font-size:12.5px"></div>
     </div>
+    <div class="sub" style="margin-top:-4px">
+      <a href="#" id="dr-movetoggle">Recognise it (a watermark, the picture)? Move it to a channel you already know&hellip;</a>
+    </div>
+    <div id="dr-movepicker" style="display:none;margin:4px 0 10px">
+      <input type="text" id="dr-moveq" placeholder="search this run's channels&hellip;" style="width:100%">
+      <div id="dr-moveresults" style="margin-top:6px;font-size:12.5px;max-height:160px;overflow-y:auto"></div>
+    </div>
     <div id="dr-presets" class="tagchips" style="margin:10px 0"></div>
     <div class="mfield"><input type="text" id="dr-other" placeholder="or type a reason&hellip;"></div>
     <div class="mresult" id="dr-result"></div>
@@ -1588,6 +1595,9 @@ function dropStream(id, btn){
   document.getElementById("dr-epgsearch").style.display = "none";
   document.getElementById("dr-epgq").value = "";
   document.getElementById("dr-epgresults").innerHTML = "";
+  document.getElementById("dr-movepicker").style.display = "none";
+  document.getElementById("dr-moveq").value = "";
+  document.getElementById("dr-moveresults").innerHTML = "";
   document.getElementById("dropreasonmodal").classList.add("on");
 }
 document.getElementById("dr-epgtoggle").addEventListener("click", e=>{
@@ -1611,22 +1621,75 @@ async function runEpgProgrammeSearch(){
         "\u201d airing around when this was captured.";
       return;
     }
-    // Informational, not a mutation -- confirming which channel this
-    // stream actually belongs to is a judgement call, so this hands back
-    // the answer and lets the operator act on it themselves (Find streams
-    // on the right channel, same as any other catalogue pick) rather than
-    // guessing at an automatic move.
     results.innerHTML = d.hits.map(h =>
       '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06)">'+
       '<b>'+esc(h.guide_name)+'</b> \u2014 '+esc(h.title)+
-      ' <span class="muted">('+esc(h.window)+' \u00b7 '+esc(h.source)+')</span></div>'
-    ).join("") + '<div class="muted" style="margin-top:6px">Cancel here, then use '+
-      '<b>Find streams</b> on that channel to add this stream there instead.</div>';
+      ' <span class="muted">('+esc(h.window)+' \u00b7 '+esc(h.source)+')</span>'+
+      '<button class="dr-assign" data-name="'+esc(h.guide_name)+
+      '" style="margin-left:8px;font-size:11px;padding:2px 8px">Assign to a channel\u2026</button>'+
+      '</div>'
+    ).join("");
   }catch(e){ results.textContent = "Search failed."; }
 }
 document.getElementById("dr-epggo").addEventListener("click", runEpgProgrammeSearch);
 document.getElementById("dr-epgq").addEventListener("keydown", e=>{
   if(e.key === "Enter"){ e.preventDefault(); runEpgProgrammeSearch(); }
+});
+document.getElementById("dr-epgresults").addEventListener("click", e=>{
+  const btn = e.target.closest(".dr-assign"); if(!btn) return;
+  openMovePicker(btn.dataset.name);
+});
+
+// The channel picker: reachable either seeded from an EPG search result's
+// own guide name, or opened blank for a straight "I recognise this
+// channel by eye (a watermark, the picture), I don't need the EPG's
+// help" search -- both funnel into the same explicit human pick, never a
+// silent guessed match, since a guide's display name and this run's own
+// channel key/title routinely differ in spelling.
+document.getElementById("dr-movetoggle").addEventListener("click", e=>{
+  e.preventDefault();
+  const box = document.getElementById("dr-movepicker");
+  if(box.style.display === "none") openMovePicker(""); else box.style.display = "none";
+});
+function openMovePicker(seed){
+  document.getElementById("dr-movepicker").style.display = "";
+  const q = document.getElementById("dr-moveq");
+  q.value = seed || "";
+  renderMoveResults(q.value);
+  q.focus();
+}
+function renderMoveResults(q){
+  const results = document.getElementById("dr-moveresults");
+  const needle = (q||"").trim().toLowerCase();
+  const list = DATA.channels.filter(c => c.key !== current &&
+    (!needle || (c.title||"").toLowerCase().includes(needle)));
+  if(!list.length){
+    results.innerHTML = '<span class="muted">No channels match.</span>';
+    return;
+  }
+  results.innerHTML = list.slice(0,20).map(c =>
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0">'+
+    '<span>'+esc(c.title)+'</span>'+
+    '<button class="dr-moveto" data-key="'+esc(c.key)+'" data-title="'+esc(c.title)+
+    '" style="font-size:11px;padding:2px 8px">Move here</button>'+
+    '</div>').join("");
+}
+document.getElementById("dr-moveq").addEventListener("input", e=>renderMoveResults(e.target.value));
+document.getElementById("dr-moveresults").addEventListener("click", async e=>{
+  const btn = e.target.closest(".dr-moveto"); if(!btn || !DR_ID) return;
+  if(!confirm("Move this stream to \u201c"+btn.dataset.title+"\u201d? It leaves "+
+              "this channel entirely, keeping its probe results and picture."))
+    return;
+  btn.disabled = true; btn.textContent = "Moving\u2026";
+  try{
+    const r = await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+"/candidate-move",
+      {method:"POST", headers:{"Content-Type":"application/json"},
+       body: JSON.stringify({rec_key: DR_ID, channel_key: btn.dataset.key})});
+    const d = await r.json();
+    if(d.error){ alert("Could not move: "+d.error); btn.disabled=false; btn.textContent="Move here"; return; }
+    closeDropReasonModal();
+    await refreshChannel(current);
+  }catch(e){ alert("Request failed."); btn.disabled=false; btn.textContent="Move here"; }
 });
 document.getElementById("dr-presets").addEventListener("click", e=>{
   const chip = e.target.closest(".drpreset"); if(!chip) return;

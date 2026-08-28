@@ -363,6 +363,80 @@ class RunStore:
             self.write_selection(sel)
         return removed
 
+    def move_candidate(self, rec_key, new_channel_key):
+        """Re-key one candidate onto a DIFFERENT channel in this run,
+        keeping its probe results and captured images -- for a stream a
+        human has recognised (the picture, the watermark, the EPG search)
+        as genuinely belonging to a different channel than the one it was
+        probed under. A provider's playlist can point the wrong URL at the
+        wrong channel name; this corrects that without spending a fresh
+        probe on a stream that was already verified, just under the wrong
+        name.
+
+        Unlike duplicate_channel(), this MOVES rather than copies: the
+        candidate stops being any of its old channel's candidates. Same
+        deliberate exception to append-only as drop_stream/drop_channel,
+        for the same reason -- an explicit action the operator asked for.
+
+        Returns the new rec_key, or None if `rec_key` doesn't exist.
+        """
+        rows = self.load(dedupe=False)
+
+        def key_of(r):
+            return r.get("rec_key") or f"{r.get('channel_key')}|{r.get('stream_id')}"
+
+        matches = [r for r in rows if key_of(r) == rec_key]
+        if not matches:
+            return None
+        latest = matches[-1]
+        stream_id = latest.get("stream_id")
+        new_rk = f"{new_channel_key}|{stream_id}"
+        keep = [r for r in rows if key_of(r) != rec_key]
+
+        # Renamed, not copied -- this is a move, and a stale copy left at
+        # the old path would keep matching the old rec_key's deterministic
+        # path forever, invisible but never cleaned up.
+        for getter in (self.thumb_path, self.frame_path,
+                       self.crop_path, self.clip_path):
+            src, dst = getter(rec_key), getter(new_rk)
+            if os.path.exists(src):
+                try:
+                    os.replace(src, dst)
+                except OSError:
+                    pass
+        fresh = {**latest, "channel_key": new_channel_key, "rec_key": new_rk}
+        for field, sub in (("thumb", "thumbs"), ("frame", "frames"),
+                          ("crop", "crops"), ("clip", "clips")):
+            if fresh.get(field):
+                ext = ".mp4" if field == "clip" else ".jpg"
+                fresh[field] = f"{sub}/{self.safe_name(new_rk)}{ext}"
+        keep.append(fresh)
+
+        tmp = self.results_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for r in keep:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.results_path)
+
+        # Same cleanup as drop_stream: a selection pointing at a rec_key
+        # that no longer exists under that name would silently fall back
+        # to the auto-pick with no explanation.
+        sel = self.read_selection()
+        touched = False
+        for pick in sel.values():
+            for field in ("primary", "fallback"):
+                if pick.get(field) == rec_key:
+                    pick.pop(field)
+                    touched = True
+            if isinstance(pick.get("streams"), list) and rec_key in pick["streams"]:
+                pick["streams"] = [x for x in pick["streams"] if x != rec_key]
+                touched = True
+        if touched:
+            self.write_selection(sel)
+        return new_rk
+
     def duplicate_channel(self, channel_key, new_key, number, group=None):
         """Copy a channel within this run so it can live in two groups.
 

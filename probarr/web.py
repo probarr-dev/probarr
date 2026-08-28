@@ -922,6 +922,27 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json")
 
         if len(parts) == 4 and parts[0] == "api" and parts[1] == "run" \
+                and parts[3] == "candidate-move":
+            body, sent = self._json_body()
+            if sent:
+                return
+            rec_key = (body.get("rec_key") or "").strip()
+            target = (body.get("channel_key") or "").strip()
+            if not rec_key or not target:
+                return self._send('{"error":"rec_key and channel_key required"}',
+                                  "application/json", 400)
+            store = RunStore(self.root, parts[2])
+            if not os.path.exists(store.results_path):
+                return self._send('{"error":"no such run"}',
+                                  "application/json", 404)
+            new_rk = store.move_candidate(rec_key, target)
+            if not new_rk:
+                return self._send('{"error":"no such candidate"}',
+                                  "application/json", 404)
+            return self._send(json.dumps({"ok": True, "rec_key": new_rk}),
+                              "application/json")
+
+        if len(parts) == 4 and parts[0] == "api" and parts[1] == "run" \
                 and parts[3] == "probe-via-dispatcharr":
             body, sent = self._json_body()
             if sent:
