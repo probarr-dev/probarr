@@ -607,6 +607,49 @@ Nothing here requires the CLI. It still exists for scripting/cron use, and
 does exactly what the browser flow does under the hood (`probarr/runner.py`
 is the one implementation both share).
 
+## Using Dispatcharr as a source
+
+Dispatcharr can be a **provider** too, not just an export target — useful
+if you'd rather probe against what Dispatcharr has already ingested than
+maintain a second, separate connection straight to the underlying IPTV
+subscription. Two different things happen when Dispatcharr is your
+provider, and it's worth being clear on which is which:
+
+**By default**, probarr reads Dispatcharr's *entire raw ingested stream
+table* — every stream from every M3U account it has, not just the ones
+currently assigned to a channel. If Dispatcharr already has an active M3U
+account pointed at the same subscription you'd otherwise connect to
+directly, this is a full, like-for-like replacement: the same breadth of
+alternate streams to compare, the same candidate discovery, nothing lost.
+Every probe still connects **directly to the raw upstream URL** — same as
+probing that provider straight, Dispatcharr is only being used as the
+catalogue.
+
+**The "Dispatcharr proxy" option** (New Run, shown once a Dispatcharr
+provider is selected) is a different, narrower thing: it adds ONE extra
+candidate — alongside every raw one, never instead of them — for a channel
+that's *already assigned* in Dispatcharr, routed through Dispatcharr's own
+live proxy instead of the raw URL. That candidate is probed exactly the
+way a real player watching through Dispatcharr would see it, and it's the
+only way a probe shows up in Dispatcharr's own live Stats page (a raw
+candidate's connection never touches Dispatcharr at all, so Dispatcharr
+has no way to know it happened).
+
+The real reason to reach for it: if **probarr itself doesn't have the
+network path a provider needs** (a VPN, a specific geo-IP) but Dispatcharr
+already does, routing through Dispatcharr's proxy means Dispatcharr makes
+the actual upstream connection, not probarr — sidestepping that mismatch
+entirely for whatever Dispatcharr already has assigned.
+
+**That said, the strongly preferred fix for a network-path mismatch is
+installing probarr behind the same VPN/proxy Dispatcharr already uses.**
+The proxy option only ever covers a channel Dispatcharr already has —
+it can't discover or compare a genuinely better alternate the way probing
+the raw catalogue can, since Dispatcharr's proxy has no concept of a
+stream that isn't already assigned to a channel. Running probarr on the
+same network path keeps full candidate discovery working everywhere, not
+just for what's already been chosen.
+
 ## Exporting to Dispatcharr
 
 If you already run Dispatcharr, "Export to Dispatcharr" on the Curate page

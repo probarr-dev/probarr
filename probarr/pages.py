@@ -1453,6 +1453,26 @@ __TOPBAR__
         </div>
       </div>
 
+      <div class="field" id="dispproxyfield" style="display:none">
+        <div class="lab">Dispatcharr proxy</div>
+        <div class="ctl">
+          <label class="miniline"><input type="checkbox" id="prefer_dispatcharr_proxy">
+            Also probe each already-assigned channel's current stream <b>through
+            Dispatcharr's own proxy</b>, alongside every raw candidate &mdash; not
+            instead of them.</label>
+          <div class="miniline">Direct candidates (the default) are probed straight
+            from the provider, which needs probarr itself to have the same network
+            path (VPN, geo-IP) the provider requires &mdash; if Dispatcharr already
+            has that path and probarr doesn't, this option lets Dispatcharr make the
+            actual upstream connection instead. It's also the only way a probe shows
+            up in Dispatcharr's own live Stats page, since that only reflects
+            connections through its proxy. <b>The strongly preferred fix for a
+            network-path mismatch is installing probarr behind the same VPN/proxy
+            Dispatcharr already uses</b> &mdash; that keeps every raw candidate
+            probeable, not just whichever one Dispatcharr currently has assigned.</div>
+        </div>
+      </div>
+
       <div class="field">
         <div class="lab">Channels</div>
         <div class="ctl">
@@ -1546,6 +1566,7 @@ __TOPBAR__
 const $ = id => document.getElementById(id);
 let currentRunId = null, poller = null;
 
+let RUN_PROVIDERS = [];
 async function loadProviders(){
   const d = await (await fetch("/api/providers")).json();
   if(!d.providers.length){
@@ -1553,9 +1574,18 @@ async function loadProviders(){
     $("start").disabled = true;
     return;
   }
+  RUN_PROVIDERS = d.providers;
   $("provider").innerHTML = d.providers.map(p =>
     '<option value="'+esc(p.name)+'">'+esc(p.name)+' ('+esc(p.scheme)+')</option>').join("");
+  updateDispProxyVisibility();
 }
+function updateDispProxyVisibility(){
+  const p = RUN_PROVIDERS.find(x => x.name === $("provider").value);
+  const show = p && p.scheme === "dispatcharr";
+  $("dispproxyfield").style.display = show ? "flex" : "none";
+  if(!show) $("prefer_dispatcharr_proxy").checked = false;
+}
+$("provider").addEventListener("change", updateDispProxyVisibility);
 async function loadWantlists(){
   const d = await (await fetch("/api/wantlists")).json();
   $("wantlist").innerHTML = '<option value="">All channels in the source</option>' +
@@ -1638,6 +1668,7 @@ $("start").addEventListener("click", async ()=>{
     regions: $("regions").value,
     strict_region: $("strict_region").checked,
     region_tags: $("region_tags").value,
+    prefer_dispatcharr_proxy: $("prefer_dispatcharr_proxy").checked,
     concurrency: $("concurrency").value,
     run_id: $("run_id").value.trim(),
     // Recorded on the run, which is what lets Curate inherit this lineup's
@@ -1722,6 +1753,7 @@ function applyLineup(){
     return;
   }
   if(lu.provider || lu.source) $("provider").value = lu.provider || lu.source;
+  updateDispProxyVisibility();
   $("regions").value = lu.regions || "";
   $("region_tags").value = lu.region_tags || "";
   // A lineup can legitimately hold either the address or the saved NAME of

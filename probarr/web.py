@@ -2947,6 +2947,14 @@ class Handler(BaseHTTPRequestHandler):
             # dropping genuine single-country channels that just don't
             # carry a marker.
             strict_region=bool(body.get("strict_region")),
+            # Off by default. Adds ONE extra candidate per already-assigned
+            # Dispatcharr channel, routed through Dispatcharr's own proxy
+            # instead of the raw upstream URL -- see sources/dispatcharr.py's
+            # load() for the real reasoning (network-path mismatch between
+            # probarr and a provider Dispatcharr already reaches; also the
+            # only way a probe shows up in Dispatcharr's own Stats page).
+            # Silently ignored by every source that isn't dispatcharr://.
+            prefer_dispatcharr_proxy=bool(body.get("prefer_dispatcharr_proxy")),
             # Without this a run matched by different rules than the
             # catalogue search that found the channel in the first place.
             aliases=aliases_mod.read(self.root),

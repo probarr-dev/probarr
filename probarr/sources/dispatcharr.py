@@ -291,6 +291,38 @@ class Dispatcharr:
         """
         return f"{self.base}/proxy/ts/stream/{channel_uuid}"
 
+    def proxy_candidate_streams(self):
+        """One extra probe candidate per already-assigned Dispatcharr
+        channel, pointing at its own live proxy instead of the raw
+        upstream URL -- see load()'s `prefer_proxy` for why this exists.
+
+        Deliberately ADDITIVE, never a replacement for the raw catalogue:
+        merged into the SAME pool as every raw candidate for that channel
+        (its name folds to the same matching key -- the "(via
+        Dispatcharr)" suffix sits in brackets, which Normalizer strips
+        for matching but keeps for display), so a curator can compare
+        this against every raw alternative side by side rather than
+        losing the ability to find something better just because this
+        channel already has a stream assigned.
+
+        Only offered for a channel that actually HAS a stream assigned
+        (`streams` non-empty) -- an empty channel has nothing for
+        Dispatcharr's own proxy to serve, so probing it would just
+        reproduce the "nothing playing" case with extra steps.
+        """
+        out = []
+        for c in self.channels():
+            if not c.get("streams") or not c.get("uuid"):
+                continue
+            out.append(Stream(
+                id=f"dispatcharr-proxy:{c['uuid']}",
+                name=f"{c.get('name') or c.get('uuid')} (via Dispatcharr)",
+                url=self.proxy_stream_url(c["uuid"]),
+                group="", logo=c.get("logo_url") or "", tvg_id=c.get("tvg_id") or "",
+                source="dispatcharr-proxy",
+                attrs={"dispatcharr_channel_uuid": c["uuid"]}))
+        return out
+
     def stream(self, stream_id):
         """One stream by id. Cheap next to streams(), which on a real
         instance is a 55k-row paginated fetch -- importing a handful of
@@ -698,6 +730,26 @@ def base_url_of(spec: str) -> str:
 
 
 @register("dispatcharr")
-def load(spec: str, **_):
-    """dispatcharr://user:pass@host:9191"""
-    return client_from_spec(spec).streams()
+def load(spec: str, prefer_proxy=False, **_):
+    """dispatcharr://user:pass@host:9191
+
+    `prefer_proxy`: also add one candidate per already-assigned channel
+    that routes through Dispatcharr's own live proxy instead of every
+    candidate hitting the raw upstream URL directly. Real request: an
+    install where probarr itself doesn't have the network path (VPN,
+    geo-IP) a provider needs, but Dispatcharr already does -- probing
+    through Dispatcharr's proxy means DISPATCHARR makes the actual
+    upstream connection, sidestepping that mismatch entirely, and is
+    also the only way a probe ever shows up in Dispatcharr's own live
+    Stats page. Off by default: the strongly preferred fix for that
+    mismatch is installing probarr behind the same VPN/proxy Dispatcharr
+    already uses (see the README), which keeps every raw candidate
+    probeable and comparable, not just the one Dispatcharr currently
+    has assigned. See Dispatcharr.proxy_candidate_streams() for why this
+    is additive rather than a replacement.
+    """
+    client = client_from_spec(spec)
+    streams = client.streams()
+    if prefer_proxy:
+        streams = streams + client.proxy_candidate_streams()
+    return streams

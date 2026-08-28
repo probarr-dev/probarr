@@ -32,7 +32,8 @@ def start_run(root, source, run_id=None, wantlist=None, epg=None,
               max_candidates=None, min_candidates=1, only_channels=None,
               limit_channels=None, resume=True, provider_name=None, log=None,
               progress_cb=None, should_stop=None, clean_target=2,
-              lineup=None, prioritise=False, budget_seconds=None, gate=None):
+              lineup=None, prioritise=False, budget_seconds=None, gate=None,
+              prefer_dispatcharr_proxy=False):
     """Run a full verification pass. Returns the RunStore it wrote to.
 
     `log`: callable(str), for progress narration -- printed by the CLI,
@@ -61,7 +62,7 @@ def start_run(root, source, run_id=None, wantlist=None, epg=None,
                    sample_seconds, frame_height, thumb_height, max_candidates,
                    min_candidates, only_channels, limit_channels, resume,
                    log, progress_cb, should_stop, clean_target, lineup,
-                   prioritise, budget_seconds, gate)
+                   prioritise, budget_seconds, gate, prefer_dispatcharr_proxy)
     except Exception as e:
         store.write_meta({**store.read_meta(), "run_state": "error",
                           "error": str(e)[:500], "finished": time.time()})
@@ -200,7 +201,8 @@ def _run(store, root, source, wantlist, epg, regions, strict_region, region_tags
          aliases, concurrency, gap_seconds, sample_seconds, frame_height,
          thumb_height, max_candidates, min_candidates, only_channels,
          limit_channels, resume, log, progress_cb, should_stop, clean_target=2,
-         lineup=None, prioritise=False, budget_seconds=None, gate=None):
+         lineup=None, prioritise=False, budget_seconds=None, gate=None,
+         prefer_dispatcharr_proxy=False):
     # The operator's own saved tag vocabulary (Settings -> Manage tags) is
     # the base for every run; `region_tags` here is only ever a run-specific
     # ADDITION on top of it (the New Run form's one-off "Custom prefixes"
@@ -216,7 +218,11 @@ def _run(store, root, source, wantlist, epg, regions, strict_region, region_tags
                       aliases=aliases or {})
 
     log(f"loading source: {source.split('?')[0]}")
-    streams = load_source(source)
+    # `prefer_proxy` is meaningful only for a dispatcharr:// source --
+    # every other loader's load() ignores unknown kwargs (see sources/
+    # base.py's load_source()), so passing it through unconditionally is
+    # safe rather than needing a scheme check here.
+    streams = load_source(source, prefer_proxy=prefer_dispatcharr_proxy)
     log(f"{len(streams)} streams in source")
 
     pools = group_candidates(streams, norm, regions=regions,

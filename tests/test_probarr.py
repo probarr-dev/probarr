@@ -1759,6 +1759,78 @@ class TestM3UExport(unittest.TestCase, ):
         self.assertIn("container", msg)
 
 
+class TestDispatcharrProxyCandidates(unittest.TestCase):
+    """Real request: an install where probarr itself doesn't have the
+    network path (VPN, geo-IP) a provider needs, but Dispatcharr already
+    does. proxy_candidate_streams() adds one candidate per already-
+    assigned channel that routes through Dispatcharr's OWN proxy instead
+    of the raw upstream URL -- see sources/dispatcharr.py's load()."""
+
+    def _client(self, channels):
+        from probarr.sources.dispatcharr import Dispatcharr
+        client = Dispatcharr("http://fake:9191", "u", "p")
+        client.channels = lambda: channels
+        return client
+
+    def test_one_candidate_per_channel_with_a_stream_assigned(self):
+        client = self._client([
+            {"id": 1, "uuid": "aaa", "name": "BBC One", "streams": [10],
+             "tvg_id": "", "logo_url": ""},
+            {"id": 2, "uuid": "bbb", "name": "Empty Channel", "streams": [],
+             "tvg_id": "", "logo_url": ""},
+            {"id": 3, "uuid": None, "name": "No UUID", "streams": [11],
+             "tvg_id": "", "logo_url": ""},
+        ])
+        out = client.proxy_candidate_streams()
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0].id, "dispatcharr-proxy:aaa")
+        self.assertIn("BBC One", out[0].name)
+        self.assertIn("via Dispatcharr", out[0].name)
+        self.assertEqual(out[0].url, "http://fake:9191/proxy/ts/stream/aaa")
+
+    def test_the_display_suffix_is_stripped_for_matching_but_kept_for_display(self):
+        """The "(via Dispatcharr)" suffix must fold to the SAME normalised
+        key as the plain channel name -- Normalizer's bracket-stripping
+        does this automatically, but it's exactly the kind of thing that
+        silently breaks if the format string ever loses its parentheses."""
+        from probarr.normalize import Normalizer
+        client = self._client([
+            {"id": 1, "uuid": "aaa", "name": "BBC One", "streams": [10],
+             "tvg_id": "", "logo_url": ""},
+        ])
+        proxy_candidate = client.proxy_candidate_streams()[0]
+        n = Normalizer()
+        self.assertEqual(n.key(proxy_candidate.name), n.key("BBC One"))
+
+    def test_load_with_prefer_proxy_merges_raw_and_proxy_candidates(self):
+        from probarr.sources import dispatcharr as dispatcharr_mod
+        fake_raw = [object()]
+        fake_proxy = [object(), object()]
+
+        class FakeClient:
+            def streams(self): return fake_raw
+            def proxy_candidate_streams(self): return fake_proxy
+
+        with unittest.mock.patch.object(dispatcharr_mod, "client_from_spec",
+                                        return_value=FakeClient()):
+            out = dispatcharr_mod.load("dispatcharr://u:p@h:9191", prefer_proxy=True)
+        self.assertEqual(out, fake_raw + fake_proxy)
+
+    def test_load_without_prefer_proxy_is_unchanged(self):
+        from probarr.sources import dispatcharr as dispatcharr_mod
+        fake_raw = [object()]
+
+        class FakeClient:
+            def streams(self): return fake_raw
+            def proxy_candidate_streams(self):
+                raise AssertionError("must not be called when prefer_proxy is off")
+
+        with unittest.mock.patch.object(dispatcharr_mod, "client_from_spec",
+                                        return_value=FakeClient()):
+            out = dispatcharr_mod.load("dispatcharr://u:p@h:9191")
+        self.assertEqual(out, fake_raw)
+
+
 class TestExpand(unittest.TestCase):
     """_expand() -- the ordered-streams shape a push actually writes."""
 
@@ -4842,6 +4914,28 @@ class TestRunnerMergesSavedTagsWithRunSpecificOnes(Temp):
         self.assertIn("OD", captured["region_tags"])
         self.assertIn("ZG", captured["region_tags"])
         self.assertIn("UK", captured["region_tags"])
+
+
+class TestRunKwargsWiresDispatcharrProxy(Temp):
+    """_run_kwargs() must read the "prefer_dispatcharr_proxy" body field
+    (New Run's opt-in "Dispatcharr proxy" checkbox) through to
+    runner.start_run() unchanged -- default False so every existing
+    caller/run keeps behaving exactly as before."""
+
+    def _kwargs(self, body):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        return h._run_kwargs(body)
+
+    def test_true_when_checked(self):
+        kwargs = self._kwargs({"source": "dispatcharr://u:p@h:9191",
+                               "prefer_dispatcharr_proxy": True})
+        self.assertTrue(kwargs["prefer_dispatcharr_proxy"])
+
+    def test_false_by_default(self):
+        kwargs = self._kwargs({"source": "dispatcharr://u:p@h:9191"})
+        self.assertFalse(kwargs["prefer_dispatcharr_proxy"])
 
 
 class TestRunKwargsWiresRegionTags(Temp):
