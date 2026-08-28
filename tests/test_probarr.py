@@ -3793,7 +3793,13 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
     first. If Dispatcharr happened to be linked to the OTHER one of the
     pair, every check against this guide reported a permanent false
     mismatch, because the SD/HD copies simply drift out of sync with each
-    other from feed processing, not because either link was wrong."""
+    other from feed processing, not because either link was wrong.
+
+    Resolved automatically now (HD preferred) when the collision is
+    PURELY a quality tier -- the colliding names are otherwise identical.
+    A collision from any other cause (different regions, a genuine
+    coincidence) still refuses exactly as before; that distinction is the
+    whole point, not a loosening of it."""
 
     def _guide(self, entries):
         """entries: [(channel_id, display_name)]"""
@@ -3803,10 +3809,30 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
             g.display_names.setdefault(cid, []).append(name)
         return g
 
-    def test_an_sd_hd_pair_refuses_to_resolve_by_name(self):
+    def test_an_sd_hd_pair_auto_resolves_to_the_hd_copy(self):
         from probarr.normalize import Normalizer
         g = self._guide([("1412.sky.uk", "Sky Atlantic"),
                          ("4053.sky.uk", "Sky Atlantic HD")])
+        g.build_name_index(Normalizer())
+        self.assertEqual(g.resolve(None, "Sky Atlantic", Normalizer()), "4053.sky.uk")
+
+    def test_a_genuinely_different_channel_collision_still_refuses(self):
+        # Two names that collide only because key() strips region markers
+        # -- NOT a quality-tier duplicate, and must keep refusing exactly
+        # as before. Auto-resolving this would be the same wrong-guess
+        # this was built to avoid, just for a different root cause.
+        from probarr.normalize import Normalizer
+        g = self._guide([("uk.sky.uk", "UK: Sky News"),
+                         ("us.sky.uk", "US: Sky News")])
+        g.build_name_index(Normalizer())
+        self.assertIsNone(g.resolve(None, "Sky News", Normalizer()))
+
+    def test_two_hd_tagged_entries_in_one_group_still_refuses(self):
+        # Not a clean SD/HD pair -- two separately-HD-tagged rows (a merged
+        # feed's own duplicate, say). "Exactly one HD candidate" is the
+        # actual rule, not "prefer whichever HD one comes first".
+        from probarr.normalize import Normalizer
+        g = self._guide([("a", "Sky Atlantic HD"), ("b", "Sky Atlantic HD ")])
         g.build_name_index(Normalizer())
         self.assertIsNone(g.resolve(None, "Sky Atlantic", Normalizer()))
 
@@ -3818,29 +3844,29 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
         g.build_name_index(Normalizer())
         self.assertEqual(g.resolve(None, "Sky Witness", Normalizer()), "2201.sky.uk")
 
-    def test_an_exact_tvg_id_still_wins_even_when_the_name_is_ambiguous(self):
+    def test_an_exact_tvg_id_overrides_the_hd_preference(self):
         # resolve()'s tvg_id branch is checked first and needs no name
-        # index at all -- an explicit id must not be defeated by an
-        # unrelated name collision elsewhere in the same guide.
+        # index at all -- an explicit id must win even over the auto
+        # HD-preference, e.g. an operator who deliberately wants the SD
+        # feed linked (a slower connection, say).
         from probarr.normalize import Normalizer
         g = self._guide([("1412.sky.uk", "Sky Atlantic"),
                          ("4053.sky.uk", "Sky Atlantic HD")])
         g.build_name_index(Normalizer())
-        self.assertEqual(g.resolve("4053.sky.uk", "Sky Atlantic", Normalizer()),
-                         "4053.sky.uk")
+        self.assertEqual(g.resolve("1412.sky.uk", "Sky Atlantic", Normalizer()),
+                         "1412.sky.uk")
 
     def test_the_fuzzy_fallback_does_not_resolve_to_the_channels_own_plus1(self):
-        # Real reported bug, the direct sequel to the SD/HD fix above: once
-        # "Sky Atlantic"/"Sky Atlantic HD" correctly refuse to resolve by
-        # exact name, the fuzzy prefix scan used to find "Sky Atlantic+1"
-        # as the only remaining startswith() candidate and resolve straight
-        # to it -- normalizer.key("Sky Atlantic+1") is "SKY ATLANTIC
-        # TIMESHIFT1", which IS a prefix match for "SKY ATLANTIC", even
-        # though a +1 channel is an hour-shifted, genuinely different
-        # schedule, not a spelling variant of the base channel.
+        # Real reported bug, the direct sequel to the SD/HD fix above: a
+        # genuinely ambiguous (non-quality) collision that falls through
+        # to the fuzzy path used to find "Sky Atlantic+1" as the only
+        # remaining startswith() candidate and resolve straight to it --
+        # normalizer.key("Sky Atlantic+1") IS a prefix match for "Sky
+        # Atlantic", even though a +1 channel is an hour-shifted,
+        # genuinely different schedule, not a spelling variant.
         from probarr.normalize import Normalizer
-        g = self._guide([("1412.sky.uk", "Sky Atlantic"),
-                         ("4053.sky.uk", "Sky Atlantic HD"),
+        g = self._guide([("uk.sky.uk", "UK: Sky Atlantic"),
+                         ("us.sky.uk", "US: Sky Atlantic"),
                          ("1413.sky.uk", "Sky Atlantic+1")])
         g.build_name_index(Normalizer())
         self.assertIsNone(g.resolve(None, "Sky Atlantic", Normalizer()))

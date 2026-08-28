@@ -234,24 +234,62 @@ class Guide:
         resolve()'s own docstring already commits to refusing ambiguity
         rather than guessing -- previously true only on the fuzzy-prefix
         path. A key two DIFFERENT channel ids both genuinely earn is
-        exactly that same ambiguity, and gets the same refusal here now:
-        removed from the index entirely rather than arbitrarily kept.
+        exactly that same ambiguity, and gets the same refusal here --
+        UNLESS the colliding raw names differ by nothing but a quality
+        tag (an SD/HD pair naming the one real channel, the exact shape
+        confirmed live), in which case the HD copy is kept automatically
+        instead of throwing the whole channel away. Two names that
+        collide for any OTHER reason (different regions, a genuine
+        coincidence) still refuse exactly as before -- this is narrower
+        than "was ambiguous, pick one somehow", not a replacement for it.
         """
         self._by_key = {}
-        ambiguous = set()
+        # key -> {cid: one representative raw name for that cid} -- several
+        # display-name aliases for the SAME cid must not inflate this into
+        # a false collision, so only the first name seen per cid is kept.
+        groups = {}
         for cid, names in self.display_names.items():
             for n in names:
                 k = normalizer.key(n)
                 if not k:
                     continue
-                existing = self._by_key.get(k)
-                if existing is not None and existing != cid:
-                    ambiguous.add(k)
-                else:
-                    self._by_key.setdefault(k, cid)
-        for k in ambiguous:
-            self._by_key.pop(k, None)
+                groups.setdefault(k, {}).setdefault(cid, n)
+        for k, by_cid in groups.items():
+            if len(by_cid) == 1:
+                self._by_key[k] = next(iter(by_cid))
+                continue
+            resolved = self._resolve_quality_duplicate(by_cid, normalizer)
+            if resolved:
+                self._by_key[k] = resolved
+            # else: genuinely ambiguous -- left out of the index entirely,
+            # same as before, so resolve() reports "unmatched" rather than
+            # guessing.
         return self
+
+    @staticmethod
+    def _resolve_quality_duplicate(by_cid, normalizer):
+        """`by_cid`: {channel_id: raw_name} for every id sharing one key.
+
+        Returns the HD one's id if every name in the group is identical
+        once quality words are stripped (see Normalizer.
+        quality_stripped_identity()) AND exactly one of them is tagged
+        HD -- None otherwise, which leaves the caller's ambiguity refusal
+        in force. "Exactly one" deliberately: a group carrying both an
+        "HD" and an "FHD" entry (or two separately-tagged HD rows from a
+        merged feed) is not a clean SD/HD pair, and guessing between two
+        HD-tier candidates is exactly the kind of guess this was built
+        to avoid making.
+        """
+        names = list(by_cid.values())
+        identities = {normalizer.quality_stripped_identity(n) for n in names}
+        if len(identities) != 1:
+            return None
+        qre = normalizer._quality_word_re
+        if qre is None:
+            return None
+        hd_cids = [cid for cid, n in by_cid.items()
+                  if any(w.strip().upper() == "HD" for w in qre.findall(n))]
+        return hd_cids[0] if len(hd_cids) == 1 else None
 
     MIN_FUZZY_LEN = 6
 

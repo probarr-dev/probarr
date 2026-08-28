@@ -113,6 +113,18 @@ class Normalizer:
         self._inline_re = re.compile(rf"(?<![A-Za-z0-9])(?:{alt})(?![A-Za-z0-9])",
                                      re.IGNORECASE)
         self._bracket_re = re.compile(r"[\(\[\{][^\)\]\}]*[\)\]\}]")
+        # Quality tags ONLY, none of region_tags -- deliberately separate
+        # from the combined `alt` above. Used to tell "two names that only
+        # differ by a quality tag" (an SD/HD pair naming the same real
+        # channel) apart from "two names that collide for some OTHER
+        # reason" (different regions, a genuine coincidence) -- a
+        # distinction key()'s own single combined strip can't make, since
+        # it removes both kinds in one pass and throws away which kind
+        # actually applied. See Guide.build_name_index()'s own use of this.
+        qual_alt = "|".join(re.escape(t) for t in
+                            sorted(set(self.quality_tags), key=len, reverse=True))
+        self._quality_word_re = (re.compile(rf"(?<![A-Za-z0-9])(?:{qual_alt})(?![A-Za-z0-9])",
+                                            re.IGNORECASE) if qual_alt else None)
         # Deliberately NO lookbehind requiring a boundary before the +/- --
         # real reported bug: the marker is routinely GLUED straight onto the
         # channel name with no separator at all ("Sky Atlantic+1", "Sky
@@ -176,6 +188,26 @@ class Normalizer:
             if code in _BRACKET_COUNTRY_CODES:
                 return _BRACKET_COUNTRY_CODES[code]
         return None
+
+    def quality_stripped_identity(self, name: str) -> str:
+        """`name` with only quality words removed (case-folded, whitespace
+        collapsed) -- everything else (region markers, brackets, spelling)
+        left exactly as it was.
+
+        Deliberately weaker than key(): two names that are equal under
+        THIS is the specific, narrow claim "these differ by nothing but a
+        quality tag" -- e.g. "Sky Atlantic" and "Sky Atlantic HD" naming
+        the one real channel at two resolutions. Two names that only
+        collide under key()'s full strip (say, a shared name across
+        different regions) do NOT come out equal here, since region
+        markers are untouched -- see Guide.build_name_index()'s use of
+        this to auto-resolve an SD/HD collision without also silently
+        auto-resolving a genuine same-name-different-channel one.
+        """
+        s = _unifold(name or "")
+        if self._quality_word_re:
+            s = self._quality_word_re.sub(" ", s)
+        return re.sub(r"\s+", " ", s).strip().upper()
 
     def strip(self, name: str) -> str:
         """Packaging-stripped, folded identity -- WITHOUT the alias lookup.
