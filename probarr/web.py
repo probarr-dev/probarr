@@ -3359,24 +3359,32 @@ class Handler(BaseHTTPRequestHandler):
         return cls._pq
 
     def _diagnosing_snapshot(self):
-        """Every in-flight Diagnose job, by channel AND stream -- the
-        topbar's "diagnosing" badge popover needs to say WHICH stream, not
+        """Every in-flight job on the shared probe queue, by channel AND
+        stream -- the topbar's badge popover needs to say WHICH stream, not
         just which channel, since Diagnose is often fired at several
         candidates of the same channel at once.
+
+        Covers Diagnose AND every other job this queue ever runs a single
+        candidate through -- a plain re-probe (the card's own ↻), Preview,
+        a freshly-added Find-streams pick, an imported channel's first
+        probe -- all of it goes through _run_reprobe the same way Diagnose
+        does. A NEW RUN's own bulk verify pass does NOT: that runs on its
+        own thread via runs.py, entirely separate from this queue, so it
+        never shows up here (New Run already has its own progress bar).
+        `diagnose` is still reported per row so the popover can say which
+        kind of probe it is, not just that one is happening.
 
         snapshot()'s own `keys` only ever carries a stream_id (see its own
         docstring on why it can't carry the rest of a job's payload) -- a
         stream's human name lives in the run's OWN results, from whenever
-        it was first probed, which a diagnose re-probes rather than
-        discovers fresh. One RunStore.load() per distinct run currently
-        diagnosing (normally one), not per job.
+        it was first probed, which every one of these re-probes rather than
+        discovers fresh. One RunStore.load() per distinct run currently in
+        flight (normally one), not per job.
         """
         snap = self._queue().snapshot()
         by_run = {}
         rows = []
         for job in snap.get("keys", {}).values():
-            if not job.get("diagnose"):
-                continue
             run_id = job.get("run_id") or ""
             channel_key, _, stream_id = (job.get("rec_key") or "").partition("|")
             if run_id not in by_run:
@@ -3387,7 +3395,8 @@ class Handler(BaseHTTPRequestHandler):
             rows.append({
                 "run_id": run_id, "channel_key": channel_key,
                 "stream_name": by_run[run_id].get(stream_id) or stream_id,
-                "state": job.get("state"), "position": job.get("position")})
+                "state": job.get("state"), "position": job.get("position"),
+                "diagnose": bool(job.get("diagnose"))})
         return self._send(json.dumps({"items": rows}), "application/json")
 
     # A diagnose pass samples much longer than a normal probe -- long enough

@@ -5087,11 +5087,13 @@ class TestDeleteReasons(Temp):
 
 
 class TestDiagnosingSnapshot(Temp):
-    """/api/diagnosing feeds the topbar's badge -- for each in-flight
-    Diagnose job it resolves the stream's human name from the run's own
-    already-probed results (a diagnose re-probes an existing candidate, so
-    the name is already on disk) and reports its queue state, rather than
-    the bare channel-key-only count the badge started with."""
+    """/api/diagnosing feeds the topbar's badge -- for every in-flight job
+    on the shared probe queue (Diagnose, a plain card re-probe, Preview, a
+    freshly-added Find-streams pick, an imported channel's first probe --
+    all of it, not just Diagnose) it resolves the stream's human name from
+    the run's own already-probed results and reports its queue state and
+    whether it's specifically a Diagnose, rather than the bare
+    channel-key-only count the badge started with."""
 
     def _handler(self):
         from probarr import web as web_mod
@@ -5142,11 +5144,21 @@ class TestDiagnosingSnapshot(Temp):
         self.assertEqual(item["stream_name"], "UK: BBC One HD")
         self.assertEqual(item["state"], "running")
 
-    def test_a_non_diagnose_job_is_excluded(self):
-        import json
+    def test_a_manual_reprobe_is_included_and_flagged_not_diagnose(self):
+        """A plain card ↻ re-probe goes through the exact same queue as
+        Diagnose -- it must show up in the badge too (that was the whole
+        point raised when this was widened), just flagged diagnose:False
+        so the popover can still say which kind of probe it is."""
+        import json, threading
+        from probarr.store import RunStore
         from probarr.probequeue import ProbeQueue
         from probarr import web as web_mod
-        import threading
+
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({})
+        store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
+                     "stream_id": "s1", "stream_name": "UK: BBC One HD",
+                     "status": "ok"})
 
         release = threading.Event()
         q = ProbeQueue(lambda payload: release.wait(2) or {"status": "ok"},
@@ -5162,7 +5174,9 @@ class TestDiagnosingSnapshot(Temp):
             web_mod.Handler._pq = None
         code, body = sent[-1]
         d = json.loads(body)
-        self.assertEqual(d["items"], [])
+        self.assertEqual(len(d["items"]), 1)
+        self.assertEqual(d["items"][0]["stream_name"], "UK: BBC One HD")
+        self.assertFalse(d["items"][0]["diagnose"])
 
 
 class TestDeleteReasonsApiEndpoint(Temp):

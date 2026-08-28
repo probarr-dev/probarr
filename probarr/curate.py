@@ -199,6 +199,11 @@ main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
 .modalx:hover{color:var(--text)}
 .modalbox .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
 .mfield{margin-bottom:14px}
+.tagchips{display:flex;flex-wrap:wrap;gap:6px}
+.tagchip{display:inline-flex;align-items:center;gap:5px;background:var(--panel);
+  border:1px solid var(--line);border-radius:20px;padding:3px 6px 3px 10px;
+  font-size:12px}
+.tagchip.drpreset:hover{border-color:var(--accent2);color:var(--accent2)}
 .mfield label{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px}
 .mfield select,.mfield input[type=text]{width:100%;background:var(--bg);color:var(--text);
   border:1px solid var(--line);border-radius:var(--radius);padding:7px 9px;font-size:13px}
@@ -1223,6 +1228,12 @@ function renderDetail(){
         '<button id="diagnosebtn" title="Re-scan every candidate for this channel with a '+
         'longer sample and a kept video clip \u2014 for when a channel misbehaves in a real '+
         'player and a still frame doesn\'t explain why.">Diagnose this channel</button>'+
+        '<label class="miniline" style="display:inline-flex;align-items:center;gap:4px;'+
+          'margin:0 2px" title="Dead candidates are skipped by default \u2014 there is '+
+          'usually nothing new to learn from re-probing something that already failed '+
+          'outright. Tick this to diagnose them anyway.">'+
+          '<input type="checkbox" id="diagnose-include-dead" style="width:auto">'+
+          'include dead</label>'+
         '<button id="epgcheckbtn" title="Compare every saved EPG source\'s live '+
         '\u2018now playing\u2019 for this channel, side by side with what the guide said '+
         'at capture time.">Check EPG</button>'+
@@ -3023,11 +3034,13 @@ async function diagnoseChannel(){
   const setMsg = t => { const m = msg(); if(m) m.textContent = t; };
   const setBtnDisabled = v => { const b = btn(); if(b) b.disabled = v; };
   setBtnDisabled(true); setMsg("queuing\u2026");
+  const includeDeadEl = document.getElementById("diagnose-include-dead");
   let queued, queuedEta = 0, skippedCount = 0;
   try{
     const r = await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+"/diagnose",
       {method:"POST", headers:{"Content-Type":"application/json"},
-       body: JSON.stringify({channel_key: key})});
+       body: JSON.stringify({channel_key: key,
+                            include_dead: includeDeadEl ? includeDeadEl.checked : false})});
     const d = await r.json();
     if(!d.ok){ setMsg("error: "+(d.error||"failed")); setBtnDisabled(false); return; }
     queued = d.queued;

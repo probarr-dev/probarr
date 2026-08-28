@@ -218,20 +218,23 @@ def topbar(label="", active="", right="", home=True):
                '})();'
                '</script>')
     # A count and a list, not just a count -- Diagnose is often fired at
-    # several candidates of the SAME channel at once, so "2 diagnosing"
-    # with no detail reads as one thing happening twice, not two different
+    # several candidates of the SAME channel at once, so "2 probing" with
+    # no detail reads as one thing happening twice, not two different
     # streams. Genuinely absent (not shown-but-empty) when nothing is
-    # diagnosing, same as the rest of this header only shows what applies
+    # in flight, same as the rest of this header only shows what applies
     # right now. Polls /api/diagnosing (see web.py's _diagnosing_snapshot),
-    # which resolves each job's stream name from its run's own already-
-    # probed results and reports its queue state, so the popover reads
-    # "channel: stream name -- running/queued", real progress rather than
-    # a bare count.
+    # which covers every single-candidate probe this queue ever runs --
+    # Diagnose, a plain card ↻ re-probe, Preview, a freshly-added
+    # Find-streams pick, an imported channel's first probe -- not just
+    # Diagnose, since all of those are just as invisible once their own
+    # dialog closes. A NEW RUN's bulk verify pass never appears here; that
+    # already has its own progress bar. Each row is labelled "diagnosing"
+    # or "probing" depending which kind it actually is.
     diagbadge = ""
     if home:
         diagbadge = (
             '<div class="diagbadge" id="diagbadge" title="">'
-            '<b id="diagcount"></b><span>&nbsp;diagnosing</span>'
+            '<b id="diagcount"></b><span>&nbsp;probing</span>'
             '<div class="diagpop" id="diagpop"></div>'
             '</div>'
             '<script>'
@@ -250,8 +253,9 @@ def topbar(label="", active="", right="", home=True):
             'badge.classList.add("show");'
             'count.textContent=rows.length;'
             'pop.innerHTML=rows.map(function(r){'
-            'var st=r.state==="running"?"running"'
-            ':"queued"+(r.position?" #"+r.position:"");'
+            'var st=(r.state==="running"?"running":'
+            '"queued"+(r.position?" #"+r.position:""))+'
+            '(r.diagnose?" \\u00b7 diagnosing":" \\u00b7 probing");'
             'return "<div>"+esc(r.channel_key)+": "+esc(r.stream_name)+'
             '"<span style=\\"color:var(--faint)\\"> \\u2014 "+esc(st)+"</span></div>";'
             '}).join("");'
