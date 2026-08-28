@@ -1378,7 +1378,31 @@ function wireDrag(){
 
 function select(key){ current=key; renderList(); renderDetail();
   const el=document.querySelector('.chan.sel'); if(el) el.scrollIntoView({block:"nearest"});
-  saveViewState(); }
+  saveViewState(); syncProbingHighlights(); }
+// The "probing" pulse only ever got SET by whichever action started a scan
+// (Diagnose, a single ↻) -- its own tracking loop, scoped to that one
+// channel while it stays open. Real reported bug: renderDetail() rebuilds
+// every candidate row from scratch on every channel switch, with no memory
+// of that highlight at all, so navigating away and back (or a channel
+// whose scan was started from the BATCH "Diagnose everyone" modal, which
+// never had a per-channel tracking loop to begin with) showed a candidate
+// that WAS actively probing as if nothing were happening. Polling the
+// shared queue independently of who started the job, and re-syncing right
+// after every channel switch rather than waiting for the next tick, fixes
+// both at once -- this is authoritative for whatever channel is on screen
+// regardless of how its probe got queued.
+async function syncProbingHighlights(){
+  if(!current) return;
+  let snap;
+  try{ snap = await (await fetch("/api/queue", {cache:"no-store"})).json(); }
+  catch(e){ return; }
+  const prefix = DATA.run_id + "|";
+  document.querySelectorAll(".cand[data-id]").forEach(row => {
+    const st = snap.keys && snap.keys[prefix + row.dataset.id];
+    row.classList.toggle("probing", !!(st && st.state === "running"));
+  });
+}
+setInterval(syncProbingHighlights, 1500);
 // Where you are is remembered in the URL, not just in memory -- a reload
 // used to always land back on "Needs you" and the first channel in it, no
 // matter what you had actually been looking at. history.replaceState so

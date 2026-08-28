@@ -59,8 +59,10 @@ a.brand:hover{opacity:.8}
   box-shadow:0 6px 18px rgba(0,0,0,.35);padding:8px 10px;width:max-content;
   max-width:340px;max-height:260px;overflow-y:auto;font-size:12.5px;color:var(--text)}
 .diagbadge:hover .diagpop{display:block}
-.diagpop div{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)}
-.diagpop div:last-child{border-bottom:0}
+.diagpop-group{padding:5px 0 3px;border-bottom:1px solid rgba(255,255,255,.05)}
+.diagpop-group:last-child{border-bottom:0}
+.diagpop-chan{font-weight:600;color:var(--text)}
+.diagpop-stream{padding:2px 0 2px 12px;color:var(--dim)}
 input[type=search],select{background:var(--panel);color:var(--text);
   border:1px solid var(--line);border-radius:var(--radius);padding:6px 9px;font-size:13px}
 input[type=search]{min-width:200px}
@@ -229,7 +231,11 @@ def topbar(label="", active="", right="", home=True):
     # Diagnose, since all of those are just as invisible once their own
     # dialog closes. A NEW RUN's bulk verify pass never appears here; that
     # already has its own progress bar. Each row is labelled "diagnosing"
-    # or "probing" depending which kind it actually is.
+    # or "probing" depending which kind it actually is. Grouped by channel
+    # in the popover, not one flat line per stream -- a channel with
+    # several candidates queued at once (Diagnose's normal case) used to
+    # repeat its own name several times in a row, reading as duplicates
+    # rather than distinct streams of the same channel.
     diagbadge = ""
     if home:
         diagbadge = (
@@ -252,12 +258,23 @@ def topbar(label="", active="", right="", home=True):
             'if(rows.length){'
             'badge.classList.add("show");'
             'count.textContent=rows.length;'
-            'pop.innerHTML=rows.map(function(r){'
+            'var groups=[],byKey={};'
+            'rows.forEach(function(r){'
+            'var k=r.run_id+"|"+r.channel_key;'
+            'if(!byKey[k]){byKey[k]={channel_key:r.channel_key,run_id:r.run_id,streams:[]};'
+            'groups.push(byKey[k]);}'
+            'byKey[k].streams.push(r);});'
+            'pop.innerHTML=groups.map(function(g){'
+            'var lines=g.streams.map(function(r){'
             'var st=(r.state==="running"?"running":'
             '"queued"+(r.position?" #"+r.position:""))+'
             '(r.diagnose?" \\u00b7 diagnosing":" \\u00b7 probing");'
-            'return "<div>"+esc(r.channel_key)+": "+esc(r.stream_name)+'
+            'return "<div class=\\"diagpop-stream\\">"+esc(r.stream_name)+'
             '"<span style=\\"color:var(--faint)\\"> \\u2014 "+esc(st)+"</span></div>";'
+            '}).join("");'
+            'return "<div class=\\"diagpop-group\\"><div class=\\"diagpop-chan\\">"+'
+            'esc(g.channel_key)+"<span style=\\"color:var(--faint);font-weight:400\\"> \\u2014 "'
+            '+esc(g.run_id)+"</span></div>"+lines+"</div>";'
             '}).join("");'
             '}else{badge.classList.remove("show"); pop.innerHTML="";}'
             '}).catch(function(){});'
