@@ -160,9 +160,17 @@ def safe_name(name):
     Names arrive from the browser and become filenames, so this is a security
     boundary, not tidiness: anything outside the allowed set is replaced rather
     than stripped, so "../../etc/passwd" cannot survive as a path.
+
+    Lowercased deliberately: filesystems here are case-sensitive, but the
+    save UI treats a wantlist name as one identity regardless of how it was
+    typed. Without this, saving "top10-us-paytv" and later re-saving under
+    a differently-cased "Top-10-US-Pay-TV" (the display re-render, a typo,
+    autocapitalize on mobile) silently created a second file instead of
+    updating the first -- confirmed live, the two coexisted on the
+    wantlists page, both claiming to be the same list.
     """
     cleaned = re.sub(r"[^A-Za-z0-9._-]", "-", (name or "").strip())[:64]
-    cleaned = cleaned.strip("-.")
+    cleaned = cleaned.strip("-.").lower()
     return cleaned or None
 
 

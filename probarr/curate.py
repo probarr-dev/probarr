@@ -2672,6 +2672,11 @@ function startRenumber(){
       if(d.error){ alert("Could not set number: "+d.error); return; }
       ch.number = n;
       renderDetail(); renderList(); checkPending();
+      if(d.dispatcharr_collision)
+        alert("Heads up: Dispatcharr already has channel "+n+" (“"+
+              d.dispatcharr_collision+"”). Pushing will refuse to touch it "+
+              "until you pick a different number or resolve the collision in "+
+              "the push preview.");
     }catch(e){ restore(); alert("Request failed."); }
   };
   input.addEventListener("keydown", e => {

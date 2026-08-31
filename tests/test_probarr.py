@@ -4391,6 +4391,69 @@ class TestRenumberChannel(Temp):
         h._renumber_channel("run1", {"channel_key": "does-not-exist", "number": 5})
         self.assertEqual(sent[-1][0], 404)
 
+    def test_warns_when_the_number_already_belongs_to_a_live_dispatcharr_channel(self):
+        """Real bug found in a fresh-user walkthrough: push-preview already
+        refuses a genuine number collision (see dispatcharr_export._conflict),
+        but nothing said so until the very end of the flow -- the curator
+        numbered ten channels, only to discover on "Preview changes" that
+        3007 was already "TNT Sports 6" in Dispatcharr. Setting the number
+        must surface that collision immediately, right where it's set.
+        """
+        from probarr.store import RunStore
+        from probarr import web as web_mod, providers
+        providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": None, "name": "A"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "status": "ok"})
+        client = unittest.mock.MagicMock()
+        client.channels.return_value = [
+            {"id": 9, "channel_number": 3007.0, "name": "TNT Sports 6"}]
+        h, sent = self._handler()
+        with unittest.mock.patch.object(web_mod, "client_from_spec", return_value=client):
+            h._renumber_channel("run1", {"channel_key": "A", "number": 3007})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        payload = json.loads(body)
+        self.assertEqual(payload["dispatcharr_collision"], "TNT Sports 6")
+
+    def test_no_warning_when_the_number_is_actually_free(self):
+        from probarr.store import RunStore
+        from probarr import web as web_mod, providers
+        providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": None, "name": "A"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "status": "ok"})
+        client = unittest.mock.MagicMock()
+        client.channels.return_value = [
+            {"id": 9, "channel_number": 5000.0, "name": "Something Else"}]
+        h, sent = self._handler()
+        with unittest.mock.patch.object(web_mod, "client_from_spec", return_value=client):
+            h._renumber_channel("run1", {"channel_key": "A", "number": 3007})
+        payload = json.loads(sent[-1][1])
+        self.assertIsNone(payload["dispatcharr_collision"])
+
+    def test_no_warning_when_this_run_already_claimed_that_dispatcharr_channel(self):
+        """A number claimed as an intentional relink (see claims.py) is not
+        a collision -- it's the same channel, just not yet tagged."""
+        from probarr.store import RunStore
+        from probarr import web as web_mod, providers, claims
+        providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
+        claims.claim(self.root, 9, "A", "A")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": None, "name": "A"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                     "status": "ok"})
+        client = unittest.mock.MagicMock()
+        client.channels.return_value = [
+            {"id": 9, "channel_number": 3007.0, "name": "A (already claimed)"}]
+        h, sent = self._handler()
+        with unittest.mock.patch.object(web_mod, "client_from_spec", return_value=client):
+            h._renumber_channel("run1", {"channel_key": "A", "number": 3007})
+        payload = json.loads(sent[-1][1])
+        self.assertIsNone(payload["dispatcharr_collision"])
+
     def test_promotes_the_number_to_the_lineup_so_it_survives_a_rebuild(self):
         """Without this, a number set by hand in Curate would revert to
         unset the next time the wantlist is rebuilt from the provider --
@@ -4982,6 +5045,33 @@ class TestWantlistWriteIsAtomic(Temp):
         self.assertEqual(leftovers, [])
 
 
+class TestSavedWantlistNamesAreCaseInsensitive(Temp):
+    """Real-world usability bug found in a fresh-user walkthrough: a saved
+    wantlist named "top10-us-paytv" was later re-saved under the
+    differently-cased "Top-10-US-Pay-TV" (the page's own display re-render
+    of the name), which -- because safe_name() was case-sensitive and the
+    filesystem underneath it is too -- created a SECOND file instead of
+    updating the first. The wantlists page then showed two lists, both
+    claiming to hold the same 10 channels, and the user had to notice and
+    manually delete the duplicate.
+    """
+
+    def test_saving_under_a_different_case_updates_the_same_file(self):
+        from probarr import wantlist as wl
+        wl.write_saved(self.root, "top10-us-paytv", "ESPN\n")
+        wl.write_saved(self.root, "Top10-Us-Paytv", "ESPN\nTNT\n")
+        saved = wl.list_saved(self.root)
+        self.assertEqual(len(saved), 1,
+                         "re-saving under a different case must update the "
+                         "existing list, not create a second one")
+        self.assertEqual(wl.read_saved(self.root, "top10-us-paytv"), "ESPN\nTNT\n")
+
+    def test_reading_back_is_also_case_insensitive(self):
+        from probarr import wantlist as wl
+        wl.write_saved(self.root, "UK-Lineup", "BBC One\n")
+        self.assertEqual(wl.read_saved(self.root, "uk-lineup"), "BBC One\n")
+
+
 class TestCodeReviewFixes(Temp):
     """Regression tests for the nine findings from the high-effort review.
     Several were regressions introduced by earlier fixes in the same batch,
@@ -5327,6 +5417,39 @@ class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
         self.assertEqual(ids, {"1"},
                          "strict mode must keep only the positively-US-marked "
                          "channel")
+
+
+class TestRegionFilterTreatsUsAndUsaAsTheSameCountry(unittest.TestCase):
+    """Real-world usability bug found in a fresh-user walkthrough: a source
+    naming its US channels "USA: ESPN" (not "US: ESPN") was silently
+    invisible under a Regions=US filter, and a Regions=USA filter equally
+    missed "US:"-prefixed channels -- because DEFAULT_REGION_TAGS treats
+    "US" and "USA" as two unrelated tags. Same real country, same provider,
+    same intent typing either spelling; group_candidates() must not care
+    which one the operator typed vs which one a given stream happens to use.
+    """
+
+    def _streams(self):
+        from probarr.sources.base import Stream
+        return [
+            Stream(id="1", name="US: ESPN", url="http://x/1"),
+            Stream(id="2", name="USA: ESPN", url="http://x/2"),
+            Stream(id="3", name="UK: ESPN", url="http://x/3"),
+        ]
+
+    def test_a_us_filter_also_matches_usa_marked_channels(self):
+        from probarr.normalize import Normalizer, group_candidates
+        pools = group_candidates(self._streams(), Normalizer(), regions=["US"],
+                                 include_unmarked=False)
+        ids = {s.id for pool in pools.values() for s in pool}
+        self.assertEqual(ids, {"1", "2"})
+
+    def test_a_usa_filter_also_matches_us_marked_channels(self):
+        from probarr.normalize import Normalizer, group_candidates
+        pools = group_candidates(self._streams(), Normalizer(), regions=["USA"],
+                                 include_unmarked=False)
+        ids = {s.id for pool in pools.values() for s in pool}
+        self.assertEqual(ids, {"1", "2"})
 
 
 class TestRunKwargsWiresStrictRegion(Temp):

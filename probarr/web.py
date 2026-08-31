@@ -2287,7 +2287,41 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass  # never let a preference write break the edit itself
             self._send(json.dumps({"ok": True, "number": number,
-                                  "durable": bool(lineup)}), "application/json")
+                                  "durable": bool(lineup),
+                                  "dispatcharr_collision":
+                                      self._live_number_collision(channel_key, number)}),
+                      "application/json")
+
+    def _live_number_collision(self, channel_key, number):
+        """Name of whatever ALREADY sits at `number` in Dispatcharr right now,
+        or None.
+
+        Push-preview already refuses a real collision outright (see
+        dispatcharr_export._conflict), so nothing here is unsafe -- this is
+        purely about telling the curator the moment they type a number,
+        instead of leaving it to surface as a "blocked" row buried in the
+        preview diff after they've already numbered ten channels and gone
+        looking for "push". A number this run already claims (via
+        claims.json) is not flagged -- that is an intentional re-link, not
+        a collision. Best-effort: any failure to reach Dispatcharr just
+        means no warning, never a hard error on the actual number-set.
+        """
+        try:
+            prov = next((p for p in providers_mod.list_all(self.root)
+                        if p.get("scheme") == "dispatcharr"), None)
+            if not prov:
+                return None
+            client = client_from_spec(prov["spec"])
+            existing = next((c for c in client.channels()
+                            if c.get("channel_number") == float(number)), None)
+            if not existing:
+                return None
+            claimed = claims_mod.claimed_by_key(self.root).get(channel_key)
+            if claimed and claimed.get("dispatcharr_id") == existing.get("id"):
+                return None
+            return existing.get("name") or f"channel {number}"
+        except Exception:
+            return None
 
     def _claim_dispatcharr_channel(self, body):
         """Resolve a "relink" or "blocked" row from the push preview.

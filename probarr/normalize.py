@@ -40,6 +40,19 @@ DEFAULT_REGION_TAGS = [
     "MX", "ZA", "EX", "EXYU", "AF", "ASIA", "LATINO", "ARB", "INT",
 ]
 
+# Providers use "US" and "USA" (also "UK"/"GB") interchangeably on the same
+# catalogue to mean the same real country -- confirmed live: a source with
+# "USA: ESPN" and "US: Fox News" both present, filtering to Regions=US
+# silently dropped the "USA:" ones entirely because they compared as two
+# different tags. group_candidates() canonicalises through this map before
+# comparing a detected region against the caller's requested list, so a
+# filter for one spelling also matches the other.
+REGION_SYNONYMS = {"USA": "US", "GB": "UK"}
+
+
+def _canonical_region(tag):
+    return REGION_SYNONYMS.get(tag, tag) if tag else tag
+
 # Separators a provider might use between the tag block and the real name.
 _SEP = r"[\s:|/\-–—\.]"
 
@@ -442,11 +455,12 @@ def group_candidates(streams, normalizer, include_timeshift=False,
     include_unmarked: also keep streams carrying no region marker at all.
     """
     pools = {}
+    wanted = {_canonical_region(r) for r in regions} if regions is not None else None
     for s in streams:
         name = s.name
         if not include_timeshift and normalizer.is_timeshift(name):
             continue
-        if regions is not None:
+        if wanted is not None:
             r = normalizer.region_of(name)
             # The name-based marker is authoritative when present: an
             # explicit "UK:" prefix (or bracket country code) on the name
@@ -456,12 +470,12 @@ def group_candidates(streams, normalizer, include_timeshift=False,
             # carries no recognisable country). Only fall back to the
             # group-title signal when the name gives no signal at all.
             if r is not None:
-                if r not in regions:
+                if _canonical_region(r) not in wanted:
                     continue
             else:
                 g = group_of(getattr(s, "group", ""))
                 if g is not None:
-                    if g not in regions:
+                    if _canonical_region(g) not in wanted:
                         continue
                 elif not include_unmarked:
                     continue
