@@ -110,12 +110,10 @@ __TOPBAR__
   <div class="wiz-step" id="wiz-provider">
     <div class="card">
       <h2>2. Add your provider</h2>
-      <div class="lead">The playlist or Xtream login your subscription gave you.
-        This is the source every run probes.</div>
+      <div class="lead">The playlist or Xtream login your subscription gave you &mdash;
+        this is what every run probes.</div>
       <div id="wp-skipwrap" style="display:none;margin-bottom:12px" class="hint2">
-        Already covered &mdash; Dispatcharr itself is set to serve as the provider
-        (see the checkbox on the previous step). Only fill this in if you also want
-        a separate, direct connection to a real playlist/Xtream login.
+        Already covered by Dispatcharr &mdash; only fill this in for a separate connection too.
       </div>
       <div class="row" style="margin-bottom:10px">
         <input type="text" id="wp-name" placeholder="Name, e.g. My IPTV">
@@ -129,9 +127,7 @@ __TOPBAR__
         <input type="password" id="wp-pass" style="flex:1"
           placeholder="Password (only if not already in the URL)">
       </div>
-      <div class="hint2">Paste the full playlist URL your provider gave you (username/password
-        stay blank) &mdash; or, if you were given an Xtream login instead, just the
-        host/domain plus your username and password.</div>
+      <div class="hint2">Paste the full playlist URL, or an Xtream host/username/password.</div>
       <div class="testresult" id="wp-result"></div>
       <div class="wizrow">
         <button id="wp-test">Test connection</button>
@@ -145,26 +141,20 @@ __TOPBAR__
   <div class="wiz-step" id="wiz-wantlist">
     <div class="card">
       <h2>3. Which channels?</h2>
-      <div class="lead">Optional. Leave this out and a run probes <b>every</b> channel
-        the provider carries &mdash; fine for a small provider, slow for a
-        large aggregated one. A wantlist narrows a run to just the channels
-        you actually want, one name per line.</div>
+      <div class="lead">Optional &mdash; skip this and a run probes every channel the
+        provider carries; list yours here (one per line) to probe just those.</div>
       <div id="ww-fromdisp" style="display:none;margin-bottom:12px">
         <button id="ww-pulldisp">I've already got Dispatcharr set up with the channels I watch &mdash; pull them in</button>
-        <div class="hint2">Reads every channel already in Dispatcharr's active lineup right now
-          and fills the list below with their names, exactly as Dispatcharr has them &mdash;
-          nothing is changed in Dispatcharr itself. Still worth a look before saving: a name
-          here is what the provider must be probed under, and Dispatcharr's own channel names
-          don't always match the provider's.</div>
+        <div class="hint2">Fills the list below with Dispatcharr's current channel names &mdash; check
+          them, since they don't always match what the provider calls them.</div>
       </div>
       <div class="row" style="margin-bottom:8px">
         <input type="text" id="ww-name" placeholder="Name, e.g. my-channels">
       </div>
       <textarea id="ww-body" placeholder="BBC One&#10;BBC Two&#10;ITV1&#10;Channel 4&#10;&hellip;"
         style="min-height:160px"></textarea>
-      <div class="hint2">A richer starter list (by country/provider) is also available from
-        the <a href="/wantlists" target="_blank">Wantlists page</a> if you'd rather browse one
-        than type your own &mdash; come back here once it's saved.</div>
+      <div class="hint2">Prefer to browse one instead of typing? Grab a starter list from the
+        <a href="/wantlists" target="_blank">Wantlists page</a>.</div>
       <div class="testresult" id="ww-result"></div>
       <div class="wizrow">
         <span class="spacer"></span>
@@ -177,15 +167,11 @@ __TOPBAR__
   <div class="wiz-step" id="wiz-epg">
     <div class="card">
       <h2>4. A guide (EPG) source</h2>
-      <div class="lead">Optional. An XMLTV URL lets probarr record what the guide said
-        should be playing at the exact moment each frame was captured &mdash;
-        the fastest way to catch a stream that is alive but showing the
-        wrong channel entirely.</div>
+      <div class="lead">Optional &mdash; an XMLTV guide lets probarr catch a stream
+        that's alive but showing the wrong channel.</div>
       <div id="we-fromdisp" style="display:none;margin-bottom:12px">
         <button id="we-pulldisp">Use whichever guide Dispatcharr is already using</button>
-        <div class="hint2">Reads the XMLTV source(s) already configured in Dispatcharr and
-          lets you pick one to save here under the same name and URL &mdash; nothing is
-          changed in Dispatcharr itself.</div>
+        <div class="hint2">Picks from whatever XMLTV source(s) Dispatcharr already has configured.</div>
         <div id="we-disppicks" style="margin-top:8px"></div>
       </div>
       <div class="row" style="margin-bottom:10px">
@@ -204,9 +190,8 @@ __TOPBAR__
   <div class="wiz-step" id="wiz-run">
     <div class="card">
       <h2>5. Start your first run</h2>
-      <div class="lead">This probes every candidate stream your provider offers for
-        each wanted channel, capturing a picture and measuring quality for
-        each one &mdash; usually a few seconds to a few minutes per channel.</div>
+      <div class="lead">Probes every candidate stream for each channel and grades it
+        &mdash; usually seconds to minutes per channel.</div>
       <div id="wr-summary" class="wizprogress"></div>
       <div class="testresult" id="wr-result" style="margin-top:10px"></div>
       <div id="wr-progresswrap" style="display:none;margin-top:12px">
@@ -227,27 +212,17 @@ __TOPBAR__
       <div class="lead">Your run is done. Here's what you're about to see, channel by channel.</div>
       <dl class="wizexplain">
         <dt>Candidate cards, ranked</dt>
-        <dd>Every stream your provider offered for a channel, best-ranked first
-          &mdash; a screenshot, resolution/bitrate, and any problems found
-          (corruption, wrong aspect ratio, low motion).</dd>
+        <dd>Every stream found for a channel, best first, with a screenshot and any problems found.</dd>
         <dt>+ Add to channel / Remove from channel</dt>
-        <dd>What gets pushed to Dispatcharr (or exported), in the order shown.
-          A clean top candidate is picked automatically; add or remove others
-          as you see fit.</dd>
+        <dd>What gets pushed, and in what order &mdash; the clean top pick is chosen for you.</dd>
         <dt>Guide at probe time</dt>
-        <dd>What the EPG said should be airing the instant this exact frame was
-          captured, right next to the picture &mdash; the fastest way to catch
-          a channel that's alive but simply wrong.</dd>
+        <dd>What should have been airing at that moment &mdash; catches a channel that's alive but wrong.</dd>
         <dt>Delete stream</dt>
-        <dd>Removes one candidate for good, with an optional reason. The Find
-          streams search can always bring it back later if you change your mind.</dd>
+        <dd>Removes a candidate for good; Find streams can bring it back later.</dd>
         <dt>Diagnose this channel</dt>
-        <dd>Re-scans every candidate with a longer sample and a watchable clip
-          &mdash; for a channel that misbehaves in a real player and a still
-          frame doesn't explain why.</dd>
+        <dd>Re-checks every candidate with a longer look and a watchable clip.</dd>
         <dt>Export to Dispatcharr</dt>
-        <dd>Pushes your curated picks, with a preview of exactly what will
-          change before anything actually happens.</dd>
+        <dd>Pushes your picks, previewing the changes first.</dd>
       </dl>
       <div class="wizrow">
         <span class="spacer"></span>
