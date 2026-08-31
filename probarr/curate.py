@@ -28,7 +28,7 @@ aside .tools{padding:9px 10px;border-bottom:1px solid var(--line);display:flex;
 aside .tools input[type=search]{width:100%}
 .searchrow{display:flex;gap:6px;align-items:center}
 .searchrow input[type=search]{flex:1;min-width:0}
-.addmenu-wrap{position:relative;flex:none}
+.addmenu-wrap,.moremenu-wrap{position:relative;flex:none;display:inline-block}
 .iconbtn{width:29px;height:29px;padding:0;font-size:16px;line-height:1;
   display:flex;align-items:center;justify-content:center}
 .addmenu{display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:20;
@@ -1273,39 +1273,51 @@ function renderDetail(){
         'the run \u2014 optionally from Dispatcharr too.">Remove</button>'+
         changesBtn+
         '<span class="muted" id="diagnosemsg"></span>' :
-        '<button id="diagnosebtn" title="Re-scan every candidate for this channel with a '+
-        'longer sample and a kept video clip \u2014 for when a channel misbehaves in a real '+
-        'player and a still frame doesn\'t explain why.">Diagnose this channel</button>'+
-        '<label class="miniline" style="display:inline-flex;align-items:center;gap:4px;'+
-          'margin:0 2px" title="Dead candidates are skipped by default \u2014 there is '+
-          'usually nothing new to learn from re-probing something that already failed '+
-          'outright. Tick this to diagnose them anyway.">'+
-          '<input type="checkbox" id="diagnose-include-dead" style="width:auto">'+
-          'include dead</label>'+
-        '<button id="epgcheckbtn" title="Compare every saved EPG source\'s live '+
-        '\u2018now playing\u2019 for this channel, side by side with what the guide said '+
-        'at capture time.">Check EPG</button>'+
-        '<button id="epgsrcbtn" title="Force this channel (or a multi-selection) onto '+
-        'one saved EPG source, instead of whichever one Check EPG\u2019s automatic '+
-        'resolve() picks \u2014 each channel still resolves its OWN matching entry '+
-        'within that source. Carried through to the lineup the same as a group or '+
-        'watermark pick.">'+
-        (MARKED.size>1 ? 'Set EPG source ('+MARKED.size+')' : 'Set EPG source')+'</button>'+
-        '<button id="watermarkbtn" title="Draw a box around this channel\u2019s logo/'+
-        'watermark on a known-good picture. Every candidate then shows that same '+
-        'area cropped out of its own frame, right next to its screenshot \u2014 so a '+
-        'wrong stream (right name, wrong feed) is obvious at a glance, not just '+
-        'inferred from a mismatched EPG.">'+
-        (s.watermark_box ? 'Redraw watermark area' : 'Mark watermark area')+'</button>'+
-        (s.watermark_box ? '<button id="clearwatermarkbtn" title="Stop comparing '+
-        'this channel\u2019s candidates against a watermark area.">Clear</button>' : '')+
-        '<button id="dupchanbtn" title="Make a second copy of this channel so '+
-        'it can sit in another group as well \u2014 same streams, no re-probing.">'+
-        'Duplicate</button>'+
         includeBtn+
         '<button id="removechanbtn" class="danger" title="Remove this channel from '+
         'the run \u2014 optionally from Dispatcharr too.">Remove</button>'+
         changesBtn+
+        // Everyday actions (find a better stream, exclude/remove, see what
+        // changed) stay in the open row above. Everything below this line
+        // is reached for one channel occasionally, not every review pass --
+        // burying it behind one "More" toggle is what turns a wall of a
+        // dozen always-visible buttons into a handful, without removing any
+        // capability. See .moremenu-wrap's CSS (shared with .addmenu-wrap)
+        // and the click delegator below for the open/close mechanics.
+        '<div class="moremenu-wrap">'+
+          '<button id="morebtn" class="togg" title="More actions for this channel">More \u25be</button>'+
+          '<div class="addmenu" id="moremenu">'+
+            '<button id="diagnosebtn" title="Re-scan every candidate for this channel with a '+
+            'longer sample and a kept video clip \u2014 for when a channel misbehaves in a real '+
+            'player and a still frame doesn\'t explain why.">Diagnose this channel</button>'+
+            '<label class="miniline" style="display:flex;align-items:center;gap:4px;'+
+              'padding:2px 9px" title="Dead candidates are skipped by default \u2014 there is '+
+              'usually nothing new to learn from re-probing something that already failed '+
+              'outright. Tick this to diagnose them anyway.">'+
+              '<input type="checkbox" id="diagnose-include-dead" style="width:auto">'+
+              'include dead</label>'+
+            '<button id="epgcheckbtn" title="Compare every saved EPG source\'s live '+
+            '\u2018now playing\u2019 for this channel, side by side with what the guide said '+
+            'at capture time.">Check EPG</button>'+
+            '<button id="epgsrcbtn" title="Force this channel (or a multi-selection) onto '+
+            'one saved EPG source, instead of whichever one Check EPG\u2019s automatic '+
+            'resolve() picks \u2014 each channel still resolves its OWN matching entry '+
+            'within that source. Carried through to the lineup the same as a group or '+
+            'watermark pick.">'+
+            (MARKED.size>1 ? 'Set EPG source ('+MARKED.size+')' : 'Set EPG source')+'</button>'+
+            '<button id="watermarkbtn" title="Draw a box around this channel\u2019s logo/'+
+            'watermark on a known-good picture. Every candidate then shows that same '+
+            'area cropped out of its own frame, right next to its screenshot \u2014 so a '+
+            'wrong stream (right name, wrong feed) is obvious at a glance, not just '+
+            'inferred from a mismatched EPG.">'+
+            (s.watermark_box ? 'Redraw watermark area' : 'Mark watermark area')+'</button>'+
+            (s.watermark_box ? '<button id="clearwatermarkbtn" title="Stop comparing '+
+            'this channel\u2019s candidates against a watermark area.">Clear watermark</button>' : '')+
+            '<button id="dupchanbtn" title="Make a second copy of this channel so '+
+            'it can sit in another group as well \u2014 same streams, no re-probing.">'+
+            'Duplicate</button>'+
+          '</div>'+
+        '</div>'+
         '<span class="muted" id="diagnosemsg"></span>')+
     '</div>'+
     (s.include === false ? '<div class="offbox">This channel is <b>excluded</b> \u2014 '+
@@ -1546,6 +1558,18 @@ document.addEventListener("click", e=>{
     if(e.target.closest(".bar2") || e.target.tagName==="VIDEO") return;
     closeClip();
     return;
+  }
+  if(e.target.id==="morebtn"){
+    e.stopPropagation();
+    document.getElementById("moremenu").classList.toggle("on");
+    return;
+  }
+  // Any click inside the menu also acts on a specific button below (or is
+  // the "include dead" checkbox/label, which must not close it) -- close
+  // first, then fall through so that button's own handling still runs.
+  if(e.target.closest("#moremenu") && e.target.id !== "diagnose-include-dead"
+     && !e.target.closest("label")){
+    document.getElementById("moremenu").classList.remove("on");
   }
   if(e.target.id==="pushall"){ openDispatchModal(null); return; }
   if(e.target.id==="diagnosebtn"){ diagnoseChannel(); return; }
@@ -2501,9 +2525,20 @@ document.addEventListener("click", (e)=>{
   const menu = document.getElementById("addmenu");
   if(menu.classList.contains("on") && !menu.contains(e.target)
      && e.target.id !== "addmenubtn") menu.classList.remove("on");
+  // #moremenu is rebuilt by renderDetail() on every re-render (only present
+  // at all for a matched channel), so it is looked up fresh here rather
+  // than cached -- a stale reference from a previous render would silently
+  // stop matching the live element.
+  const more = document.getElementById("moremenu");
+  if(more && more.classList.contains("on") && !more.contains(e.target)
+     && e.target.id !== "morebtn") more.classList.remove("on");
 });
 document.addEventListener("keydown", (e)=>{
-  if(e.key === "Escape") document.getElementById("addmenu").classList.remove("on");
+  if(e.key === "Escape"){
+    document.getElementById("addmenu").classList.remove("on");
+    const more = document.getElementById("moremenu");
+    if(more) more.classList.remove("on");
+  }
 });
 document.getElementById("addchannels").addEventListener("click", ()=>{
   document.getElementById("addmenu").classList.remove("on");
