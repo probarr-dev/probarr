@@ -1259,39 +1259,39 @@ function renderDetail(){
       // it. Rename and Remove apply just as well to a channel with no
       // candidates; Diagnose, EPG check and Duplicate do not, since there
       // is nothing yet to diagnose, compare or copy.
-      '<button id="findstreamsbtn" title="Every stream the provider offers for '+
+      (ch.missing ?
+        '<button id="findstreamsbtn" title="Every stream the provider offers for '+
         'this channel, probed or not \u2014 plus a search of the whole catalogue '+
         'for variants the matcher did not connect to it. Tick what is worth '+
         'probing; only this channel is touched.">Find streams</button>'+
-      (ch.missing ?
         includeBtn+
         '<button id="removechanbtn" class="danger" title="Remove this channel from '+
         'the run \u2014 optionally from Dispatcharr too.">Remove</button>'+
         changesBtn+
         '<span class="muted" id="diagnosemsg"></span>' :
-        includeBtn+
-        '<button id="removechanbtn" class="danger" title="Remove this channel from '+
-        'the run \u2014 optionally from Dispatcharr too.">Remove</button>'+
-        changesBtn+
-        // Everyday actions (find a better stream, exclude/remove, see what
-        // changed) stay in the open row above. Everything below this line
-        // is reached for one channel occasionally, not every review pass --
-        // burying it behind one "More" toggle is what turns a wall of a
-        // dozen always-visible buttons into a handful, without removing any
-        // capability. See .moremenu-wrap's CSS (shared with .addmenu-wrap)
-        // and the click delegator below for the open/close mechanics.
+        '<button id="diagnosebtn" title="Re-scan every candidate for this channel with a '+
+        'longer sample and a kept video clip \u2014 for when a channel misbehaves in a real '+
+        'player and a still frame doesn\'t explain why.">Diagnose this channel</button>'+
+        '<label class="miniline" style="display:inline-flex;align-items:center;gap:4px;'+
+          'margin:0 2px" title="Dead candidates are skipped by default \u2014 there is '+
+          'usually nothing new to learn from re-probing something that already failed '+
+          'outright. Tick this to diagnose them anyway.">'+
+          '<input type="checkbox" id="diagnose-include-dead" style="width:auto">'+
+          'include dead</label>'+
+        // Only Diagnose (the thing done most often, on nearly every review
+        // pass) stays in the open row. Everything else here is reached
+        // occasionally, not routinely -- burying it behind one "More"
+        // toggle is what turns a wall of always-visible buttons into a
+        // handful, without removing any capability. See .moremenu-wrap's
+        // CSS (shared with .addmenu-wrap) and the click delegator below
+        // for the open/close mechanics.
         '<div class="moremenu-wrap">'+
           '<button id="morebtn" class="togg" title="More actions for this channel">More \u25be</button>'+
           '<div class="addmenu" id="moremenu">'+
-            '<button id="diagnosebtn" title="Re-scan every candidate for this channel with a '+
-            'longer sample and a kept video clip \u2014 for when a channel misbehaves in a real '+
-            'player and a still frame doesn\'t explain why.">Diagnose this channel</button>'+
-            '<label class="miniline" style="display:flex;align-items:center;gap:4px;'+
-              'padding:2px 9px" title="Dead candidates are skipped by default \u2014 there is '+
-              'usually nothing new to learn from re-probing something that already failed '+
-              'outright. Tick this to diagnose them anyway.">'+
-              '<input type="checkbox" id="diagnose-include-dead" style="width:auto">'+
-              'include dead</label>'+
+            '<button id="findstreamsbtn" title="Every stream the provider offers for '+
+            'this channel, probed or not \u2014 plus a search of the whole catalogue '+
+            'for variants the matcher did not connect to it. Tick what is worth '+
+            'probing; only this channel is touched.">Find streams</button>'+
             '<button id="epgcheckbtn" title="Compare every saved EPG source\'s live '+
             '\u2018now playing\u2019 for this channel, side by side with what the guide said '+
             'at capture time.">Check EPG</button>'+
@@ -1309,6 +1309,10 @@ function renderDetail(){
             (s.watermark_box ? 'Redraw watermark area' : 'Mark watermark area')+'</button>'+
             (s.watermark_box ? '<button id="clearwatermarkbtn" title="Stop comparing '+
             'this channel\u2019s candidates against a watermark area.">Clear watermark</button>' : '')+
+            includeBtn+
+            '<button id="removechanbtn" class="danger" title="Remove this channel from '+
+            'the run \u2014 optionally from Dispatcharr too.">Remove</button>'+
+            changesBtn+
             '<button id="dupchanbtn" title="Make a second copy of this channel so '+
             'it can sit in another group as well \u2014 same streams, no re-probing.">'+
             'Duplicate</button>'+
