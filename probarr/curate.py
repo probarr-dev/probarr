@@ -1070,16 +1070,16 @@ function dominantAspect(ch){
 function specHTML(c, expectedAspect){
   const out=[];
   // Marks the ONE candidate that was already live in Dispatcharr before
-  // this run touched anything -- Import from Dispatcharr (and the Wizard's
-  // "pull my Dispatcharr channels" path) seeds it with a stream_id of
-  // "dispatcharr:<id>", distinct from every candidate probarr found itself.
-  // Without this, the channel header's "in Dispatcharr" tag says WHICH
-  // stream was already live, by name, but nothing on the candidate cards
-  // themselves says which card that name refers to -- a real gap: knowing
-  // "here's what you had" versus "here's what probarr found better" was
-  // only answerable by reading two different parts of the screen and
-  // matching names by eye.
-  if(String(c.stream_id||"").startsWith("dispatcharr:"))
+  // this run touched anything. Real bug found running this live: keying
+  // off the stream_id's "dispatcharr:<id>" prefix looked right in testing
+  // but is not unique to that one stream -- EVERY candidate gets that same
+  // prefix when Dispatcharr itself is the probing PROVIDER (the Wizard's
+  // "pull my Dispatcharr channels" path), so the badge lit up on every
+  // card, not just the original. dispatcharr_current is set explicitly,
+  // only on Import from Dispatcharr's own "this was already assigned" seed
+  // (see web.py's _dispatcharr_import), so it stays unique regardless of
+  // where the OTHER candidates came from.
+  if(c.dispatcharr_current)
     out.push(['<span class="spec" title="This is the exact stream that was '+
       'already live in Dispatcharr before this run — not something probarr '+
       'found, your existing pick.">', 'already in Dispatcharr', '</span>']);
@@ -4150,6 +4150,12 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
                 "dropped": (dropped or {}).get(key, {}).get(r.get("url_redacted")) or
                           (dropped or {}).get(key, {}).get(r.get("url")),
                 "corrupt": r.get("corruption_errors", 0),
+                # Import from Dispatcharr's own record of "this was already
+                # live" -- deliberately NOT inferred from the stream_id's
+                # "dispatcharr:" prefix, which every candidate gets when
+                # Dispatcharr itself is the probing PROVIDER (not just the
+                # one genuinely-already-assigned stream import seeds).
+                "dispatcharr_current": bool(r.get("is_dispatcharr_current")),
                 "dup": r.get("placeholder_group"),
                 "lowmo": bool(r.get("low_motion")),
                 "offcad": bool(r.get("off_cadence")),

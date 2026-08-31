@@ -1967,7 +1967,14 @@ class Handler(BaseHTTPRequestHandler):
                             "stream_id": f"dispatcharr:{cur['id']}",
                             "name": cur.get("name") or ch["name"],
                             "url": cur["url"], "redacted": cur["url"],
-                            "group": ch["group"], "logo": "", "tvg_id": ""})
+                            "group": ch["group"], "logo": "", "tvg_id": "",
+                            # Curate's "already in Dispatcharr" candidate badge
+                            # keys off this, not the stream_id prefix -- when
+                            # Dispatcharr itself is the probing PROVIDER (the
+                            # Wizard's "pull my Dispatcharr channels" path),
+                            # every candidate gets a "dispatcharr:<id>" id,
+                            # not just this one genuinely-already-live stream.
+                            "is_dispatcharr_current": True})
             fresh = [t for t in todo
                      if f"{key}|{t['stream_id']}" not in already_probed]
             return fresh, len(todo) - len(fresh)
@@ -3645,7 +3652,8 @@ class Handler(BaseHTTPRequestHandler):
                      "stream_id": seed["stream_id"], "stream_name": seed["name"],
                      "url": seed["url"], "url_redacted": seed.get("redacted", ""),
                      "group": seed.get("group", ""), "logo": seed.get("logo", ""),
-                     "tvg_id": seed.get("tvg_id", "")}
+                     "tvg_id": seed.get("tvg_id", ""),
+                     "is_dispatcharr_current": bool(seed.get("is_dispatcharr_current"))}
         url = _reprobeable_url(record)
         if url is None:
             return {"error": "no usable URL for this record"}

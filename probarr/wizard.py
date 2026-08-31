@@ -67,11 +67,63 @@ __TOPBAR__
 
   <div class="wizsteps" id="wizsteps"></div>
 
+  <div class="wiz-step" id="wiz-dispatcharr">
+    <div class="card">
+      <h2>1. Connect Dispatcharr</h2>
+      <div class="lead">Optional &mdash; skip this entirely if you're only using probarr
+        to export an M3U file. Lets probarr push curated channels back into
+        Dispatcharr. Connecting it first (rather than second) is what lets the
+        next step offer to use Dispatcharr itself as the provider, and pull
+        your existing channels and guide straight from it.</div>
+      <div class="row" style="margin-bottom:10px">
+        <input type="text" id="wd-name" placeholder="Name, e.g. My Dispatcharr">
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <input type="text" id="wd-host" placeholder="IP or hostname" style="flex:1">
+        <input type="number" id="wd-port" placeholder="Port" style="width:110px" value="9191">
+      </div>
+      <div class="pwrap">
+        <input type="text" id="wd-user" placeholder="Username">
+        <input type="password" id="wd-pass" style="flex:1" placeholder="Password">
+      </div>
+      <div class="hint2">Its own admin login, not the Xtream/M3U playback credentials.</div>
+      <label class="hint2" style="display:flex;align-items:center;gap:6px;margin-top:10px">
+        <input type="checkbox" id="wd-assource" style="width:auto" checked>
+        Also use Dispatcharr as a provider (offer it as something a run can probe from,
+        and let the next step skip adding a separate one)
+      </label>
+      <label class="hint2" style="display:flex;align-items:center;gap:6px;margin-top:6px">
+        <input type="checkbox" id="wd-proxy" style="width:auto">
+        Prefer Dispatcharr's own proxy for probing
+      </label>
+      <div class="hint2" style="margin-top:2px">Routes each already-assigned channel's
+        current stream through Dispatcharr's own proxy instead of the raw upstream URL
+        &mdash; the fix for probarr not having the same network path (VPN, geo-IP) the
+        provider needs when Dispatcharr already does. It's also the only way a probe shows
+        up in Dispatcharr's own live Stats page. Leave unchecked unless you know you need
+        it: the stronger fix is running probarr behind the same VPN/proxy Dispatcharr
+        already uses, which keeps every candidate probeable, not just whichever one
+        Dispatcharr currently has assigned.</div>
+      <div class="testresult" id="wd-result"></div>
+      <div class="wizrow">
+        <button id="wd-test">Test connection</button>
+        <span class="spacer"></span>
+        <button class="wizskip" id="wd-skip">Skip this step</button>
+        <button class="primary" id="wd-save">Save and continue</button>
+      </div>
+    </div>
+  </div>
+
   <div class="wiz-step" id="wiz-provider">
     <div class="card">
-      <h2>1. Add your provider</h2>
+      <h2>2. Add your provider</h2>
       <div class="lead">The playlist or Xtream login your subscription gave you.
         This is the source every run probes.</div>
+      <div id="wp-skipwrap" style="display:none;margin-bottom:12px" class="hint2">
+        Already covered &mdash; Dispatcharr itself is set to serve as the provider
+        (see the checkbox on the previous step). Only fill this in if you also want
+        a separate, direct connection to a real playlist/Xtream login.
+      </div>
       <div class="row" style="margin-bottom:10px">
         <input type="text" id="wp-name" placeholder="Name, e.g. My IPTV">
       </div>
@@ -91,39 +143,8 @@ __TOPBAR__
       <div class="wizrow">
         <button id="wp-test">Test connection</button>
         <span class="spacer"></span>
+        <button class="wizskip" id="wp-skip" style="display:none">Skip &mdash; using Dispatcharr as the provider</button>
         <button class="primary" id="wp-save">Save and continue</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="wiz-step" id="wiz-dispatcharr">
-    <div class="card">
-      <h2>2. Connect Dispatcharr</h2>
-      <div class="lead">Optional &mdash; skip this entirely if you're only using probarr
-        to export an M3U file. Lets probarr push curated channels back into
-        Dispatcharr.</div>
-      <div class="row" style="margin-bottom:10px">
-        <input type="text" id="wd-name" placeholder="Name, e.g. My Dispatcharr">
-      </div>
-      <div class="row" style="margin-bottom:8px">
-        <input type="text" id="wd-host" placeholder="IP or hostname" style="flex:1">
-        <input type="number" id="wd-port" placeholder="Port" style="width:110px" value="9191">
-      </div>
-      <div class="pwrap">
-        <input type="text" id="wd-user" placeholder="Username">
-        <input type="password" id="wd-pass" style="flex:1" placeholder="Password">
-      </div>
-      <div class="hint2">Its own admin login, not the Xtream/M3U playback credentials.</div>
-      <label class="hint2" style="display:flex;align-items:center;gap:6px;margin-top:10px">
-        <input type="checkbox" id="wd-assource" style="width:auto" checked>
-        Also use Dispatcharr as a provider (offer it as something a run can probe from)
-      </label>
-      <div class="testresult" id="wd-result"></div>
-      <div class="wizrow">
-        <button id="wd-test">Test connection</button>
-        <span class="spacer"></span>
-        <button class="wizskip" id="wd-skip">Skip this step</button>
-        <button class="primary" id="wd-save">Save and continue</button>
       </div>
     </div>
   </div>
@@ -246,7 +267,7 @@ __TOPBAR__
 
 <script>
 const $ = id => document.getElementById(id);
-const STEPS = ["provider", "dispatcharr", "wantlist", "epg", "run", "curate"];
+const STEPS = ["dispatcharr", "provider", "wantlist", "epg", "run", "curate"];
 const STEP_LABELS = {provider: "Provider", dispatcharr: "Dispatcharr",
   wantlist: "Channels", epg: "Guide", run: "First run", curate: "Curate"};
 let STEP_I = 0;
@@ -271,6 +292,14 @@ function goto(i){
     $("ww-fromdisp").style.display = $("wd-name").value.trim() ? "block" : "none";
   if(STEPS[i] === "epg")
     $("we-fromdisp").style.display = $("wd-name").value.trim() ? "block" : "none";
+  // The provider step only offers to skip itself once Dispatcharr is BOTH
+  // connected AND set to serve as the provider -- without that checkbox,
+  // Dispatcharr is a push target only, and a run still needs a real source.
+  if(STEPS[i] === "provider"){
+    const canSkip = $("wd-name").value.trim() && $("wd-assource").checked;
+    $("wp-skipwrap").style.display = canSkip ? "block" : "none";
+    $("wp-skip").style.display = canSkip ? "" : "none";
+  }
   // loadRunSummary() previously only ran once, at page load -- before the
   // provider/wantlist/EPG fields had anything in them. The step 5 summary
   // it wrote to the page ("Channels: all channels (no wantlist)") stayed
@@ -283,7 +312,7 @@ function goto(i){
 renderSteps();
 goto(0);
 
-// -- Step 1: provider (M3U/Xtream) --------------------------------------
+// -- Step 2: provider (M3U/Xtream) --------------------------------------
 function computeProviderSpec(){
   const url = $("wp-url").value.trim();
   const user = $("wp-user").value.trim(), pass = $("wp-pass").value.trim();
@@ -321,10 +350,11 @@ $("wp-save").addEventListener("click", async ()=>{
   const d = await r.json();
   if(!d.ok){ box.className="testresult show bad"; box.textContent="error: "+(d.error||"failed"); return; }
   box.className="testresult show good"; box.textContent="Saved.";
-  setTimeout(()=>goto(1), 400);
+  setTimeout(()=>goto(2), 400);
 });
+$("wp-skip").addEventListener("click", ()=>goto(2));
 
-// -- Step 2: Dispatcharr (optional) --------------------------------------
+// -- Step 1: Dispatcharr (optional) --------------------------------------
 function computeDispSpec(){
   const host = $("wd-host").value.trim(), port = $("wd-port").value.trim();
   const user = $("wd-user").value.trim(), pass = $("wd-pass").value.trim();
@@ -345,7 +375,7 @@ $("wd-test").addEventListener("click", async ()=>{
     box.textContent = d.ok ? "Connected — "+d.channels+" streams found." : "Could not connect: "+d.error;
   }catch(e){ box.className="testresult show bad"; box.textContent="Request failed."; }
 });
-$("wd-skip").addEventListener("click", ()=>goto(2));
+$("wd-skip").addEventListener("click", ()=>goto(1));
 $("wd-save").addEventListener("click", async ()=>{
   const name = $("wd-name").value.trim(), spec = computeDispSpec();
   const box = $("wd-result");
@@ -361,7 +391,7 @@ $("wd-save").addEventListener("click", async ()=>{
   const d = await r.json();
   if(!d.ok){ box.className="testresult show bad"; box.textContent="error: "+(d.error||"failed"); return; }
   box.className="testresult show good"; box.textContent="Saved.";
-  setTimeout(()=>goto(2), 400);
+  setTimeout(()=>goto(1), 400);
 });
 
 // -- Step 3: wantlist (optional) -----------------------------------------
@@ -527,7 +557,8 @@ async function loadRunSummary(){
   $("wr-summary").innerHTML =
     "<b>Provider:</b> " + (prov ? esc(prov.name) : "<span style=\"color:var(--bad)\">none saved — go back</span>") + "<br>" +
     "<b>Channels:</b> " + (wantSaved ? esc(wantSaved.name)+" ("+wantSaved.channels+" channels)" : "all channels (no wantlist)") + "<br>" +
-    "<b>Guide:</b> " + (epgSaved ? esc(epgSaved.name) : "none");
+    "<b>Guide:</b> " + (epgSaved ? esc(epgSaved.name) : "none") +
+    ($("wd-proxy").checked ? "<br><b>Probing:</b> through Dispatcharr's own proxy" : "");
   $("wr-start").disabled = !prov;
   return {provider: prov, wantlist: wantSaved, epg: epgSaved};
 }
@@ -541,7 +572,8 @@ $("wr-start").addEventListener("click", async ()=>{
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({provider: ctx.provider.name,
                          wantlist: ctx.wantlist ? ctx.wantlist.name : "",
-                         epg: ctx.epg ? ctx.epg.name : ""})});
+                         epg: ctx.epg ? ctx.epg.name : "",
+                         prefer_dispatcharr_proxy: $("wd-proxy").checked})});
   const d = await r.json();
   if(!d.ok){ $("wr-result").className="testresult show bad"; $("wr-result").textContent="error: "+(d.error||"failed");
     $("wr-start").disabled=false; return; }

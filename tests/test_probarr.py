@@ -2492,6 +2492,34 @@ class TestChangedAlertOnlyFiresForTopTwoNegativeChanges(Temp):
                          "trigger a Changed alert")
 
 
+class TestDispatcharrCurrentCandidateFlag(Temp):
+    """Real bug found running the Wizard's "pull my Dispatcharr channels"
+    path live: the "already in Dispatcharr" candidate badge was keyed off
+    stream_id starting with "dispatcharr:<id>" -- which every candidate
+    gets, not just the genuinely-already-assigned one, whenever Dispatcharr
+    itself is the probing PROVIDER (exactly what that Wizard path sets up).
+    build_payload() must instead carry the explicit is_dispatcharr_current
+    flag _dispatcharr_import() stamps on its one real "this was already
+    live" seed -- see web.py's seeds_for().
+    """
+
+    def test_only_the_explicitly_flagged_record_is_marked(self):
+        from probarr.store import RunStore
+        from probarr.verify import annotate_placeholders
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append({"rec_key": "A|dispatcharr:1", "channel_key": "A",
+                     "stream_id": "dispatcharr:1", "status": "ok",
+                     "is_dispatcharr_current": True})
+        store.append({"rec_key": "A|dispatcharr:2", "channel_key": "A",
+                     "stream_id": "dispatcharr:2", "status": "ok"})
+        by_channel = annotate_placeholders(store)
+        payload = curate.build_payload(by_channel, store, False, None, None, None, None)
+        ch = next(c for c in payload["channels"] if c["key"] == "A")
+        flags = {c["stream_id"]: c["dispatcharr_current"] for c in ch["candidates"]}
+        self.assertEqual(flags, {"dispatcharr:1": True, "dispatcharr:2": False})
+
+
 class TestCurateShowsClaimStatus(Temp):
     """Real user request: seeing which channels are/aren't tagged in
     claims.py directly in Curate (not just inferred from a push preview),
