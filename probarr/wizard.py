@@ -135,6 +135,14 @@ __TOPBAR__
         the provider carries &mdash; fine for a small provider, slow for a
         large aggregated one. A wantlist narrows a run to just the channels
         you actually want, one name per line.</div>
+      <div id="ww-fromdisp" style="display:none;margin-bottom:12px">
+        <button id="ww-pulldisp">I've already got Dispatcharr set up with the channels I watch &mdash; pull them in</button>
+        <div class="hint2">Reads every channel already in Dispatcharr's active lineup right now
+          and fills the list below with their names, exactly as Dispatcharr has them &mdash;
+          nothing is changed in Dispatcharr itself. Still worth a look before saving: a name
+          here is what the provider must be probed under, and Dispatcharr's own channel names
+          don't always match the provider's.</div>
+      </div>
       <div class="row" style="margin-bottom:8px">
         <input type="text" id="ww-name" placeholder="Name, e.g. my-channels">
       </div>
@@ -248,6 +256,12 @@ function goto(i){
   $("wiz-"+STEPS[i]).classList.add("on");
   renderSteps();
   window.scrollTo({top:0, behavior:"smooth"});
+  // Only worth offering once Dispatcharr is actually connected -- step 2 is
+  // still on the SAME page (every step's DOM stays mounted, just hidden),
+  // so its own name field is readable directly rather than re-fetching
+  // /api/providers to find out what step 2 just saved.
+  if(STEPS[i] === "wantlist")
+    $("ww-fromdisp").style.display = $("wd-name").value.trim() ? "block" : "none";
 }
 renderSteps();
 goto(0);
@@ -334,6 +348,33 @@ $("wd-save").addEventListener("click", async ()=>{
 });
 
 // -- Step 3: wantlist (optional) -----------------------------------------
+$("ww-pulldisp").addEventListener("click", async ()=>{
+  const dispName = $("wd-name").value.trim();
+  const btn = $("ww-pulldisp"), box = $("ww-result");
+  if(!dispName) return;
+  btn.disabled = true; btn.textContent = "Reading Dispatcharr…";
+  box.className = "testresult show"; box.textContent = "";
+  try{
+    const r = await fetch("/api/browse", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({provider: dispName, active_only: true})});
+    const d = await r.json();
+    if(d.error){ box.className="testresult show bad"; box.textContent=d.error; }
+    else if(!d.channels || !d.channels.length){
+      box.className = "testresult show bad";
+      box.textContent = "Dispatcharr has no channels in its active lineup yet — "+
+        "nothing to pull in. Skip this step, or type your own list below.";
+    } else {
+      $("ww-body").value = d.channels.map(c=>c.name).join("\n");
+      if(!$("ww-name").value.trim()) $("ww-name").value = "dispatcharr-channels";
+      box.className = "testresult show good";
+      box.textContent = "Pulled "+d.channels.length+" channel(s) from Dispatcharr — "+
+        "check the list below, then Save and continue.";
+    }
+  }catch(e){ box.className="testresult show bad"; box.textContent="Request failed."; }
+  btn.disabled = false; btn.textContent =
+    "I've already got Dispatcharr set up with the channels I watch — pull them in";
+});
 $("ww-skip").addEventListener("click", ()=>goto(3));
 $("ww-save").addEventListener("click", async ()=>{
   const name = $("ww-name").value.trim(), body = $("ww-body").value;
