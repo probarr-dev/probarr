@@ -23,20 +23,16 @@ header.topbar{position:sticky;top:0;z-index:50;background:var(--bg2);
   display:flex;flex-direction:column;gap:9px}
 .tbrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;width:100%}
 .tbmain{gap:14px}
-/* The nav sits under the actions rather than beside them, at every width,
-   so the header keeps one shape instead of rearranging itself. */
-.tbnav{border-top:1px solid var(--line);padding-top:9px;margin-bottom:-1px}
-.tbnav .nav{flex-wrap:wrap}
 .brand{font-weight:700;font-size:16px;letter-spacing:.3px;color:var(--text);
   text-decoration:none;display:inline-block}
 .brand span{color:var(--accent)}
 a.brand:hover{opacity:.8}
 .brand-version{font-weight:400;font-size:11px;color:var(--faint);
   letter-spacing:normal;margin-left:6px}
-.nav{display:flex;gap:6px;align-items:center}
+.nav{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .nav a{text-decoration:none}
 .nav button.on{background:var(--panel2);border-color:var(--faint);color:var(--text)}
-.nav .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.sep{width:1px;height:20px;background:var(--line);margin:0 4px;flex:none}
 .navmenu-wrap{position:relative}
 .navmenu{display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:60;
   background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
@@ -283,16 +279,19 @@ def topbar(label="", active="", right="", home=True):
             'poll(); setInterval(poll, 4000);'
             '})();'
             '</script>')
-    # Two rows on purpose, not because the first one ran out of width.
-    # What you DO on this page (export it, push it, start another run) and
-    # where you can GO are different kinds of thing, and mixing them into one
-    # long strip made both harder to scan -- the page's own actions ended up
-    # sandwiched between the brand and a row of destinations. Splitting them
-    # also stops the header reflowing into a different arrangement at every
-    # window width, which is what made it look accidental.
+    # One row: DO (export it, push it, start another run) and GO
+    # (Runs/Setup) used to sit on separate rows, on the reasoning that
+    # mixing them made both harder to scan. In practice that reasoning
+    # cost more than it bought -- the nav row was almost always near-empty
+    # and just ate vertical space every page load. A thin separator (the
+    # same one Runs/Setup already use between themselves) keeps the two
+    # groups visually distinct without a whole extra row; .tbrow's existing
+    # flex-wrap still lets it drop to a second line on a narrow window
+    # instead of clipping.
+    sep = '<span class="sep"></span>' if nav else ''
     return (f'<header class="topbar">'
             f'<div class="tbrow tbmain">{brand}'
             f'<div class="runmeta">{label}</div>'
+            f'{sep}{nav}'
             f'<div class="spacer"></div>{diagbadge}{right}{newrun}</div>'
-            + (f'<div class="tbrow tbnav">{nav}</div>' if nav else '')
-            + '</header>')
+            '</header>')
