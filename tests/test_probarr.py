@@ -6294,5 +6294,29 @@ class TestSameOriginGuardCoversEveryWrite(Temp):
                          ["BBCONE"]["group"], "News")
 
 
+class TestDeletingARunReleasesItsClaims(Temp):
+    """A channel a run pushed to Dispatcharr must reappear as Unclaimed
+    once that run is deleted -- otherwise claims.json (a separate,
+    instance-wide file the run's own deletion never touches) keeps it
+    marked "ours" forever, even though nothing refers to it any more."""
+
+    def test_unclaim_by_source_only_releases_that_runs_claims(self):
+        from probarr import claims as claims_mod
+        claims_mod.claim(self.root, 1, "ch1", "Channel 1", source="run:run1")
+        claims_mod.claim(self.root, 2, "ch2", "Channel 2", source="run:run2")
+        released = claims_mod.unclaim_by_source(self.root, "run:run1")
+        self.assertEqual(released, 1)
+        remaining = claims_mod.read_all(self.root)
+        self.assertNotIn(1, remaining)
+        self.assertIn(2, remaining)
+
+    def test_unclaim_by_source_is_a_noop_when_nothing_matches(self):
+        from probarr import claims as claims_mod
+        claims_mod.claim(self.root, 2, "ch2", "Channel 2", source="run:run2")
+        released = claims_mod.unclaim_by_source(self.root, "run:run1")
+        self.assertEqual(released, 0)
+        self.assertIn(2, claims_mod.read_all(self.root))
+
+
 if __name__ == "__main__":
     unittest.main()

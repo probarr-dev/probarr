@@ -662,6 +662,13 @@ class Handler(BaseHTTPRequestHandler):
                     '{"ok":false,"error":"run is still in progress -- stop it first"}',
                     "application/json", 409)
             ok = RunStore.delete(self.root, parts[2])
+            if ok:
+                # Otherwise a channel this run pushed to Dispatcharr stays
+                # permanently marked "ours" in claims.json (a separate,
+                # instance-wide file the run's own deletion never touches)
+                # and never reappears in Unclaimed. See claims.py's
+                # unclaim_by_source docstring.
+                claims_mod.unclaim_by_source(self.root, f"run:{parts[2]}")
             return self._send(json.dumps({"ok": ok}), "application/json",
                               200 if ok else 404)
 

@@ -116,3 +116,20 @@ def unclaim(root, dispatcharr_id):
         _write(root, data)
         return True
     return False
+
+
+def unclaim_by_source(root, source):
+    """Release every claim recorded with this exact `source` tag.
+
+    A run's push tags each claim it makes with source=f"run:{run_id}" (see
+    claim()'s call site in web.py). Deleting the run's own files was never
+    enough to release those claims -- claims.json is a deliberately
+    separate, instance-wide file (see module docstring), so a channel a
+    now-deleted run pushed stayed permanently marked "ours" and dropped out
+    of the Unclaimed list forever. Called from the run-delete handler.
+    """
+    data = _read(root)
+    remaining = {k: v for k, v in data.items() if v.get("source") != source}
+    if len(remaining) != len(data):
+        _write(root, remaining)
+    return len(data) - len(remaining)
