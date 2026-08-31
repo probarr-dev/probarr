@@ -25,9 +25,8 @@ aside{width:320px;flex:none;border-right:1px solid var(--line);background:var(--
   display:flex;flex-direction:column;min-height:0}
 aside .tools{padding:9px 10px;border-bottom:1px solid var(--line);display:flex;
   flex-direction:column;gap:7px}
-aside .tools input[type=search]{width:100%}
-.searchrow{display:flex;gap:6px;align-items:center}
-.searchrow input[type=search]{flex:1;min-width:0}
+.searchrow{display:flex;gap:6px;align-items:center;flex:none}
+.searchrow input[type=search]{width:200px}
 .addmenu-wrap,.moremenu-wrap{position:relative;flex:none;display:inline-block}
 .iconbtn{width:29px;height:29px;padding:0;font-size:16px;line-height:1;
   display:flex;align-items:center;justify-content:center}
@@ -319,7 +318,7 @@ main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
 .dtag{margin-left:8px;background:var(--bg2);border:1px solid var(--line);
   border-radius:20px;padding:1px 8px;font-size:11px;color:var(--dim)}
 .claimtag{font-size:11px;font-weight:400;border-radius:20px;padding:2px 9px;
-  vertical-align:middle;white-space:nowrap}
+  vertical-align:middle;display:inline-block;max-width:100%}
 .claimtag-on{background:rgba(39,194,76,.1);border:1px solid var(--ok);color:var(--ok)}
 .claimtag-off{background:rgba(240,80,80,.1);border:1px solid var(--bad);color:var(--bad)}
 .chpip{margin-left:5px;font-size:9.5px;font-weight:700;color:#3a2200;
@@ -389,17 +388,7 @@ __TOPBAR__
 <div class="wrap">
   <aside>
     <div class="tools">
-      <div class="searchrow">
-        <input type="search" id="q" placeholder="Find a channel&hellip;">
-        <div class="addmenu-wrap">
-          <button id="addmenubtn" class="iconbtn" title="Add channels">+</button>
-          <div class="addmenu" id="addmenu">
-            <button id="addchannels">+ Add from provider</button>
-            <button id="importdispatch"
-              title="Read the channels that already exist in Dispatcharr into this run, and probe the provider's alternatives for each.">&darr; Import from Dispatcharr</button>
-          </div>
-        </div>
-      </div>
+      <div class="chips" id="chips"></div>
       <div class="toolrow">
         <button id="opengroups"
           title="See every group and what is in it, drag channels between groups, or drop one channel on another to swap their numbers.">Groups</button>
@@ -407,7 +396,6 @@ __TOPBAR__
           title="Re-scan every candidate for the channels currently shown by this filter/search &mdash; pick which ones before it starts, same as the nightly re-verify but on demand and on a subset.">
           Diagnose these (<span id="diagfilteredcount">0</span>)</button>
       </div>
-      <div class="chips" id="chips"></div>
     </div>
     <div class="chanlist" id="chanlist"></div>
   </aside>
@@ -1031,9 +1019,15 @@ function renderChips(){
     if(needsHuman(ch)) counts.triage++;
   });
   counts.changed = DATA.channels.filter(ch => (ch.changes||[]).length).length;
-  document.getElementById("chips").innerHTML = FILTERS.map(([k,label])=>
-    '<span class="chip'+(filter===k?' on':'')+'" data-f="'+k+'">'+label+
-    ' '+(counts[k]||0)+'</span>').join("");
+  // A chip for zero channels is a dead end, not a filter -- "All" stays
+  // (it's the baseline view, and hiding it would be strange even at zero),
+  // and so does whichever chip is currently selected, so switching to it
+  // never makes its own chip vanish out from under the click.
+  document.getElementById("chips").innerHTML = FILTERS
+    .filter(([k])=> (counts[k]||0) > 0 || k==="all" || filter===k)
+    .map(([k,label])=>
+      '<span class="chip'+(filter===k?' on':'')+'" data-f="'+k+'">'+label+
+      ' '+(counts[k]||0)+'</span>').join("");
 }
 
 // Same precedence _resolve_curated() uses server-side for export, minus
@@ -2523,10 +2517,17 @@ document.getElementById("addmenubtn").addEventListener("click", (e)=>{
   e.stopPropagation();
   document.getElementById("addmenu").classList.toggle("on");
 });
+document.getElementById("exportmenubtn").addEventListener("click", (e)=>{
+  e.stopPropagation();
+  document.getElementById("exportmenu").classList.toggle("on");
+});
 document.addEventListener("click", (e)=>{
   const menu = document.getElementById("addmenu");
   if(menu.classList.contains("on") && !menu.contains(e.target)
      && e.target.id !== "addmenubtn") menu.classList.remove("on");
+  const exp = document.getElementById("exportmenu");
+  if(exp.classList.contains("on") && !exp.contains(e.target)
+     && e.target.id !== "exportmenubtn") exp.classList.remove("on");
   // #moremenu is rebuilt by renderDetail() on every re-render (only present
   // at all for a matched channel), so it is looked up fresh here rather
   // than cached -- a stale reference from a previous render would silently
@@ -2538,6 +2539,7 @@ document.addEventListener("click", (e)=>{
 document.addEventListener("keydown", (e)=>{
   if(e.key === "Escape"){
     document.getElementById("addmenu").classList.remove("on");
+    document.getElementById("exportmenu").classList.remove("on");
     const more = document.getElementById("moremenu");
     if(more) more.classList.remove("on");
   }
@@ -4118,7 +4120,8 @@ document.getElementById("dm-push").addEventListener("click", async () => {
 
 
 def changes_since_last_probe(store):
-    """{channel_key: [human-readable change, ...]} from the results history.
+    """{channel_key: [(rec_key, human-readable change, negative), ...]} from
+    the results history.
 
     A re-verify refreshes a run in place, which is what keeps every curated
     pick -- but it also means the page looks identical afterwards whether
@@ -4130,6 +4133,15 @@ def changes_since_last_probe(store):
     wobbling by 3% on a live stream is not news; a stream that stopped
     decoding, started decoding, or changed what country it is coming from
     is exactly what someone logging in afterwards is looking for.
+
+    `rec_key` and `negative` exist so the caller can narrow this further --
+    see build_payload()'s use of them: only a NEGATIVE change to one of a
+    channel's top-2 ranked candidates actually surfaces as a "Changed" alert.
+    A regression buried in candidate #7, or an upgrade anywhere, is real
+    information (still returned here) but not the kind worth interrupting
+    a curator for -- that was the actual complaint that prompted the split:
+    the alert fired just as often for a fallback stream nobody was using as
+    for the one actually on air.
     """
     history = {}
     for r in store.load(dedupe=False):
@@ -4151,23 +4163,28 @@ def changes_since_last_probe(store):
             broke = now in ("dead", "no_frame", "placeholder")
             fixed = was in ("dead", "no_frame", "placeholder") and now == "ok"
             if broke:
-                msgs.append(f"{name} stopped working ({was} -> {now})")
+                msgs.append((f"{name} stopped working ({was} -> {now})", True))
             elif fixed:
-                msgs.append(f"{name} works again ({was} -> {now})")
+                msgs.append((f"{name} works again ({was} -> {now})", False))
             else:
-                msgs.append(f"{name}: {was} -> {now}")
-        # Resolution and cadence are identity, not quality: a stream that
-        # changes either is not the same feed it was, whatever it is called.
+                msgs.append((f"{name}: {was} -> {now}", False))
+        # Resolution and cadence are identity, not quality, so both
+        # directions are still reported -- but only a DOWNGRADE (fewer
+        # pixels, lower fps) counts as "negative" for the top-2 alert;
+        # an upgrade is real information, just not urgent information.
         if (old.get("width"), old.get("height")) != (new.get("width"), new.get("height")) \
                 and new.get("width") and old.get("width"):
-            msgs.append(f"{name} changed size "
-                        f"({old['width']}x{old['height']} -> {new['width']}x{new['height']})")
+            worse = (new["width"] * new["height"]) < (old["width"] * old["height"])
+            msgs.append((f"{name} changed size "
+                        f"({old['width']}x{old['height']} -> {new['width']}x{new['height']})",
+                        worse))
         if old.get("fps") and new.get("fps") and \
                 round(float(old["fps"]), 2) != round(float(new["fps"]), 2):
-            msgs.append(f"{name} changed frame rate "
-                        f"({old['fps']:g} -> {new['fps']:g})")
+            worse = round(float(new["fps"]), 2) < round(float(old["fps"]), 2)
+            msgs.append((f"{name} changed frame rate "
+                        f"({old['fps']:g} -> {new['fps']:g})", worse))
         if msgs:
-            out.setdefault(key, []).extend(msgs)
+            out.setdefault(key, []).extend((rk, m, neg) for m, neg in msgs)
     return out
 
 
@@ -4280,9 +4297,15 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
     moved = changes_since_last_probe(store)
     sel_now = {**(inherited or {}), **(store.read_selection() or {})}
     for c in channels:
-        msgs = list(moved.get(c["key"], []))
-        pick = (sel_now.get(c["key"]) or {}).get("primary")
         cands = c.get("candidates") or []
+        # Only a NEGATIVE change to one of the top 2 ranked candidates is
+        # worth a "Changed" alert -- see changes_since_last_probe()'s
+        # docstring. cands is already rank-ordered (built from rank_mod.rank()
+        # above), so the top 2 ids are just its first two entries.
+        top2 = {x["id"] for x in cands[:2]}
+        msgs = [m for rk, m, negative in moved.get(c["key"], [])
+                if negative and rk in top2]
+        pick = (sel_now.get(c["key"]) or {}).get("primary")
         if pick and cands and cands[0]["id"] != pick:
             chosen = next((x for x in cands if x["id"] == pick), None)
             if chosen is None:
@@ -4343,17 +4366,30 @@ def render(by_channel, store, guide_present=False, inherited=None, dropped=None,
           epg_mismatches=None, claims=None):
     payload = build_payload(by_channel, store, guide_present, inherited, dropped,
                             epg_mismatches, claims)
-    right = ('<span class="saveind" id="saveind"></span>'
+    right = ('<div class="searchrow">'
+             '<input type="search" id="q" placeholder="Find a channel&hellip;">'
+             '<div class="addmenu-wrap">'
+             '<button id="addmenubtn" class="iconbtn" title="Add channels">+</button>'
+             '<div class="addmenu" id="addmenu">'
+             '<button id="addchannels">+ Add from provider</button>'
+             '<button id="importdispatch" title="Read the channels that already '
+             'exist in Dispatcharr into this run, and probe the provider\'s '
+             'alternatives for each.">&darr; Import from Dispatcharr</button>'
+             '</div></div></div>'
+             '<span class="saveind" id="saveind"></span>'
              '<button id="pushall" title="Push every channel whose Dispatcharr state differs from your curated picks.">Push changes</button>'
+             '<div class="addmenu-wrap">'
+             '<button id="exportmenubtn" class="primary">Export ▾</button>'
+             '<div class="addmenu" id="exportmenu">'
+             f'<a href="/run/{store.run_id}/export.m3u"><button>Playlist (M3U)</button></a>'
              f'<a href="/run/{store.run_id}/export.xmltv" title="A guide for '
              'exactly these channels, keyed to the same ids as the playlist '
-             '&mdash; a player needs both.">'
-             '<button>Export EPG</button></a>'
-             f'<a href="/run/{store.run_id}/export.m3u">'
-             '<button class="primary">Export M3U</button></a>')
+             '&mdash; a player needs both."><button>Guide (EPG)</button></a>'
+             '</div></div>')
     return (HTML
             .replace("__TOPBAR__", topbar(f"curate &middot; run {store.run_id}",
-                                          active="runs", right=right))
+                                          active="runs", right=right,
+                                          newrun_primary=False))
             .replace("__CSS__", CSS)
             .replace("__EXTRA__", EXTRA_CSS)
             .replace("__DATA__", json.dumps(payload, ensure_ascii=False))

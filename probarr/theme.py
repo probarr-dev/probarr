@@ -160,7 +160,7 @@ _NAV_SETUP = [("wizard", "/wizard", "Setup wizard"),
 _NAV_ITEMS = _NAV_DAILY + _NAV_SETUP   # kept for anything still iterating the flat list
 
 
-def topbar(label="", active="", right="", home=True):
+def topbar(label="", active="", right="", home=True, newrun_primary=True):
     """The shared header.
 
     `home` exists for the contact sheet, which is also written to disk as a
@@ -172,6 +172,12 @@ def topbar(label="", active="", right="", home=True):
     it is the single action that starts everything else, and previously had
     no obvious home in the UI at all -- there was no way to begin a run
     without already knowing the CLI.
+
+    `newrun_primary=False` keeps the button but drops its accent styling --
+    for Curate specifically, where it sits next to Export/Push (this run's
+    own actions) and its highlighted look claimed the same weight as
+    those while actually meaning something unrelated: start a DIFFERENT
+    run, not act on this one.
     """
     ver = f'<span class="brand-version">v{__version__}</span>'
     brand = ((f'<a class="brand" href="/">prob<span>arr</span></a>{ver}') if home
@@ -179,7 +185,8 @@ def topbar(label="", active="", right="", home=True):
     nav = ""
     newrun = nav = ""
     if home:
-        newrun = ('<a href="/new"><button class="primary'
+        newrun = ('<a href="/new"><button class="'
+                 + ('primary' if newrun_primary else '')
                  + (' on' if active == 'new' else '') + '">+ New Run</button></a>')
         daily = "".join(
             f'<a href="{href}"><button class="{"on" if key == active else ""}">'

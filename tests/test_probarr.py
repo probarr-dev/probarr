@@ -2347,6 +2347,71 @@ class TestClaimsRegistry(Temp):
         self.assertNotIn("ITV", by_key)
 
 
+class TestChangedAlertOnlyFiresForTopTwoNegativeChanges(Temp):
+    """Real usability complaint: the "Changed" chip/badge fired for ANY
+    candidate's change, including a fallback stream ranked #5 that nobody
+    was watching, and for improvements as much as regressions -- both are
+    real information, but neither is what a curator logging in to check on
+    their lineup actually needs interrupted for. Only a change that makes
+    one of a channel's top-2 ranked candidates WORSE should surface here.
+    """
+
+    def _probe(self, key, sid, probed_at, w, h, status="ok", kbps=5000):
+        return {"rec_key": f"{key}|{sid}", "channel_key": key, "stream_id": sid,
+                "stream_name": sid, "status": status, "width": w, "height": h,
+                "measured_kbps": kbps, "probed_at": probed_at}
+
+    def _payload_for(self, store):
+        from probarr.verify import annotate_placeholders
+        by_channel = annotate_placeholders(store)
+        return curate.build_payload(by_channel, store, False, None, None, None, None)
+
+    def test_a_regression_on_the_top_ranked_candidate_is_reported(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        # s1 is clearly the best (1080p) -- rank #1.
+        store.append(self._probe("A", "s1", 1000, 1920, 1080))
+        store.append(self._probe("A", "s2", 1000, 720, 480))
+        # Re-probe: s1 breaks.
+        store.append(self._probe("A", "s1", 2000, 1920, 1080, status="dead"))
+        store.append(self._probe("A", "s2", 2000, 720, 480))
+        ch = next(c for c in self._payload_for(store)["channels"] if c["key"] == "A")
+        self.assertTrue(any("stopped working" in m for m in ch["changes"]),
+                        ch["changes"])
+
+    def test_a_regression_buried_below_the_top_two_is_not_reported(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        # s1/s2 rank above s3 on resolution -- s3 is rank #3.
+        store.append(self._probe("A", "s1", 1000, 1920, 1080))
+        store.append(self._probe("A", "s2", 1000, 1280, 720))
+        store.append(self._probe("A", "s3", 1000, 640, 480))
+        store.append(self._probe("A", "s1", 2000, 1920, 1080))
+        store.append(self._probe("A", "s2", 2000, 1280, 720))
+        # Re-probe: only s3 (rank #3) breaks.
+        store.append(self._probe("A", "s3", 2000, 640, 480, status="dead"))
+        ch = next(c for c in self._payload_for(store)["channels"] if c["key"] == "A")
+        self.assertEqual(ch["changes"], [],
+                         "a regression on a candidate outside the top 2 must "
+                         "not trigger a Changed alert")
+
+    def test_an_improvement_on_the_top_ranked_candidate_is_not_reported(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("A", "s1", 1000, 1280, 720))
+        store.append(self._probe("A", "s2", 1000, 640, 480))
+        # Re-probe: s1 gets BETTER (720p -> 1080p) -- real info, not urgent.
+        store.append(self._probe("A", "s1", 2000, 1920, 1080))
+        store.append(self._probe("A", "s2", 2000, 640, 480))
+        ch = next(c for c in self._payload_for(store)["channels"] if c["key"] == "A")
+        self.assertEqual(ch["changes"], [],
+                         "an upgrade is not a negative change and must not "
+                         "trigger a Changed alert")
+
+
 class TestCurateShowsClaimStatus(Temp):
     """Real user request: seeing which channels are/aren't tagged in
     claims.py directly in Curate (not just inferred from a push preview),
