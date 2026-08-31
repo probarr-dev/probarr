@@ -462,11 +462,14 @@ $("we-pulldisp").addEventListener("click", async ()=>{
       const sorted = [...d.epg_sources].sort((a,b)=>
         (b.has_channels?1:0) - (a.has_channels?1:0));
       picks.innerHTML = sorted.map(s=>
-        '<div class="grp-opt epgsrc-pick" data-name="'+esc(s.name)+
-        '" data-url="'+esc(s.url)+'" style="display:block;margin-bottom:4px;cursor:pointer">'+
+        '<div style="display:flex;align-items:center;gap:10px;justify-content:space-between;'+
+        'border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-bottom:4px">'+
+        '<div style="min-width:0">'+
         '<b>'+esc(s.name)+'</b>'+(s.has_channels?' <span class="muted">(in use)</span>':
           ' <span class="muted">(configured, not currently mapped to any channel)</span>')+
-        '<div class="muted" style="font-size:11px">'+esc(s.url)+'</div></div>').join("");
+        '<div class="muted" style="font-size:11px">'+esc(s.url)+'</div></div>'+
+        '<button class="epgsrc-pick" data-name="'+esc(s.name)+'" data-url="'+esc(s.url)+
+        '" style="flex:none">Use this</button></div>').join("");
       box.className = "testresult show good";
       box.textContent = "Pick one below" + (sorted.length>1 ?
         " (Dispatcharr has "+sorted.length+" configured)" : "") + ".";
@@ -478,7 +481,8 @@ $("we-disppicks").addEventListener("click", e=>{
   const pick = e.target.closest(".epgsrc-pick"); if(!pick) return;
   $("we-name").value = pick.dataset.name;
   $("we-url").value = pick.dataset.url;
-  [...document.querySelectorAll(".epgsrc-pick")].forEach(x=>x.classList.toggle("on", x===pick));
+  [...document.querySelectorAll(".epgsrc-pick")].forEach(x=>x.textContent="Use this");
+  pick.textContent = "Selected ✓";
 });
 $("we-skip").addEventListener("click", ()=>goto(4));
 $("we-save").addEventListener("click", async ()=>{
@@ -509,8 +513,15 @@ async function loadRunSummary(){
     (await fetch("/api/providers")).json(),
     (await fetch("/api/wantlists")).json(),
     (await fetch("/api/epg-sources")).json()]);
-  const prov = (p.providers || []).find(x => x.as_source !== false);
-  const want = (w.wantlists || [])[$("ww-name").value.trim() ? 0 : -1];
+  // Looked up by the name THIS session actually saved in step 1, not "the
+  // first provider marked as_source" -- real bug found running this twice
+  // in a row against two different Dispatcharr instances: with more than
+  // one provider on file, that fallback silently picked whichever one
+  // happened to be saved first, and the run would have started against
+  // the WRONG instance while the summary confidently named the right one.
+  const provName = $("wp-name").value.trim();
+  const prov = (p.providers || []).find(x => x.name === provName)
+    || (p.providers || []).find(x => x.as_source !== false);
   const wantSaved = (w.wantlists || []).find(x => x.name === $("ww-name").value.trim());
   const epgSaved = (e.epg_sources || []).find(x => x.name === $("we-name").value.trim());
   $("wr-summary").innerHTML =
