@@ -75,18 +75,13 @@ __TOPBAR__
   <div class="card">
     <h2>What a wantlist is for</h2>
     <div class="lead">
-      A wantlist is the set of channels you actually want. probarr only probes
-      candidate streams for these &mdash; on a provider listing tens of thousands of
-      streams that is the difference between a run that finishes and one that
-      does not. It also decides the channel numbers and names in your exported
-      playlist.
+      The channels you actually want &mdash; probarr only probes these, and it's
+      what sets your exported numbers and names.
     </div>
 
     <div class="stepnum">1</div>
     <h3 class="stephead">Get channel names into the editor</h3>
-    <div class="lead" style="margin-top:0">Pick whichever of these matches what you have.
-      They all add to the editor below rather than replacing it, so more than one can be
-      combined &mdash; e.g. browse your provider first, then top up from an EPG.</div>
+    <div class="lead" style="margin-top:0">Pick one or combine a few &mdash; each adds to the editor below.</div>
     <div class="row" style="margin-top:8px">
       <a href="/browse"><button class="primary">Browse a provider's channels</button></a>
       <span class="muted">no typing, no probing &mdash; tick names from what your provider actually lists</span>
@@ -112,9 +107,8 @@ __TOPBAR__
 
     <div class="stepnum">2</div>
     <h3 class="stephead">Then enrich it <span class="muted" style="font-weight:400">(optional)</span></h3>
-    <div class="lead" style="margin-top:0">An EPG has no channel numbers or categories &mdash;
-      this cross-references whatever's now in the editor against a real broadcaster lineup
-      (e.g. Sky UK) to fill in what's missing, without touching anything already set.</div>
+    <div class="lead" style="margin-top:0">Fills in missing numbers/groups from a real
+      broadcaster lineup, without touching what's already set.</div>
     <div class="row" style="margin-top:8px">
       <button id="enrichopen">Fill in numbers &amp; groups from a reference lineup&hellip;</button>
     </div>
@@ -600,24 +594,17 @@ __TOPBAR__
 <div class="page">
   <div class="card">
     <h2>Probing</h2>
-    <div class="lead">These apply to new runs and to re-probing a single stream
-      from the curation view.</div>
+    <div class="lead">Applies to new runs and to re-probing a single stream.</div>
 
     <div class="field">
       <div class="lab">Streams at once</div>
       <div class="ctl">
         <input type="number" id="concurrency" min="1" max="16">
         <div class="help">
-          Set this to how many simultaneous connections <b>your provider
-          allows</b>, leaving one spare for whoever is actually watching
-          television. A three-stream account probes roughly three times faster
-          than a one-stream account.
+          Set to your provider's connection limit, minus one for whoever's watching TV.
           <br><br>
-          <span class="danger">Setting it higher than your allowance does not
-          fail cleanly.</span> An over-limit provider returns small, plausible
-          error responses that are indistinguishable from a dead stream, so the
-          run completes and quietly marks working channels as broken. When in
-          doubt, leave it at 1.
+          <span class="danger">Set it too high and errors look like dead streams, not
+          overload &mdash; when in doubt, leave it at 1.</span>
         </div>
         <div class="rate" id="rate"></div>
       </div>
@@ -626,30 +613,19 @@ __TOPBAR__
     <div class="field">
       <div class="lab">Gap between probes</div>
       <div class="ctl"><input type="number" id="gap_seconds" min="0" max="10" step="0.1">
-        <div class="help">Seconds to pause between serial probes. Ignored when
-          probing more than one stream at once.</div></div>
+        <div class="help">Pause between serial probes; ignored once you're probing more than one at a time.</div></div>
     </div>
 
     <div class="field">
       <div class="lab">Sample length</div>
       <div class="ctl"><input type="number" id="sample_seconds" min="3" max="60">
-        <div class="help">Seconds of video decoded per stream. Longer finds
-          intermittent corruption more reliably and makes every run
-          proportionally slower.</div></div>
+        <div class="help">Longer catches intermittent corruption better, but slows every run down.</div></div>
     </div>
 
     <div class="field">
       <div class="lab">Freshness window</div>
       <div class="ctl"><input type="number" id="freshness_hours" min="0" max="1440">
-        <div class="help">Re-verifying a <b>lineup</b> skips re-probing a
-          candidate whose stream hasn't changed on the provider's end since
-          its last verdict, as long as that verdict is within this many
-          hours &mdash; carrying the prior result forward instead of
-          spending a connection on a stream nothing has touched. 0 disables
-          this and always re-probes everything, which was every run's
-          behaviour before this setting existed. Only applies to runs
-          started from a saved lineup; an ad-hoc run has no prior verdict
-          to compare against.</div></div>
+        <div class="help">Skips re-probing a lineup's unchanged streams within this many hours; 0 always re-probes everything.</div></div>
     </div>
 
     <div class="field">
@@ -660,24 +636,15 @@ __TOPBAR__
           <option value="normal">Normal &mdash; also try word-order/typo-tolerant matching</option>
           <option value="relaxed">Relaxed &mdash; same, with a looser threshold</option>
         </select>
-        <div class="help">A wanted channel that doesn't match anything exactly,
-          by alias, or by prefix/suffix is reported <b>missing</b> by default
-          &mdash; the safest answer when the alternative is silently guessing
-          wrong. Normal/Relaxed add one more, looser attempt after all of
-          those have failed: comparing the channel name's WORDS regardless of
-          their order (catches "Sports 1 Meridian" for "Meridian Sports 1"),
-          refusing if the best candidate isn't clearly ahead of the next
-          one. Every match found this way is still reported as a guess, same
-          as the existing prefix/suffix matches.</div>
+        <div class="help">Strict reports anything not an exact/alias/prefix match as
+          missing; Normal/Relaxed also try a looser, word-order-independent guess.</div>
       </div>
     </div>
 
     <div class="field">
       <div class="lab">Frame height</div>
       <div class="ctl"><input type="number" id="frame_height" min="180" max="2160">
-        <div class="help">Height of the full-size captured frame, never
-          upscaled beyond the source. The 1:1 native crop is captured
-          separately and is unaffected by this.</div></div>
+        <div class="help">Height of the captured full-size frame, never upscaled.</div></div>
     </div>
 
     <div class="field">
@@ -689,12 +656,11 @@ __TOPBAR__
 
   <div class="card">
     <h2>Defaults for new runs</h2>
-    <div class="lead">Optional. Saves retyping them on the command line.</div>
+    <div class="lead">Optional &mdash; saves retyping these every time.</div>
     <div class="field"><div class="lab">Source</div>
       <div class="ctl"><input type="text" id="source"
         placeholder="playlist URL, or xtream://user:pass@host:port">
-        <div class="help">Stored on the server in <code>/config/settings.json</code>.
-          A source URL usually contains your subscription credentials.</div></div></div>
+        <div class="help">Stored in <code>/config/settings.json</code>, credentials and all.</div></div></div>
     <div class="field"><div class="lab">EPG</div>
       <div class="ctl"><input type="text" id="epg"
         placeholder="XMLTV URL (.xml or .xml.gz)"></div></div>
@@ -705,53 +671,35 @@ __TOPBAR__
 
   <div class="card">
     <h2>Manage tags</h2>
-    <div class="lead">The packaging every stream name gets stripped of before
-      matching a wantlist entry: <b>region</b> markers (country prefixes like
-      "UK:", "US:") and <b>quality</b> markers ("HD", "RAW", "4K"&hellip;).
-      A provider's own tier/source labels that aren't a country
-      ("OD:", "PLAY+:", "ZG:") or a quality word probarr has never seen
-      ("GOLD") need adding here, or they stay glued to the front of every
-      matching key and never match a plain wantlist entry. Applies to every
-      run and to Browse Channels. "Restore defaults" un-does your own
-      changes to that list only -- it never touches the other one.</div>
+    <div class="lead">Region ("UK:") and quality ("HD") markers probarr strips before
+      matching &mdash; add your provider's own labels here if they're not one of these already.</div>
     <div id="tagcards"></div>
   </div>
 
   <div class="card">
     <h2>Manage delete reasons</h2>
-    <div class="lead">Curate's "Delete stream" always asks why. These are
-      the one-click picks it offers -- typing a new one here (or from the
-      dialog itself) adds it to the list for next time; remove one you no
-      longer need, or restore the built-in pair.</div>
+    <div class="lead">The one-click reasons Curate's "Delete stream" offers.</div>
     <div id="reasoncard"></div>
   </div>
 
   <div class="card">
     <h2>Dispatcharr failover evidence</h2>
-    <div class="lead">Dispatcharr's own event log records when a channel
-      genuinely failed over in real use -- not a probe's guess, the actual
-      thing a viewer's player did. Shown per channel during import.</div>
+    <div class="lead">Real playback failures from Dispatcharr's own log, shown per channel during import.</div>
     <div class="field"><div class="lab">Reporting</div>
       <div class="ctl">
         <select id="failover_display">
           <option value="off">Off &mdash; never asked, never shown</option>
           <option value="info">Informational &mdash; shown on the channel card, never affects ranking</option>
         </select>
-        <div class="help">More levels (weighting it into ranking) land here
-          later without disturbing what is already saved -- flip freely.</div>
+        <div class="help">More levels (weighting it into ranking) may land here later.</div>
       </div>
     </div>
   </div>
 
   <div class="card">
     <h2>Backup &amp; restore</h2>
-    <div class="lead">Everything needed to rebuild this install elsewhere:
-      providers, lineups, wantlists, EPG sources, settings, and every run's
-      curated state. Deliberately not the captured thumbnails/frames/clips
-      &mdash; a run's own "Clear images" already treats those as disposable,
-      and for a lineup with a long history they can dwarf everything else.
-      Provider credentials ARE included, so keep the download somewhere
-      only you can reach.</div>
+    <div class="lead">Everything needed to rebuild this install elsewhere (not images,
+      those are disposable) &mdash; includes your credentials, so keep it safe.</div>
     <div class="row">
       <a href="/api/backup/export"><button class="primary">Download backup</button></a>
       <label class="muted" style="display:flex;gap:6px;align-items:center">
@@ -1107,10 +1055,8 @@ __TOPBAR__
 
   <div class="card">
     <h2>Connect Dispatcharr</h2>
-    <div class="lead">Optional. Lets probarr push curated channels back into
-      Dispatcharr, and (if you tick the box below) probe streams through it too
-      &mdash; skip this entirely if you're only using probarr to export an M3U
-      file.</div>
+    <div class="lead">Optional &mdash; lets probarr push channels to Dispatcharr,
+      and optionally probe through it too.</div>
     <div class="row" style="margin-bottom:10px">
       <input type="text" id="disp-name" placeholder="Name, e.g. My Dispatcharr">
     </div>
@@ -1123,8 +1069,7 @@ __TOPBAR__
       <input type="password" id="disp-pass" style="flex:1" placeholder="Password">
       <button id="disp-toggle" type="button">Show</button>
     </div>
-    <div class="hint2">Its own admin login, not the Xtream/M3U playback credentials &mdash;
-      this is what pushes curated channels back into Dispatcharr.</div>
+    <div class="hint2">Its own admin login, not your Xtream/M3U playback credentials.</div>
 
     <div class="hint2" style="margin-top:10px">
       <a href="#" id="disp-advtoggle">Paste a raw connection string instead&hellip;</a>
@@ -1170,9 +1115,7 @@ __TOPBAR__
         placeholder="Password (only if not already in the URL)">
       <button id="iptv-toggle" type="button">Show</button>
     </div>
-    <div class="hint2">Paste the full playlist URL your provider gave you (username/password
-      stay blank) &mdash; or, if you were given an Xtream login instead of a link, just the
-      host/domain plus your username and password.</div>
+    <div class="hint2">Paste the full playlist URL, or an Xtream host/username/password.</div>
 
     <div class="hint2" style="margin-top:10px">
       <a href="#" id="advtoggle">Paste a raw connection string instead&hellip;</a>
@@ -1203,10 +1146,7 @@ __TOPBAR__
 
   <div class="card" id="epg-sources">
     <h2>EPG (guide) sources</h2>
-    <div class="lead">The third thing a run can use, alongside a provider and
-      a wantlist: an XMLTV URL that records what the guide said should be
-      playing at the moment each frame was captured. Save one here once, then
-      pick it from a dropdown on New Run instead of retyping the URL.</div>
+    <div class="lead">An XMLTV guide, saved once so you can pick it from a dropdown later.</div>
     <div class="row" style="margin-bottom:10px">
       <input type="text" id="epgname" placeholder="name, e.g. uk-guide">
       <input type="text" id="epgurl" placeholder="XMLTV URL (.xml or .xml.gz)" style="flex:1;min-width:260px">
