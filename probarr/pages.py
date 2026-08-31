@@ -30,7 +30,7 @@ input[type=text]{background:var(--bg);color:var(--text);border:1px solid var(--l
   border-radius:var(--radius);padding:8px 10px;font-size:12px;margin-bottom:8px}
 .warn b{color:var(--warn)}
 .ok{color:var(--ok)}
-.saved{display:flex;gap:10px;align-items:center;padding:9px 0;
+.saved{display:flex;gap:10px;align-items:center;padding:9px 0;flex-wrap:wrap;
   border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
 .saved:last-child{border-bottom:0}
 .saved .nm{flex:1;font-weight:600}

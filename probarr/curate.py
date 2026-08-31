@@ -579,7 +579,7 @@ __TOPBAR__
 
 <div class="modal" id="groupsmodal">
   <div class="modalbox" style="width:min(900px,94vw)">
-    <button class="modalx" id="groups-x" title="Close">\u2715</button>
+    <button class="modalx" id="groups-x" title="Close">✕</button>
     <h3>Groups</h3>
     <div class="sub">Drag a channel onto another group to move it there. Drop
       it on another channel WITHIN the same group to swap their numbers
