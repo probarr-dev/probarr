@@ -392,9 +392,8 @@ __TOPBAR__
       <div class="toolrow">
         <button id="opengroups"
           title="See every group and what is in it, drag channels between groups, or drop one channel on another to swap their numbers.">Groups</button>
-        <button id="diagfiltered"
-          title="Re-scan every candidate for the channels currently shown by this filter/search &mdash; pick which ones before it starts, same as the nightly re-verify but on demand and on a subset.">
-          Diagnose these (<span id="diagfilteredcount">0</span>)</button>
+        <a href="/run/__RUN__/bulk" title="A spreadsheet-style table of every channel &mdash; tick several and diagnose, set group, set EPG source, include/exclude or clear watermark across all of them at once.">
+          <button id="opendbulk">Bulk edit</button></a>
       </div>
     </div>
     <div class="chanlist" id="chanlist"></div>
@@ -587,33 +586,6 @@ __TOPBAR__
     </div>
     <div id="grpacc"></div>
     <div class="mrow"><button id="groups-close">Close</button></div>
-  </div>
-</div>
-
-<div class="modal" id="diagmodal">
-  <div class="modalbox" style="width:min(640px,94vw)">
-    <button class="modalx" id="diag-x" title="Close">✕</button>
-    <h3>Diagnose filtered channels</h3>
-    <div class="sub">Re-scans every candidate for each ticked channel with a longer
-      sample and a kept clip &mdash; the same as the per-channel Diagnose button,
-      queued for all of these at once. Untick anything you don't want touched.
-      One probe runs at a time on a connection-limited provider, so this can take
-      a while for a large selection.</div>
-    <div class="mfield" style="margin-bottom:8px">
-      <label style="font-weight:400;display:flex;align-items:center;gap:6px">
-        <input type="checkbox" id="diag-include-dead" style="width:auto">
-        also re-probe candidates that came back dead (slower &mdash; only worth it
-        if a slow-starting stream is the actual suspicion)</label>
-    </div>
-    <div id="diag-list" class="cat-results"></div>
-    <div class="mresult" id="diag-result"></div>
-    <div class="mrow" style="justify-content:space-between;align-items:center">
-      <span class="muted" id="diag-summary"></span>
-      <span style="display:flex;gap:8px">
-        <button id="diag-cancel">Cancel</button>
-        <button class="primary" id="diag-go">Start</button>
-      </span>
-    </div>
   </div>
 </div>
 
@@ -1069,7 +1041,6 @@ function renderList(){
           '<b>All</b> to browse them, or export as-is.</div></div>'
         : '<div class="empty">No channels match.</div>');
   renderChips();
-  document.getElementById("diagfilteredcount").textContent = list.length;
 }
 
 // The channel's own true aspect ratio -- whatever is actually curated into
@@ -3613,101 +3584,10 @@ renderList();
 }
 checkPending();
 
-// --- Diagnose filtered ---------------------------------------------------
-// Same idea as the nightly re-verify, but on demand and on a chosen subset:
-// take whatever the current filter/search is showing, let the operator drop
-// anything they don't actually want touched, then queue the rest through
-// the same diagnose path the per-channel button uses.
-const DIAG_SECONDS_PER_CANDIDATE = 31; // 25s sample + 6s overhead, matches the server
-let DIAGSEL = new Set();
-function diagCandidateCount(ch, includeDead){
-  const cs = ch.candidates||[];
-  return includeDead ? cs.length : cs.filter(c=>c.status!=="dead").length;
-}
-function renderDiagList(){
-  const includeDead = document.getElementById("diag-include-dead").checked;
-  const list = [...DIAGSEL].map(k=>DATA.channels.find(c=>c.key===k)).filter(Boolean);
-  document.getElementById("diag-list").innerHTML = list.map(ch=>{
-    const n = diagCandidateCount(ch, includeDead);
-    return '<label class="cat-hit" style="cursor:pointer">'+
-      '<input type="checkbox" class="diag-pick" data-k="'+esc(ch.key)+'" checked>'+
-      '<span style="flex:1">'+esc(ch.title)+'</span>'+
-      '<span class="muted">'+n+' candidate'+(n===1?"":"s")+'</span></label>';
-  }).join("") || '<div class="empty">Nothing to diagnose.</div>';
-  updateDiagSummary();
-}
-function updateDiagSummary(){
-  const includeDead = document.getElementById("diag-include-dead").checked;
-  const picked = [...document.querySelectorAll(".diag-pick:checked")].map(x=>x.dataset.k);
-  const total = picked.reduce((sum,k)=>{
-    const ch = DATA.channels.find(c=>c.key===k);
-    return sum + (ch ? diagCandidateCount(ch, includeDead) : 0);
-  }, 0);
-  // This used to always say "serial, one at a time" and divide by 1
-  // regardless -- wrong for a provider saved with its own concurrency
-  // above 1 (the actual probe queue already respects that, per-provider,
-  // via its lane limit). DATA.meta.concurrency is what THIS run was
-  // started with, the best estimate of the provider's real limit
-  // available here without a fresh lookup -- not perfectly live if the
-  // provider's setting changed since, but far closer than a hardcoded 1.
-  const conc = Math.max(1, DATA.meta.concurrency || 1);
-  const secs = (total * DIAG_SECONDS_PER_CANDIDATE) / conc;
-  const eta = secs < 90 ? Math.round(secs)+"s"
-            : secs < 3600 ? Math.round(secs/60)+" min"
-            : (secs/3600).toFixed(1)+" hr";
-  document.getElementById("diag-summary").textContent =
-    picked.length ? picked.length+" channel"+(picked.length===1?"":"s")+
-      ", "+total+" probe"+(total===1?"":"s")+" — about "+eta+
-      (conc>1 ? " (up to "+conc+" at once)" : " (serial, one at a time)")
-      : "nothing selected";
-  document.getElementById("diag-go").disabled = !picked.length;
-}
-document.getElementById("diagfiltered").addEventListener("click", () => {
-  DIAGSEL = new Set(visible().map(c=>c.key));
-  document.getElementById("diag-include-dead").checked = false;
-  document.getElementById("diag-result").className = "mresult";
-  document.getElementById("diag-result").textContent = "";
-  renderDiagList();
-  document.getElementById("diagmodal").classList.add("on");
-});
-document.getElementById("diag-x").addEventListener("click", () =>
-  document.getElementById("diagmodal").classList.remove("on"));
-document.getElementById("diag-cancel").addEventListener("click", () =>
-  document.getElementById("diagmodal").classList.remove("on"));
-document.getElementById("diag-include-dead").addEventListener("change", renderDiagList);
-document.getElementById("diag-list").addEventListener("change", e => {
-  if(e.target.classList.contains("diag-pick")) updateDiagSummary();
-});
-document.getElementById("diag-go").addEventListener("click", async () => {
-  const includeDead = document.getElementById("diag-include-dead").checked;
-  const picked = [...document.querySelectorAll(".diag-pick:checked")].map(x=>x.dataset.k);
-  if(!picked.length) return;
-  const btn = document.getElementById("diag-go");
-  const result = document.getElementById("diag-result");
-  btn.disabled = true; btn.textContent = "Queuing…";
-  try{
-    const r = await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+"/diagnose-batch",
-      {method:"POST", headers:{"Content-Type":"application/json"},
-       body: JSON.stringify({channel_keys: picked, include_dead: includeDead})});
-    const d = await r.json();
-    if(!r.ok || d.error){
-      result.className = "mresult show bad";
-      result.textContent = d.error || "failed to queue";
-    } else {
-      const mins = Math.round(d.eta_seconds/60);
-      result.className = "mresult show good";
-      result.textContent = "Queued "+d.queued+" probe"+(d.queued===1?"":"s")+
-        " across "+d.channels+" channel"+(d.channels===1?"":"s")+
-        (d.skipped ? " ("+d.skipped+" dead candidate"+(d.skipped===1?"":"s")+" skipped)" : "")+
-        " — roughly "+(mins<1?"under a minute":mins+" min")+
-        ". Watch progress on each channel as usual.";
-    }
-  } catch(err){
-    result.className = "mresult show bad";
-    result.textContent = "request failed: "+err;
-  }
-  btn.disabled = false; btn.textContent = "Start";
-});
+// Diagnose-many now lives on the dedicated Bulk edit page (see bulk_render()
+// below) -- tick channels in its table, "Diagnose selected". Removed from
+// here rather than duplicated, same reasoning as moving the other bulk
+// actions there: one place to tick channels and act on many, not two.
 
 // --- Dispatcharr export ------------------------------------------------
 let pushChannelKey = null;   // null = push everything; a key = one channel only
@@ -4398,3 +4278,430 @@ def render(by_channel, store, guide_present=False, inherited=None, dropped=None,
             .replace("__EXTRA__", EXTRA_CSS)
             .replace("__DATA__", json.dumps(payload, ensure_ascii=False))
             .replace("__RUN__", store.run_id))
+
+
+# --- bulk edit -------------------------------------------------------------
+# A second, table-shaped view of the exact same run data, for the opposite
+# job to Curate's own card view: not "look closely at one channel's
+# candidates", but "tick a dozen channels and change one thing about all of
+# them at once". Deliberately narrow -- everything here is either a straight
+# read of build_payload()'s existing fields or a bulk write through the same
+# /api/run/<id>/selection endpoint and diagnose-batch endpoint Curate's own
+# MARKED-multi-select actions already use, so there is no new backend
+# surface to keep in sync. Streams themselves (probing, ranking, picking a
+# primary) stay on Curate, on purpose -- that is a per-channel, look-at-the-
+# picture decision a spreadsheet row can never usefully replace.
+BULK_EXTRA_CSS = """
+.bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  padding:10px 14px;border-bottom:1px solid var(--line);background:var(--bg2)}
+.bulkbar input[type=search]{width:200px}
+.bulkbar .sep{width:1px;height:20px;background:var(--line);margin:0 2px;flex:none}
+.bulkbar .count{color:var(--dim);font-size:12px;min-width:80px}
+/* CSS Grid, not a real <table> -- table-layout:fixed's column widths
+   turned out to size unpredictably (a browser quirk never fully pinned
+   down, columns visibly took on a NEIGHBOUR's declared width instead of
+   their own). Grid's grid-template-columns has none of that ambiguity:
+   one column-width list, one source of truth, every row's cells forced
+   into exactly those tracks. #rows and .brow both use display:contents
+   so a row's own .bcell children become direct grid items of .bulktable
+   -- that is what lets each "row" still exist as one HTML element (for
+   the marked/hover/stripe styling below) while its cells still land in
+   the right grid columns. */
+.bulktable{display:grid;
+  grid-template-columns:24px 40px minmax(0,1fr) 74px 110px 100px 64px 74px;
+  width:100%;font-size:12.5px}
+#rows,.brow{display:contents}
+.bulktable .bcell{padding:3px 10px;border-bottom:1px solid rgba(255,255,255,.03);
+  display:flex;align-items:center;overflow:hidden;min-width:0}
+.bulktable .bhead{font-weight:600;color:var(--dim);font-size:11px;
+  text-transform:uppercase;letter-spacing:.3px;padding:6px 10px;
+  border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg)}
+.brow:nth-child(even) .bcell{background:rgba(255,255,255,.018)}
+.brow.marked .bcell{background:rgba(53,197,240,.10)}
+.brow:hover .bcell{background:var(--panel)}
+.bulktable .num{color:var(--faint);font-variant-numeric:tabular-nums}
+.bulktable .num.nonum{color:#fff;background:var(--bad);font-weight:700;
+  padding:1px 5px;border-radius:3px}
+.bulktable .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bulktable .muted2{color:var(--faint)}
+.bulktable .bcell.wrap{white-space:nowrap}
+"""
+
+BULK_HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>probarr &middot; bulk edit</title><style>__CSS____EXTRA__</style></head><body>
+
+__TOPBAR__
+
+<div class="bulkbar">
+  <input type="search" id="q" placeholder="Find a channel&hellip;">
+  <button id="selall">Select all</button>
+  <button id="selnone">Select none</button>
+  <span class="count" id="selcount">0 selected</span>
+  <span class="sep"></span>
+  <button id="bulkdiag">Diagnose selected</button>
+  <label class="miniline" style="display:inline-flex;align-items:center;gap:4px"
+    title="Dead candidates are skipped by default when diagnosing.">
+    <input type="checkbox" id="diag-include-dead" style="width:auto">include dead</label>
+  <span class="sep"></span>
+  <button id="bulkgroup">Set group</button>
+  <button id="bulkepg">Set EPG source</button>
+  <button id="bulkinclude">Exclude / re-include</button>
+  <button id="bulkwm">Clear watermark</button>
+</div>
+
+<div class="bulktable">
+  <div class="bhead"><input type="checkbox" id="selallbox"></div>
+  <div class="bhead">#</div>
+  <div class="bhead">Channel</div>
+  <div class="bhead">Status</div>
+  <div class="bhead">Group</div>
+  <div class="bhead">EPG source</div>
+  <div class="bhead">Include</div>
+  <div class="bhead">Watermark</div>
+  <div id="rows"></div>
+</div>
+
+<div class="modal" id="grpmodal">
+  <div class="modalbox">
+    <h3 id="grp-title">Set group</h3>
+    <div class="sub">Pick an existing group or type a new one. Carried through
+      to Dispatcharr on the next push, where it wins over the export form's
+      blanket group.</div>
+    <div class="mfield">
+      <label>Existing groups</label>
+      <div id="grp-list" class="grp-list"></div>
+    </div>
+    <div class="mfield">
+      <label>Or a new one</label>
+      <input type="text" id="grp-new" placeholder="e.g. Sports">
+    </div>
+    <div class="mrow">
+      <button id="grp-cancel">Cancel</button>
+      <button id="grp-clear">Clear group</button>
+      <button class="primary" id="grp-save">Set</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="epgsrcmodal">
+  <div class="modalbox">
+    <h3 id="epgsrc-title">Set EPG source</h3>
+    <div class="sub">Forces every selected channel onto ONE saved source,
+      instead of whichever one Check EPG's automatic resolve() would
+      otherwise pick -- each channel still finds its own matching entry within
+      that source.</div>
+    <div class="mfield">
+      <label>Saved sources</label>
+      <div id="epgsrc-list" class="grp-list"></div>
+    </div>
+    <div class="mrow">
+      <button id="epgsrc-cancel">Cancel</button>
+      <button id="epgsrc-clear">Clear override</button>
+      <button class="primary" id="epgsrc-save">Set</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="diagmodal">
+  <div class="modalbox" style="width:min(640px,94vw)">
+    <button class="modalx" id="diag-x" title="Close">✕</button>
+    <h3>Diagnose selected channels</h3>
+    <div class="sub">Re-scans every candidate for each ticked channel with a longer
+      sample and a kept clip. One probe runs at a time on a connection-limited
+      provider, so this can take a while for a large selection.</div>
+    <div id="diag-list" class="cat-results"></div>
+    <div class="mresult" id="diag-result"></div>
+    <div class="mrow" style="justify-content:space-between;align-items:center">
+      <span class="muted" id="diag-summary"></span>
+      <span style="display:flex;gap:8px">
+        <button id="diag-cancel">Cancel</button>
+        <button class="primary" id="diag-go" disabled>Start</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = __DATA__;
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+let SEL = DATA.selection && Object.keys(DATA.selection).length
+  ? JSON.parse(JSON.stringify(DATA.selection)) : {};
+let MARKED = new Set();
+
+function simpleState(ch){
+  if (ch.missing) return "bad";
+  const s = SEL[ch.key]||{};
+  if (s.include === false) return "off";
+  const ok = (ch.candidates||[]).some(c=>c.status==="ok");
+  if (!ok) return "bad";
+  return (ch.changes||[]).length || ch.epg_mismatch ? "review" : "ok";
+}
+const STATE_LABEL = {ok:"clean", review:"check", bad:"no usable stream", off:"excluded"};
+
+let saveTimer;
+function save(){
+  document.getElementById("selcount").dataset.saving = "1";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async ()=>{
+    try{
+      await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+"/selection",
+        {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(SEL)});
+    }catch(e){}
+  }, 400);
+}
+
+function visible(){
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  return DATA.channels.filter(ch => !q || ch.title.toLowerCase().includes(q)
+    || String(ch.number||"").includes(q));
+}
+
+function renderRows(){
+  const list = visible();
+  document.getElementById("rows").innerHTML = list.map(ch=>{
+    const s = SEL[ch.key]||{};
+    const st = simpleState(ch);
+    const included = s.include !== false;
+    return '<div class="brow'+(MARKED.has(ch.key)?' marked':'')+
+        '" data-k="'+esc(ch.key)+'">'+
+      '<div class="bcell"><input type="checkbox" class="rowsel" data-k="'+esc(ch.key)+'"'+
+        (MARKED.has(ch.key)?" checked":"")+'></div>'+
+      '<div class="bcell num'+(ch.number==null?" nonum":"")+'">'+
+        (ch.number!=null?esc(String(ch.number)):"NO #")+'</div>'+
+      '<div class="bcell nm">'+esc(ch.title)+'</div>'+
+      '<div class="bcell"><span class="dot '+st+'" title="'+esc(STATE_LABEL[st]||st)+'"></span>&nbsp;'+
+        '<span class="muted2">'+esc(STATE_LABEL[st]||st)+'</span></div>'+
+      '<div class="bcell wrap">'+(s.group?esc(s.group):'<span class="muted2">&mdash;</span>')+'</div>'+
+      '<div class="bcell wrap">'+(s.epg_source?esc(s.epg_source):'<span class="muted2">auto</span>')+'</div>'+
+      '<div class="bcell">'+(included?'<span class="muted2">included</span>'
+              :'<span style="color:var(--bad)">excluded</span>')+'</div>'+
+      '<div class="bcell">'+(s.watermark_box?'<span class="muted2">set</span>'
+              :'<span class="muted2">&mdash;</span>')+'</div>'+
+    '</div>';
+  }).join("") || '<div class="brow"><div class="bcell muted2" style="grid-column:1/-1;'+
+    'padding:20px">No channels match.</div></div>';
+  updateCount();
+}
+function updateCount(){
+  document.getElementById("selcount").textContent = MARKED.size+" selected";
+}
+
+document.getElementById("q").addEventListener("input", renderRows);
+document.getElementById("selall").addEventListener("click", ()=>{
+  visible().forEach(ch=>MARKED.add(ch.key)); renderRows();
+});
+document.getElementById("selnone").addEventListener("click", ()=>{
+  MARKED.clear(); renderRows();
+});
+document.getElementById("selallbox").addEventListener("change", e=>{
+  if(e.target.checked) visible().forEach(ch=>MARKED.add(ch.key)); else MARKED.clear();
+  renderRows();
+});
+document.getElementById("rows").addEventListener("click", e=>{
+  const cb = e.target.closest(".rowsel");
+  if(cb){ cb.checked ? MARKED.add(cb.dataset.k) : MARKED.delete(cb.dataset.k);
+          renderRows(); return; }
+  const row = e.target.closest(".brow[data-k]");
+  if(row && !e.target.closest("input")){
+    MARKED.has(row.dataset.k) ? MARKED.delete(row.dataset.k) : MARKED.add(row.dataset.k);
+    renderRows();
+  }
+});
+
+// --- Set group (identical mechanism to Curate's own bulk Set group) -------
+let grpKeys = [], grpChoice = "";
+document.getElementById("bulkgroup").addEventListener("click", async ()=>{
+  grpKeys = [...MARKED]; if(!grpKeys.length) return;
+  grpChoice = (SEL[grpKeys[0]]||{}).group || "";
+  document.getElementById("grp-title").textContent = "Set group for "+grpKeys.length+
+    " channel"+(grpKeys.length===1?"":"s");
+  document.getElementById("grp-new").value = "";
+  const box = document.getElementById("grp-list");
+  box.innerHTML = "loading&hellip;";
+  document.getElementById("grpmodal").classList.add("on");
+  let groups = [];
+  try{
+    groups = (await (await fetch("/run/"+encodeURIComponent(DATA.run_id)+
+      "/groups", {cache:"no-store"})).json()).groups || [];
+  }catch(e){}
+  box.innerHTML = groups.length
+    ? groups.map(g=>'<span class="grp-opt'+(g===grpChoice?" on":"")+
+        '" data-g="'+esc(g)+'">'+esc(g)+'</span>').join("")
+    : '<span class="n">None yet &mdash; type a new one below.</span>';
+});
+document.getElementById("grp-list").addEventListener("click", e=>{
+  const o = e.target.closest(".grp-opt"); if(!o) return;
+  grpChoice = o.dataset.g;
+  document.getElementById("grp-new").value = "";
+  [...document.querySelectorAll("#grp-list .grp-opt")].forEach(x=>x.classList.toggle("on", x===o));
+});
+document.getElementById("grp-new").addEventListener("input", e=>{
+  if(e.target.value.trim()){
+    grpChoice = e.target.value.trim();
+    [...document.querySelectorAll("#grp-list .grp-opt")].forEach(x=>x.classList.remove("on"));
+  }
+});
+function applyGroup(v){
+  grpKeys.forEach(k => { SEL[k] = {...(SEL[k]||{}), group: v || undefined}; });
+  save(); document.getElementById("grpmodal").classList.remove("on"); renderRows();
+}
+document.getElementById("grp-cancel").addEventListener("click", ()=>
+  document.getElementById("grpmodal").classList.remove("on"));
+document.getElementById("grp-clear").addEventListener("click", ()=> applyGroup(""));
+document.getElementById("grp-save").addEventListener("click", ()=>{
+  const typed = document.getElementById("grp-new").value.trim();
+  applyGroup(typed || grpChoice);
+});
+
+// --- Set EPG source (identical mechanism to Curate's own) -----------------
+let epgSrcKeys = [], epgSrcChoice = "";
+document.getElementById("bulkepg").addEventListener("click", async ()=>{
+  epgSrcKeys = [...MARKED]; if(!epgSrcKeys.length) return;
+  epgSrcChoice = (SEL[epgSrcKeys[0]]||{}).epg_source || "";
+  document.getElementById("epgsrc-title").textContent = "Set EPG source for "+
+    epgSrcKeys.length+" channel"+(epgSrcKeys.length===1?"":"s");
+  const box = document.getElementById("epgsrc-list");
+  box.innerHTML = "loading&hellip;";
+  document.getElementById("epgsrcmodal").classList.add("on");
+  let sources = [];
+  try{
+    sources = ((await (await fetch("/api/epg-sources", {cache:"no-store"})).json())
+      .epg_sources || []).map(s=>s.name);
+  }catch(e){}
+  box.innerHTML = sources.length
+    ? sources.map(s=>'<span class="grp-opt'+(s===epgSrcChoice?" on":"")+
+        '" data-s="'+esc(s)+'">'+esc(s)+'</span>').join("")
+    : '<span class="n">No EPG sources saved yet &mdash; add one on the Providers page.</span>';
+});
+document.getElementById("epgsrc-list").addEventListener("click", e=>{
+  const o = e.target.closest(".grp-opt"); if(!o) return;
+  epgSrcChoice = o.dataset.s;
+  [...document.querySelectorAll("#epgsrc-list .grp-opt")].forEach(x=>x.classList.toggle("on", x===o));
+});
+function applyEpgSource(v){
+  epgSrcKeys.forEach(k => { SEL[k] = {...(SEL[k]||{}), epg_source: v || undefined}; });
+  save(); document.getElementById("epgsrcmodal").classList.remove("on"); renderRows();
+}
+document.getElementById("epgsrc-cancel").addEventListener("click", ()=>
+  document.getElementById("epgsrcmodal").classList.remove("on"));
+document.getElementById("epgsrc-clear").addEventListener("click", ()=> applyEpgSource(""));
+document.getElementById("epgsrc-save").addEventListener("click", ()=> applyEpgSource(epgSrcChoice));
+
+// --- Include / exclude -----------------------------------------------------
+document.getElementById("bulkinclude").addEventListener("click", ()=>{
+  const keys = [...MARKED]; if(!keys.length) return;
+  const currentlyIncluded = (SEL[keys[0]]||{}).include !== false;
+  const newValue = !currentlyIncluded;
+  keys.forEach(k => { const s = SEL[k] = SEL[k]||{}; s.include = newValue; });
+  save(); renderRows();
+});
+
+// --- Clear watermark --------------------------------------------------------
+// Setting a NEW watermark box is inherently per-channel (it is a crop drawn
+// on that one channel's own frame), so it stays on Curate -- but clearing
+// a previously-drawn box applies just as well to many channels at once.
+document.getElementById("bulkwm").addEventListener("click", ()=>{
+  const keys = [...MARKED]; if(!keys.length) return;
+  keys.forEach(k => { const s = SEL[k]; if(s) delete s.watermark_box; });
+  save(); renderRows();
+});
+
+// --- Diagnose selected (same /diagnose-batch endpoint as Curate's own
+// "Diagnose these") -----------------------------------------------------
+function diagCandidateCount(ch, includeDead){
+  const cs = ch.candidates||[];
+  return includeDead ? cs.length : cs.filter(c=>c.status!=="dead").length;
+}
+let DIAGSEL = new Set();
+function renderDiagList(){
+  const includeDead = document.getElementById("diag-include-dead").checked;
+  const list = [...DIAGSEL].map(k=>DATA.channels.find(c=>c.key===k)).filter(Boolean);
+  document.getElementById("diag-list").innerHTML = list.map(ch=>{
+    const n = diagCandidateCount(ch, includeDead);
+    return '<label class="cat-hit" style="cursor:pointer">'+
+      '<input type="checkbox" class="diag-pick" data-k="'+esc(ch.key)+'" checked>'+
+      '<span style="flex:1">'+esc(ch.title)+'</span>'+
+      '<span class="muted">'+n+' candidate'+(n===1?"":"s")+'</span></label>';
+  }).join("") || '<div class="empty">Nothing to diagnose.</div>';
+  updateDiagSummary();
+}
+function updateDiagSummary(){
+  const includeDead = document.getElementById("diag-include-dead").checked;
+  const picked = [...document.querySelectorAll(".diag-pick:checked")].map(x=>x.dataset.k);
+  const total = picked.reduce((sum,k)=>{
+    const ch = DATA.channels.find(c=>c.key===k);
+    return sum + (ch ? diagCandidateCount(ch, includeDead) : 0);
+  }, 0);
+  const conc = Math.max(1, DATA.meta.concurrency || 1);
+  const secs = (total * 31) / conc;
+  const eta = secs < 90 ? Math.round(secs)+"s"
+            : secs < 3600 ? Math.round(secs/60)+" min"
+            : (secs/3600).toFixed(1)+" hr";
+  document.getElementById("diag-summary").textContent =
+    picked.length ? picked.length+" channel"+(picked.length===1?"":"s")+
+      ", "+total+" probe"+(total===1?"":"s")+" — about "+eta : "nothing selected";
+  document.getElementById("diag-go").disabled = !picked.length;
+}
+document.getElementById("bulkdiag").addEventListener("click", ()=>{
+  DIAGSEL = new Set(MARKED); if(!DIAGSEL.size) return;
+  document.getElementById("diag-result").className = "mresult";
+  document.getElementById("diag-result").textContent = "";
+  renderDiagList();
+  document.getElementById("diagmodal").classList.add("on");
+});
+document.getElementById("diag-x").addEventListener("click", ()=>
+  document.getElementById("diagmodal").classList.remove("on"));
+document.getElementById("diag-cancel").addEventListener("click", ()=>
+  document.getElementById("diagmodal").classList.remove("on"));
+document.getElementById("diag-list").addEventListener("change", e=>{
+  if(e.target.classList.contains("diag-pick")) updateDiagSummary();
+});
+document.getElementById("diag-go").addEventListener("click", async ()=>{
+  const includeDead = document.getElementById("diag-include-dead").checked;
+  const picked = [...document.querySelectorAll(".diag-pick:checked")].map(x=>x.dataset.k);
+  if(!picked.length) return;
+  const btn = document.getElementById("diag-go");
+  const result = document.getElementById("diag-result");
+  btn.disabled = true; btn.textContent = "Queuing…";
+  try{
+    const r = await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+"/diagnose-batch",
+      {method:"POST", headers:{"Content-Type":"application/json"},
+       body: JSON.stringify({channel_keys: picked, include_dead: includeDead})});
+    const d = await r.json();
+    if(!r.ok || d.error){
+      result.className = "mresult err"; result.textContent = d.error || "Failed to queue.";
+    } else {
+      result.className = "mresult ok";
+      result.textContent = "Queued "+picked.length+" channel"+(picked.length===1?"":"s")+".";
+      setTimeout(()=>document.getElementById("diagmodal").classList.remove("on"), 900);
+    }
+  }catch(e){ result.className = "mresult err"; result.textContent = "Request failed."; }
+  btn.disabled = false; btn.textContent = "Start";
+});
+document.addEventListener("keydown", e=>{
+  if(e.key === "Escape"){
+    document.getElementById("grpmodal").classList.remove("on");
+    document.getElementById("epgsrcmodal").classList.remove("on");
+    document.getElementById("diagmodal").classList.remove("on");
+  }
+});
+
+renderRows();
+</script>
+</body></html>
+"""
+
+
+def bulk_render(by_channel, store, guide_present=False, inherited=None, dropped=None,
+                epg_mismatches=None, claims=None):
+    payload = build_payload(by_channel, store, guide_present, inherited, dropped,
+                            epg_mismatches, claims)
+    payload["meta"] = store.read_meta()
+    return (BULK_HTML
+            .replace("__TOPBAR__", topbar(f"bulk edit &middot; run {store.run_id}",
+                                          active="runs", newrun_primary=False))
+            .replace("__CSS__", CSS)
+            .replace("__EXTRA__", EXTRA_CSS + BULK_EXTRA_CSS)
+            .replace("__DATA__", json.dumps(payload, ensure_ascii=False)))

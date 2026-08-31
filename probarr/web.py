@@ -381,6 +381,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._sheet(run_id)
             if parts[2] == "curate":
                 return self._curate(run_id)
+            if parts[2] == "bulk":
+                return self._bulk(run_id)
             if parts[2] == "export.m3u":
                 return self._export_m3u(run_id)
             if parts[2] == "export.xmltv":
@@ -3945,6 +3947,26 @@ class Handler(BaseHTTPRequestHandler):
                                  self._inherited(store), self._dropped_urls(store),
                                  self._epg_mismatches(store),
                                  claims_mod.claimed_by_key(self.root)))
+
+    def _bulk(self, run_id):
+        """The spreadsheet-style bulk-edit view: same run, same underlying
+        selection data as Curate, just a table instead of a card per
+        channel -- built for ticking many rows and applying one change
+        (group, EPG source, include/exclude, diagnose) across all of them
+        at once, which Curate's own per-channel "More" menu already does
+        for a single channel or a MARKED multi-select, just without a
+        screen shaped for reviewing dozens of channels at a glance first.
+        """
+        store = RunStore(self.root, run_id)
+        if not os.path.exists(store.meta_path):
+            return self._send("<h1>no such run</h1>", code=404)
+        self._prefetch_groups(store)
+        by_channel = annotate_placeholders(store)
+        guide_present = bool(store.read_meta().get("epg"))
+        self._send(curate.bulk_render(by_channel, store, guide_present,
+                                      self._inherited(store), self._dropped_urls(store),
+                                      self._epg_mismatches(store),
+                                      claims_mod.claimed_by_key(self.root)))
 
     def _lineups(self):
         """Saved lineups, each annotated with the runs made from it.
