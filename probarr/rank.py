@@ -19,6 +19,8 @@ Ordering rules, in priority order:
    for being more efficient at the same bitrate, and nothing more.
 5. More audio channels, then fewer decode errors.
 """
+import math
+
 from .probe import (STATUS_OK, STATUS_DIRTY, STATUS_PLACEHOLDER,
                     STATUS_NO_FRAME, STATUS_NO_VIDEO, STATUS_DEAD)
 
@@ -103,6 +105,39 @@ def dominant_cadence(records, threshold=0.8):
 # really is off air at probe time and will be fine later.
 PLACEHOLDER_PENALTY = 1
 
+# Two candidates within roughly this fraction of each other's bitrate rank
+# as EQUAL on bitrate, not by whoever happened to measure one kbps higher.
+# Real complaint that motivated this: probarr's own "Changed" alert kept
+# firing "X now ranks above your pick" between one re-verify and the next,
+# with no real difference in either stream -- the actual cause was this
+# exact sort term, comparing raw measured_kbps. A single live stream's
+# bitrate moves with what's ON SCREEN (an action scene versus a static
+# studio shot), so two probes of the SAME feed a few seconds apart were
+# never going to report identical numbers. 35% keeps a real difference (a
+# visibly worse feed, easily 2x+) decisive while treating ordinary
+# scene-to-scene noise as the noise it is.
+#
+# "Roughly": the bucketing below is log-spaced, not a sliding window, so a
+# pair sitting right on a bucket edge can still land on opposite sides even
+# within this tolerance -- an accepted tradeoff of any discrete bucket
+# (see _bitrate_bucket's own docstring). It reliably absorbs the small,
+# genuinely-noise-scale differences this exists for; a difference close to
+# the tolerance itself is a near-toss-up either way, which is fine.
+BITRATE_TOLERANCE = 0.35
+
+
+def _bitrate_bucket(kbps):
+    """Coarse rank bucket for a bitrate -- see BITRATE_TOLERANCE. Buckets
+    are log-spaced (not a flat kbps step) so the same tolerance applies
+    proportionally whether comparing two SD streams around 800kbps or two
+    4K streams around 15,000kbps; a flat step would be too coarse for the
+    former and too fine for the latter. Negated so sorting ascending on
+    the result still means "higher bitrate first", matching every other
+    term in score_key.
+    """
+    kbps = max(float(kbps or 0), 1.0)
+    return -round(math.log(kbps) / math.log(1 + BITRATE_TOLERANCE))
+
 
 def score_key(r: dict):
     status = r.get("status", STATUS_DEAD)
@@ -151,7 +186,7 @@ def score_key(r: dict):
         # still decides between two streams of equal size and bitrate, which
         # is where it genuinely matters (sport at 50fps against 25).
         -area,
-        -(r.get("measured_kbps", 0) or 0),
+        _bitrate_bucket(r.get("measured_kbps", 0)),
         -fps,
         hevc,
         -(r.get("audio_channels", 0) or 0),

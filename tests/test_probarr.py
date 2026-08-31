@@ -1815,6 +1815,32 @@ class TestRank(unittest.TestCase):
                 "measured_kbps": 5000}
         self.assertIs(rank([slow, fast])[0], fast)
 
+    def test_a_small_bitrate_difference_does_not_decide_the_winner(self):
+        """Real complaint: the "Changed" alert kept firing "X now ranks above
+        your pick" between one re-verify and the next with no real
+        difference in either stream. The actual cause was this exact sort
+        term comparing raw measured_kbps -- a single live feed's bitrate
+        moves with what's on screen (busy action vs a static shot), so two
+        probes of the SAME stream a few seconds apart were never going to
+        report identical numbers. A close difference must fall through to
+        the next real tiebreaker (here, frame rate) instead of deciding it.
+        """
+        slightly_lower_but_smoother = {"status": "ok", "width": 1920, "height": 1080,
+                                       "fps": 50, "measured_kbps": 4800}
+        slightly_higher_but_choppier = {"status": "ok", "width": 1920, "height": 1080,
+                                        "fps": 25, "measured_kbps": 5000}
+        self.assertIs(rank([slightly_higher_but_choppier,
+                            slightly_lower_but_smoother])[0],
+                      slightly_lower_but_smoother,
+                      "a ~4% bitrate difference must not outrank double the frame rate")
+
+    def test_a_real_bitrate_difference_still_decides_the_winner(self):
+        clearly_better = {"status": "ok", "width": 1920, "height": 1080,
+                          "fps": 25, "measured_kbps": 8000}
+        clearly_worse = {"status": "ok", "width": 1920, "height": 1080,
+                         "fps": 25, "measured_kbps": 2000}
+        self.assertIs(rank([clearly_worse, clearly_better])[0], clearly_better)
+
     def test_errors_break_a_tie_between_equals(self):
         a = {"status": "dirty", "width": 1920, "height": 1080, "fps": 25,
              "measured_kbps": 4000, "corruption_per_sec": 9.0}
