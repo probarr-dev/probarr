@@ -669,6 +669,18 @@ class Dispatcharr:
         self.api("POST", "/api/channels/channels/match-epg/",
                  {"channel_ids": channel_ids})
 
+    def list_epg_sources(self):
+        """Every XMLTV source Dispatcharr itself is already configured with
+        -- name, url, and whether Dispatcharr has actually mapped any of
+        its own channels to it (`has_channels`). For the Setup Wizard's
+        "pull my Dispatcharr channels" path: someone whose lineup already
+        lives in Dispatcharr almost certainly wants the SAME guide data
+        probarr uses, not a blank EPG step they have to fill in by hand
+        with a URL they may not even have to hand.
+        """
+        return [s for s in self.api("GET", "/api/epg/sources/")
+                if (s.get("url") or "").strip()]
+
     def get_or_create_epg_source(self, name, url):
         """Dispatcharr EPG source id for `name`, creating one if it doesn't
         exist yet, and kicking off an import for a freshly-created one.

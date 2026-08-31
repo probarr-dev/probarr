@@ -1607,6 +1607,59 @@ class TestRunExportUsesTheSourceProviderSpec(Temp):
             "https://p.tv/m3u?u=x&p=y", "mybunny", log=unittest.mock.ANY)
 
 
+class TestDispatcharrEpgSources(Temp):
+    """Real usability request: the Setup Wizard's EPG step forced someone
+    whose channels came from Dispatcharr to either skip it or hunt down an
+    XMLTV URL by hand, even though Dispatcharr already has one (or several)
+    configured -- /api/dispatcharr-epg-sources reads them directly.
+    """
+
+    def _handler(self):
+        from probarr import web as web_mod
+        web_mod.Handler.root = self.root
+        h = web_mod.Handler.__new__(web_mod.Handler)
+        sent = []
+        h._send = lambda body, ctype="application/json", code=200: (
+            sent.append((code, body)), sent)[-1]
+        return h, web_mod, sent
+
+    def test_lists_the_provider_s_configured_sources(self):
+        providers.save(self.root, "mydispatch", "dispatcharr://u:p@host:9191")
+        handler, web_mod, sent = self._handler()
+        fake_client = unittest.mock.MagicMock()
+        fake_client.list_epg_sources.return_value = [
+            {"name": "open-epg", "url": "https://x/uk.xml", "has_channels": True},
+            {"name": "unused", "url": "https://x/unused.xml", "has_channels": False},
+        ]
+        with unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client):
+            handler._dispatcharr_epg_sources({"provider": "mydispatch"})
+        code, body = sent[-1]
+        self.assertEqual(code, 200, body)
+        out = json.loads(body)["epg_sources"]
+        self.assertEqual(len(out), 2)
+        by_name = {s["name"]: s for s in out}
+        self.assertEqual(by_name["open-epg"]["url"], "https://x/uk.xml")
+        self.assertTrue(by_name["open-epg"]["has_channels"])
+        self.assertFalse(by_name["unused"]["has_channels"])
+
+    def test_rejects_a_non_dispatcharr_provider(self):
+        providers.save(self.root, "mybunny", "https://p.tv/m3u?u=x&p=y")
+        handler, web_mod, sent = self._handler()
+        handler._dispatcharr_epg_sources({"provider": "mybunny"})
+        self.assertEqual(sent[-1][0], 404)
+
+    def test_reports_a_dispatcharr_error_without_crashing(self):
+        providers.save(self.root, "mydispatch", "dispatcharr://u:p@host:9191")
+        handler, web_mod, sent = self._handler()
+        fake_client = unittest.mock.MagicMock()
+        fake_client.list_epg_sources.side_effect = RuntimeError("boom")
+        with unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client):
+            handler._dispatcharr_epg_sources({"provider": "mydispatch"})
+        self.assertEqual(sent[-1][0], 502)
+
+
 class TestBrowseDispatcharrActiveLineup(Temp):
     """probarr-oz2: Browse Channels for a dispatcharr:// provider used to
     always show every raw stream Dispatcharr has ever ingested from any M3U

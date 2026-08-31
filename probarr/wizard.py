@@ -167,6 +167,13 @@ __TOPBAR__
         should be playing at the exact moment each frame was captured &mdash;
         the fastest way to catch a stream that is alive but showing the
         wrong channel entirely.</div>
+      <div id="we-fromdisp" style="display:none;margin-bottom:12px">
+        <button id="we-pulldisp">Use whichever guide Dispatcharr is already using</button>
+        <div class="hint2">Reads the XMLTV source(s) already configured in Dispatcharr and
+          lets you pick one to save here under the same name and URL &mdash; nothing is
+          changed in Dispatcharr itself.</div>
+        <div id="we-disppicks" style="margin-top:8px"></div>
+      </div>
       <div class="row" style="margin-bottom:10px">
         <input type="text" id="we-name" placeholder="Name, e.g. uk-guide">
         <input type="text" id="we-url" placeholder="XMLTV URL (.xml or .xml.gz)" style="flex:1;min-width:220px">
@@ -262,6 +269,16 @@ function goto(i){
   // /api/providers to find out what step 2 just saved.
   if(STEPS[i] === "wantlist")
     $("ww-fromdisp").style.display = $("wd-name").value.trim() ? "block" : "none";
+  if(STEPS[i] === "epg")
+    $("we-fromdisp").style.display = $("wd-name").value.trim() ? "block" : "none";
+  // loadRunSummary() previously only ran once, at page load -- before the
+  // provider/wantlist/EPG fields had anything in them. The step 5 summary
+  // it wrote to the page ("Channels: all channels (no wantlist)") stayed
+  // frozen at that stale, empty state the whole way through steps 1-4,
+  // even though the actual Start click re-ran it and used the real
+  // values -- so what the operator read on screen and what Start would
+  // actually do had already diverged by the time they got here.
+  if(STEPS[i] === "run" && typeof loadRunSummary === "function") loadRunSummary();
 }
 renderSteps();
 goto(0);
@@ -410,11 +427,59 @@ $("ww-save").addEventListener("click", async ()=>{
     headers:{"Content-Type":"application/json"}, body: JSON.stringify({text: body})});
   const d = await r.json();
   if(!d.ok){ box.className="testresult show bad"; box.textContent="error: "+(d.error||"failed"); return; }
+  // The server sanitises the name (lowercased, unsafe characters replaced)
+  // before saving it -- a name pulled verbatim from elsewhere (Dispatcharr's
+  // channel-group text, here) routinely differs from what actually landed
+  // on disk. Without this, step 5's summary (and the run itself) looks the
+  // saved wantlist up by the ORIGINAL name, silently finds nothing, and
+  // starts as if no wantlist had ever been set.
+  $("ww-name").value = d.name;
   box.className="testresult show good"; box.textContent="Saved.";
   setTimeout(()=>goto(3), 400);
 });
 
 // -- Step 4: EPG source (optional) ---------------------------------------
+$("we-pulldisp").addEventListener("click", async ()=>{
+  const dispName = $("wd-name").value.trim();
+  const btn = $("we-pulldisp"), box = $("we-result"), picks = $("we-disppicks");
+  if(!dispName) return;
+  btn.disabled = true; btn.textContent = "Reading Dispatcharr…";
+  box.className = "testresult show"; box.textContent = ""; picks.innerHTML = "";
+  try{
+    const r = await fetch("/api/dispatcharr-epg-sources", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({provider: dispName})});
+    const d = await r.json();
+    if(d.error){ box.className="testresult show bad"; box.textContent=d.error; }
+    else if(!d.epg_sources || !d.epg_sources.length){
+      box.className = "testresult show bad";
+      box.textContent = "Dispatcharr has no XMLTV source configured — "+
+        "Skip this step, or fill in a URL of your own below.";
+    } else {
+      // Sorted so the source(s) Dispatcharr has actually mapped channels
+      // to (has_channels) lead the list -- that is the one actually doing
+      // something over there, not just sitting configured and unused.
+      const sorted = [...d.epg_sources].sort((a,b)=>
+        (b.has_channels?1:0) - (a.has_channels?1:0));
+      picks.innerHTML = sorted.map(s=>
+        '<div class="grp-opt epgsrc-pick" data-name="'+esc(s.name)+
+        '" data-url="'+esc(s.url)+'" style="display:block;margin-bottom:4px;cursor:pointer">'+
+        '<b>'+esc(s.name)+'</b>'+(s.has_channels?' <span class="muted">(in use)</span>':
+          ' <span class="muted">(configured, not currently mapped to any channel)</span>')+
+        '<div class="muted" style="font-size:11px">'+esc(s.url)+'</div></div>').join("");
+      box.className = "testresult show good";
+      box.textContent = "Pick one below" + (sorted.length>1 ?
+        " (Dispatcharr has "+sorted.length+" configured)" : "") + ".";
+    }
+  }catch(e){ box.className="testresult show bad"; box.textContent="Request failed."; }
+  btn.disabled = false; btn.textContent = "Use whichever guide Dispatcharr is already using";
+});
+$("we-disppicks").addEventListener("click", e=>{
+  const pick = e.target.closest(".epgsrc-pick"); if(!pick) return;
+  $("we-name").value = pick.dataset.name;
+  $("we-url").value = pick.dataset.url;
+  [...document.querySelectorAll(".epgsrc-pick")].forEach(x=>x.classList.toggle("on", x===pick));
+});
 $("we-skip").addEventListener("click", ()=>goto(4));
 $("we-save").addEventListener("click", async ()=>{
   const name = $("we-name").value.trim(), url = $("we-url").value.trim();
@@ -429,6 +494,11 @@ $("we-save").addEventListener("click", async ()=>{
     headers:{"Content-Type":"application/json"}, body: JSON.stringify({url})});
   const d = await r.json();
   if(!d.ok){ box.className="testresult show bad"; box.textContent="error: "+(d.error||"failed"); return; }
+  // Same reasoning as the wantlist save above: the server sanitises the
+  // name before saving, so step 5's lookup must use what it actually
+  // saved under, not what was typed (or pulled from Dispatcharr, which
+  // can easily contain a space -- "mybunny epg" saves as "mybunny-epg").
+  $("we-name").value = d.name;
   box.className="testresult show good"; box.textContent="Saved.";
   setTimeout(()=>goto(4), 400);
 });

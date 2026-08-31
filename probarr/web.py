@@ -677,6 +677,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             return self._browse(body)
 
+        if path == "/api/dispatcharr-epg-sources":
+            body, sent = self._json_body()
+            if sent:
+                return
+            return self._dispatcharr_epg_sources(body)
+
         if parts[:2] == ["api", "providers"] and len(parts) >= 3:
             if len(parts) == 4 and parts[3] == "delete":
                 ok = providers_mod.delete(self.root, parts[2])
@@ -2995,6 +3001,30 @@ class Handler(BaseHTTPRequestHandler):
         self._send(json.dumps({"channels": channels, "total_streams": len(lineup),
                                "groups": groups}),
                    "application/json")
+
+    def _dispatcharr_epg_sources(self, body):
+        """Every XMLTV source a Dispatcharr connection already has configured.
+
+        Read-only -- nothing here saves anything into probarr's own
+        epg_sources.json. That happens back through the ordinary
+        /api/epg-sources/<name> endpoint, same as adding one by hand,
+        once the Wizard (or anyone else) has picked which of these to
+        keep -- this just answers "what does Dispatcharr already have".
+        """
+        provider_name = (body.get("provider") or "").strip()
+        prov = providers_mod.get(self.root, provider_name)
+        if not prov or prov.get("scheme") != "dispatcharr":
+            return self._send('{"error":"not a Dispatcharr provider"}',
+                              "application/json", 404)
+        try:
+            client = client_from_spec(prov["spec"])
+            sources = client.list_epg_sources()
+        except Exception as e:
+            return self._send(json.dumps({"error": str(e)[:400]}),
+                              "application/json", 502)
+        out = [{"name": s.get("name") or "", "url": s.get("url") or "",
+               "has_channels": bool(s.get("has_channels"))} for s in sources]
+        self._send(json.dumps({"epg_sources": out}), "application/json")
 
     def _start_run(self, body):
         """Kick off a verify run in the background from the New Run form.
