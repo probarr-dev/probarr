@@ -1570,27 +1570,11 @@ __TOPBAR__
         <div class="lab">Dispatcharr proxy</div>
         <div class="ctl">
           <label class="miniline"><input type="checkbox" id="prefer_dispatcharr_proxy">
-            Also probe each already-assigned channel's current stream <b>through
-            Dispatcharr's own proxy</b>, alongside every raw candidate &mdash; not
-            instead of them.</label>
-          <div class="miniline">Direct candidates (the default) are probed straight
-            from the provider, which needs probarr itself to have the same network
-            path (VPN, geo-IP) the provider requires &mdash; if Dispatcharr already
-            has that path and probarr doesn't, this option lets Dispatcharr make the
-            actual upstream connection instead. It's also the only way a probe shows
-            up in Dispatcharr's own live Stats page, since that only reflects
-            connections through its proxy. <b>The strongly preferred fix for a
-            network-path mismatch is installing probarr behind the same VPN/proxy
-            Dispatcharr already uses</b> &mdash; that keeps every raw candidate
-            probeable, not just whichever one Dispatcharr currently has assigned.</div>
-          <div class="warn" style="margin-top:8px"><b>Measured bitrate, corruption and
-            frame timing for a proxied candidate reflect Dispatcharr's own connection</b>
-            (its bandwidth, its load right then), <b>not necessarily the raw stream</b>
-            &mdash; Dispatcharr can itself repackage or reprocess a stream on its way
-            through, which absorbs some of the very errors a direct probe would have
-            caught. A clean measurement here means "clean as Dispatcharr delivered it,"
-            not "clean at the source." Resolution, codec and EPG matching are read from
-            the stream itself and stay accurate either way.</div>
+            Also probe each already-assigned channel <b>through Dispatcharr's own proxy</b>,
+            alongside every raw candidate.</label>
+          <div class="miniline">Only tick this if probarr can't reach your provider directly but Dispatcharr can.</div>
+          <div class="warn" style="margin-top:8px">Heads up: a clean result here means
+            Dispatcharr delivered it clean, not necessarily that the source is.</div>
         </div>
       </div>
 
@@ -1618,15 +1602,10 @@ __TOPBAR__
         <div class="lab">Regions</div>
         <div class="ctl">
           <input type="text" id="regions" placeholder="e.g. UK (optional, comma-separated)">
-          <div class="miniline">On a multi-country provider, a generically-named
-            channel (TLC, CNN, MTV&hellip;) matches every country's copy without
-            this &mdash; measured live: 158 UK channels with no region filter
-            pulled in 1,565 candidates, mostly other countries' channels.</div>
+          <div class="miniline">Without this, generic names (TLC, CNN&hellip;) match
+            every country's copy &mdash; 158 UK channels with no filter once pulled in 1,565 candidates.</div>
           <label class="miniline"><input type="checkbox" id="strict_region">
-            Strict &mdash; also drop channels with no recognisable country
-            marker at all. Without this, Regions only rejects candidates it can
-            positively identify as a DIFFERENT country; unmarked candidates
-            (common on aggregated providers) still get through.</label>
+            Strict &mdash; also drop channels with no country marker at all, not just wrong ones.</label>
         </div>
       </div>
 
@@ -1634,12 +1613,8 @@ __TOPBAR__
         <div class="lab">Custom prefixes</div>
         <div class="ctl">
           <input type="text" id="region_tags" placeholder="e.g. OD, PLAY+, ZG (optional, comma-separated)">
-          <div class="miniline">Extra leading prefixes to recognise and strip, on
-            top of the built-in list (UK, US, NL, DE&hellip;) &mdash; for a
-            provider whose own tier/source labels aren't a country at all
-            (e.g. "OD: NPO 1", "PLAY+: NPO 1", "ZG: NPO 1"). Without this,
-            an unrecognised prefix stays glued to the front of the channel's
-            matching key and never matches a plain wantlist entry.</div>
+          <div class="miniline">Extra prefixes to strip beyond the built-in list
+            (e.g. "OD:", "PLAY+:") &mdash; left in place, they stop a channel from matching your wantlist.</div>
         </div>
       </div>
     </div>
@@ -1989,9 +1964,7 @@ __TOPBAR__
 <div class="page" style="max-width:1200px">
   <div class="card">
     <h2>Browse a provider's channels</h2>
-    <div class="lead">No probing, no waiting -- just the channel names your
-      provider lists, grouped so 40 spellings of the same channel become one
-      row. Tick what you want, save it as a wantlist.</div>
+    <div class="lead">No probing, just names &mdash; tick what you want, save it as a wantlist.</div>
 
     <div id="noproviders" class="emptynote" style="display:none">
       No provider saved yet. <a href="/providers">Add one</a> first.
@@ -2239,18 +2212,14 @@ __TOPBAR__
 <div class="page">
   <div class="card">
     <h2>Lineups</h2>
-    <div class="lead">A lineup is the durable thing a run is a snapshot of &mdash;
-      "my channels", not "the run from Tuesday". It holds the configuration
-      a run starts from, and the per-channel decisions (name, group, guide
-      source) that every later run inherits instead of asking again.</div>
+    <div class="lead">"My channels", not "the run from Tuesday" &mdash; a lineup remembers
+      your setup and per-channel decisions so later runs don't ask again.</div>
     <div id="list"><div class="muted">loading&hellip;</div></div>
   </div>
 
   <div class="card">
     <h2 id="edithead">New lineup</h2>
-    <div class="lead" id="editlead">Give it a name and the configuration its runs
-      should start from. Everything except the name is optional and can be
-      changed later.</div>
+    <div class="lead" id="editlead">Name it &mdash; everything else is optional and can change later.</div>
 
     <div class="field">
       <div class="lab">Name</div>
@@ -2624,11 +2593,8 @@ __TOPBAR__
 <div class="page">
   <div class="card">
     <h2>Unclaimed channels</h2>
-    <div class="lead">Every channel Dispatcharr has that no probarr lineup or run
-      has ever claimed &mdash; added by hand, imported from somewhere else, or
-      left over from before probarr was involved. A push never touches these
-      until you assign one somewhere: see the "blocked" rows in a push preview
-      for why a number collision refuses to overwrite something unrecognised.</div>
+    <div class="lead">Channels in Dispatcharr no probarr run has ever claimed &mdash;
+      pushes never touch these until you assign one somewhere.</div>
     <div class="field">
       <div class="lab">Dispatcharr connection</div>
       <div class="ctl"><select id="provider"><option value="">Choose a connection&hellip;</option></select></div>

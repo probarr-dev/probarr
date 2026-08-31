@@ -508,9 +508,7 @@ __TOPBAR__
 <div class="modal" id="grpmodal">
   <div class="modalbox">
     <h3 id="grp-title">Set group</h3>
-    <div class="sub">Pick an existing group or type a new one. Carried through
-      to Dispatcharr on the next push, where it wins over the export form's
-      blanket group.</div>
+    <div class="sub">Pick an existing group, or type a new one.</div>
     <div class="mfield">
       <label>Existing groups</label>
       <div id="grp-list" class="grp-list"></div>
@@ -530,11 +528,7 @@ __TOPBAR__
 <div class="modal" id="epgsrcmodal">
   <div class="modalbox">
     <h3 id="epgsrc-title">Set EPG source</h3>
-    <div class="sub">Forces this channel (or a multi-selection) onto ONE saved
-      source, instead of whichever one Check EPG's automatic resolve() would
-      otherwise pick -- each channel still finds its own matching entry within
-      that source. Carried through to the lineup, the same as a group or
-      watermark pick.</div>
+    <div class="sub">Forces this channel onto ONE saved source instead of whatever Check EPG would auto-pick.</div>
     <div class="mfield">
       <label>Saved sources</label>
       <div id="epgsrc-list" class="grp-list"></div>
@@ -550,10 +544,7 @@ __TOPBAR__
 <div class="modal" id="catmodal">
   <div class="modalbox">
     <h3>Add channels from the provider</h3>
-    <div class="sub">Searches the provider's ENTIRE catalogue, not just this
-      run's wantlist -- for channels you did not think to ask for. Selected
-      channels are added to this run and probed in the background, respecting
-      your connection limit.</div>
+    <div class="sub">Search the provider's whole catalogue for channels not already in this run.</div>
     <div class="mfield">
       <input type="text" id="cat-q" placeholder="Search the catalogue&hellip;">
     </div>
@@ -570,12 +561,8 @@ __TOPBAR__
   <div class="modalbox" style="width:min(900px,94vw)">
     <button class="modalx" id="groups-x" title="Close">✕</button>
     <h3>Groups</h3>
-    <div class="sub">Drag a channel onto another group to move it there. Drop
-      it on another channel WITHIN the same group to swap their numbers
-      &mdash; nothing else is renumbered, so a genre-banded scheme like
-      100s/300s/400s stays exactly where you put it. Click rows to select
-      several, then use a group's "Move N here" to bulk-move without
-      dragging one at a time.</div>
+    <div class="sub">Drag a channel to move it between groups, or onto another channel in
+      the same group to swap their numbers.</div>
     <div class="grpacc-bar">
       <span style="display:flex;gap:6px">
         <input type="text" id="grpacc-new" placeholder="New group name" style="width:180px">
@@ -592,12 +579,7 @@ __TOPBAR__
 <div class="modal" id="strmodal">
   <div class="modalbox">
     <h3>Streams for <span id="st-title"></span></h3>
-    <div class="sub">A run only probes the first few candidates of a pool,
-      ordered by their declared quality &mdash; necessary over one connection,
-      but it means a better stream can sit here unprobed. Search reaches
-      further still: it ignores the matcher entirely, so a variant labelled
-      differently enough never to be connected to this channel can be
-      attached to it anyway. Ticked streams are probed for THIS channel only.</div>
+    <div class="sub">Search the whole catalogue for a better stream a normal run wouldn't have tried.</div>
     <div class="mfield">
       <input type="text" id="st-q" placeholder="Search the whole catalogue by name&hellip;">
     </div>
@@ -626,16 +608,13 @@ __TOPBAR__
     <div class="mfield" style="font-size:12px">
       <label><input type="checkbox" id="imp-probe" checked>
         Probe the provider's alternatives for each channel</label>
-      <div class="sub" style="margin:2px 0 0">Untick to just record what
-        Dispatcharr has &mdash; number, group and current stream &mdash;
-        without spending a single connection.</div>
+      <div class="sub" style="margin:2px 0 0">Untick to just record what Dispatcharr has, with no connections spent.</div>
     </div>
     <div class="imp-bar" id="imp-bar" style="display:none">
       <span id="imp-count"></span>
       <button class="togg" id="imp-all">select all</button>
       <button class="togg" id="imp-none">select none</button>
-      <span class="imp-note">Adds and updates only &mdash; nothing already in
-        this run is removed, whether you tick it or not.</span>
+      <span class="imp-note">Adds and updates only &mdash; nothing is removed.</span>
     </div>
     <div id="imp-results" class="cat-results"></div>
     <div class="mresult" id="imp-result"></div>
@@ -663,10 +642,7 @@ __TOPBAR__
 
     <div class="mfield">
       <label>Search a source for the right channel</label>
-      <div class="sub" style="margin:-4px 0 8px">For when the row above says
-        &ldquo;not found&rdquo;, or the wrong entry, because this channel is
-        filed under a name the matcher wouldn't try. Type part of the real
-        name and pick from what actually exists.</div>
+      <div class="sub" style="margin:-4px 0 8px">For when the row above is missing or wrong &mdash; search for the real entry.</div>
       <div style="display:flex;gap:8px">
         <select id="em-search-src" style="width:150px;flex:none"></select>
         <input type="text" id="em-search-q" placeholder="e.g. dmax, three, sports&hellip;"
@@ -677,12 +653,8 @@ __TOPBAR__
 
     <div class="mfield">
       <label>Logo</label>
-      <div class="sub" style="margin:-4px 0 8px">Pick which picture represents this
-        channel: the provider's own, whichever matched EPG source's icon, or search
-        the wider <a href="https://github.com/tv-logo/tv-logos" target="_blank"
-        rel="noopener">tv-logo/tv-logos</a> catalogue. Every option here links straight
-        to its own source's hosting &mdash; probarr never downloads or stores the
-        image itself.</div>
+      <div class="sub" style="margin:-4px 0 8px">Pick a picture for this channel, or search
+        <a href="https://github.com/tv-logo/tv-logos" target="_blank" rel="noopener">tv-logo/tv-logos</a>.</div>
       <div id="em-logo-current" class="em-logo-current"></div>
       <div id="em-logo-choices" class="em-logo-choices"></div>
       <div style="display:flex;gap:8px;margin-top:10px">
@@ -705,20 +677,12 @@ __TOPBAR__
   <div class="modalbox" style="width:min(720px,96vw)">
     <button class="modalx" id="wm-x" title="Close">✕</button>
     <h3>Mark watermark area &mdash; <span id="wm-title"></span></h3>
-    <div class="sub">Drag a box around the logo/watermark on this known-good
-      picture. Every candidate will then show that same area (scaled to its
-      own resolution) cropped out of its own frame, right next to its
-      screenshot &mdash; so a wrong stream (right name, wrong feed) is
-      obvious to look at, not just inferred from a mismatched EPG.</div>
-    <div class="sub" id="wm-nopic" style="display:none">No captured frame to
-      draw on yet for this channel &mdash; probe or diagnose a candidate
-      first, then come back here.</div>
+    <div class="sub">Draw a box around the logo &mdash; every candidate then shows that
+      same crop, so a wrong stream is obvious at a glance.</div>
+    <div class="sub" id="wm-nopic" style="display:none">No captured frame yet &mdash; probe a candidate first.</div>
     <div class="mfield" id="wm-picker-field" style="display:none">
       <label>Picture to draw on</label>
-      <div class="sub" style="margin:-2px 0 6px">Defaults to the best-ranked
-        candidate with a captured frame &mdash; switch if THIS one happens to
-        be a moment the watermark faded off, or you'd rather use a different
-        candidate's picture as the known-good reference.</div>
+      <div class="sub" style="margin:-2px 0 6px">Defaults to the best-ranked candidate; switch if its watermark happens to be faded.</div>
       <select id="wm-picker"></select>
     </div>
     <div id="wm-imgwrap" style="position:relative;display:inline-block;
@@ -739,9 +703,7 @@ __TOPBAR__
   <div class="modalbox" style="width:min(420px,92vw)">
     <button class="modalx" id="dr-x" title="Close">✕</button>
     <h3 id="dr-title">Delete stream</h3>
-    <div class="sub">The stream itself survives (Find streams can and will
-      offer it again) -- a reason shows up next to it if it does. Optional;
-      pick one, type your own, or leave it blank.</div>
+    <div class="sub">The stream survives and can come back via Find streams &mdash; the reason is optional.</div>
     <div class="sub" style="margin-top:-6px">
       <a href="#" id="dr-epgtoggle">Not sure this is the right channel? Search the guide for what was actually playing&hellip;</a>
     </div>
@@ -4385,9 +4347,7 @@ __TOPBAR__
 <div class="modal" id="grpmodal">
   <div class="modalbox">
     <h3 id="grp-title">Set group</h3>
-    <div class="sub">Pick an existing group or type a new one. Carried through
-      to Dispatcharr on the next push, where it wins over the export form's
-      blanket group.</div>
+    <div class="sub">Pick an existing group, or type a new one.</div>
     <div class="mfield">
       <label>Existing groups</label>
       <div id="grp-list" class="grp-list"></div>
@@ -4407,10 +4367,7 @@ __TOPBAR__
 <div class="modal" id="epgsrcmodal">
   <div class="modalbox">
     <h3 id="epgsrc-title">Set EPG source</h3>
-    <div class="sub">Forces every selected channel onto ONE saved source,
-      instead of whichever one Check EPG's automatic resolve() would
-      otherwise pick -- each channel still finds its own matching entry within
-      that source.</div>
+    <div class="sub">Forces every selected channel onto ONE saved source instead of Check EPG's auto-pick.</div>
     <div class="mfield">
       <label>Saved sources</label>
       <div id="epgsrc-list" class="grp-list"></div>
@@ -4427,9 +4384,7 @@ __TOPBAR__
   <div class="modalbox" style="width:min(640px,94vw)">
     <button class="modalx" id="diag-x" title="Close">✕</button>
     <h3>Diagnose selected channels</h3>
-    <div class="sub">Re-scans every candidate for each ticked channel with a longer
-      sample and a kept clip. One probe runs at a time on a connection-limited
-      provider, so this can take a while for a large selection.</div>
+    <div class="sub">Re-checks every candidate with a longer sample and a kept clip.</div>
     <div id="diag-list" class="cat-results"></div>
     <div class="mresult" id="diag-result"></div>
     <div class="mrow" style="justify-content:space-between;align-items:center">
