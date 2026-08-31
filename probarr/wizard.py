@@ -70,11 +70,8 @@ __TOPBAR__
   <div class="wiz-step" id="wiz-dispatcharr">
     <div class="card">
       <h2>1. Connect Dispatcharr</h2>
-      <div class="lead">Optional &mdash; skip this entirely if you're only using probarr
-        to export an M3U file. Lets probarr push curated channels back into
-        Dispatcharr. Connecting it first (rather than second) is what lets the
-        next step offer to use Dispatcharr itself as the provider, and pull
-        your existing channels and guide straight from it.</div>
+      <div class="lead">Optional &mdash; lets probarr push channels to Dispatcharr, and
+        pull your existing setup from it.</div>
       <div class="row" style="margin-bottom:10px">
         <input type="text" id="wd-name" placeholder="Name, e.g. My Dispatcharr">
       </div>
@@ -86,32 +83,20 @@ __TOPBAR__
         <input type="text" id="wd-user" placeholder="Username">
         <input type="password" id="wd-pass" style="flex:1" placeholder="Password">
       </div>
-      <div class="hint2">Its own admin login, not the Xtream/M3U playback credentials.</div>
+      <div class="hint2">Use Dispatcharr's own admin login, not your playback credentials.</div>
       <label class="hint2" style="display:flex;align-items:center;gap:6px;margin-top:10px">
         <input type="checkbox" id="wd-assource" style="width:auto" checked>
-        Also use Dispatcharr as a provider (offer it as something a run can probe from,
-        and let the next step skip adding a separate one)
+        Also use Dispatcharr as a provider (lets the next step skip adding a separate one)
       </label>
       <label class="hint2" style="display:flex;align-items:center;gap:6px;margin-top:6px">
         <input type="checkbox" id="wd-proxy" style="width:auto">
         Prefer Dispatcharr's own proxy for probing
       </label>
-      <div class="hint2" style="margin-top:2px">Routes each already-assigned channel's
-        current stream through Dispatcharr's own proxy instead of the raw upstream URL
-        &mdash; the fix for probarr not having the same network path (VPN, geo-IP) the
-        provider needs when Dispatcharr already does. It's also the only way a probe shows
-        up in Dispatcharr's own live Stats page. Leave unchecked unless you know you need
-        it: the stronger fix is running probarr behind the same VPN/proxy Dispatcharr
-        already uses, which keeps every candidate probeable, not just whichever one
-        Dispatcharr currently has assigned.</div>
+      <div class="hint2" style="margin-top:2px">Only tick this if probarr can't reach your
+        provider directly but Dispatcharr can.</div>
       <div class="hint2" style="margin-top:6px;color:var(--warn)">
-        <b>Measured bitrate, corruption and frame timing for a proxied candidate reflect
-        Dispatcharr's own connection</b> (its bandwidth, its load right then), <b>not
-        necessarily the raw stream</b> &mdash; Dispatcharr can itself repackage or
-        reprocess a stream on its way through, which absorbs some of the very errors a
-        direct probe would have caught. A clean measurement here means "clean as
-        Dispatcharr delivered it," not "clean at the source." Resolution, codec and EPG
-        matching are read from the stream itself and stay accurate either way.</div>
+        Heads up: a clean result here means Dispatcharr delivered it clean, not
+        necessarily that the source is.</div>
       <div class="testresult" id="wd-result"></div>
       <div class="wizrow">
         <button id="wd-test">Test connection</button>
