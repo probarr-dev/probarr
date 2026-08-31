@@ -104,6 +104,14 @@ __TOPBAR__
         it: the stronger fix is running probarr behind the same VPN/proxy Dispatcharr
         already uses, which keeps every candidate probeable, not just whichever one
         Dispatcharr currently has assigned.</div>
+      <div class="hint2" style="margin-top:6px;color:var(--warn)">
+        <b>Measured bitrate, corruption and frame timing for a proxied candidate reflect
+        Dispatcharr's own connection</b> (its bandwidth, its load right then), <b>not
+        necessarily the raw stream</b> &mdash; Dispatcharr can itself repackage or
+        reprocess a stream on its way through, which absorbs some of the very errors a
+        direct probe would have caught. A clean measurement here means "clean as
+        Dispatcharr delivered it," not "clean at the source." Resolution, codec and EPG
+        matching are read from the stream itself and stay accurate either way.</div>
       <div class="testresult" id="wd-result"></div>
       <div class="wizrow">
         <button id="wd-test">Test connection</button>

@@ -1643,6 +1643,14 @@ __TOPBAR__
             network-path mismatch is installing probarr behind the same VPN/proxy
             Dispatcharr already uses</b> &mdash; that keeps every raw candidate
             probeable, not just whichever one Dispatcharr currently has assigned.</div>
+          <div class="warn" style="margin-top:8px"><b>Measured bitrate, corruption and
+            frame timing for a proxied candidate reflect Dispatcharr's own connection</b>
+            (its bandwidth, its load right then), <b>not necessarily the raw stream</b>
+            &mdash; Dispatcharr can itself repackage or reprocess a stream on its way
+            through, which absorbs some of the very errors a direct probe would have
+            caught. A clean measurement here means "clean as Dispatcharr delivered it,"
+            not "clean at the source." Resolution, codec and EPG matching are read from
+            the stream itself and stay accurate either way.</div>
         </div>
       </div>
 
