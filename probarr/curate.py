@@ -39,8 +39,10 @@ aside .tools input[type=search]{width:100%}
 .addmenu button{width:100%;text-align:left;font-size:12px;padding:7px 9px;
   background:transparent;border:1px solid transparent}
 .addmenu button:hover{background:var(--panel);border-color:var(--line)}
-.toolrow{display:flex;gap:7px}
-.toolrow button{flex:1}
+.toolrow{display:flex;gap:16px;align-items:center;padding:1px 2px}
+.toolrow button{flex:none;background:transparent;border:none;color:var(--dim);
+  font-size:12px;font-weight:600;padding:2px 0}
+.toolrow button:hover{background:transparent;color:var(--text);text-decoration:underline}
 .chips{display:flex;gap:4px;flex-wrap:wrap}
 .chip{font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:11px;
   cursor:pointer;color:var(--dim);background:var(--panel);user-select:none}
@@ -399,9 +401,9 @@ __TOPBAR__
         </div>
       </div>
       <div class="toolrow">
-        <button id="opengroups" style="font-size:12px;padding:5px 8px"
+        <button id="opengroups"
           title="See every group and what is in it, drag channels between groups, or drop one channel on another to swap their numbers.">Groups</button>
-        <button id="diagfiltered" style="font-size:12px;padding:5px 8px"
+        <button id="diagfiltered"
           title="Re-scan every candidate for the channels currently shown by this filter/search &mdash; pick which ones before it starts, same as the nightly re-verify but on demand and on a subset.">
           Diagnose these (<span id="diagfilteredcount">0</span>)</button>
       </div>
