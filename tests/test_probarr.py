@@ -1647,6 +1647,33 @@ class TestBrowseDispatcharrActiveLineup(Temp):
         names = {c["name"]: c["group"] for c in body["channels"]}
         self.assertEqual(names["Beyond Paradise"], "Niko TV")
 
+    def test_active_only_carries_the_channel_number_and_tvg_id_through(self):
+        """Real usability bug: pulling Dispatcharr's channels into the Setup
+        Wizard's wantlist used to drop the number entirely -- a channel
+        imported that way sat unnumbered (dropped from every export) until
+        someone noticed and set it by hand in Curate. active_lineup() (and
+        this endpoint's passthrough of it) must carry both the number and
+        the tvg_id, not just name/group.
+        """
+        providers.save(self.root, "mydispatch", "dispatcharr://u:p@host:9191")
+        handler, web_mod = self._handler()
+        fake_client = unittest.mock.MagicMock()
+        fake_client.active_lineup.return_value = [
+            {"id": 1, "name": "BBC One", "group": "Free to air",
+             "tvg_id": "bbcone.uk", "number": 101},
+            {"id": 2, "name": "No Number Yet", "group": "", "tvg_id": "", "number": None},
+        ]
+        with unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client), \
+             unittest.mock.patch.object(web_mod, "load_source"), \
+             unittest.mock.patch.object(handler, "_send") as fake_send:
+            handler._browse({"provider": "mydispatch", "active_only": True})
+        body = json.loads(fake_send.call_args[0][0])
+        by_name = {c["name"]: c for c in body["channels"]}
+        self.assertEqual(by_name["BBC One"]["number"], 101)
+        self.assertEqual(by_name["BBC One"]["tvg_id"], "bbcone.uk")
+        self.assertIsNone(by_name["No Number Yet"]["number"])
+
     def test_active_only_ignored_for_non_dispatcharr_provider(self):
         providers.save(self.root, "mybunny", "https://p.tv/m3u?u=x&p=y")
         handler, web_mod = self._handler()

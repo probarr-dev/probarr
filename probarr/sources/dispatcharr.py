@@ -168,6 +168,7 @@ class Dispatcharr:
                 "id": c["id"], "name": c.get("name") or "",
                 "group": names.get(c.get("channel_group_id"), ""),
                 "tvg_id": c.get("tvg_id") or "",
+                "number": c.get("channel_number"),
             })
         return out
 

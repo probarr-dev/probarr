@@ -1069,6 +1069,20 @@ function dominantAspect(ch){
 }
 function specHTML(c, expectedAspect){
   const out=[];
+  // Marks the ONE candidate that was already live in Dispatcharr before
+  // this run touched anything -- Import from Dispatcharr (and the Wizard's
+  // "pull my Dispatcharr channels" path) seeds it with a stream_id of
+  // "dispatcharr:<id>", distinct from every candidate probarr found itself.
+  // Without this, the channel header's "in Dispatcharr" tag says WHICH
+  // stream was already live, by name, but nothing on the candidate cards
+  // themselves says which card that name refers to -- a real gap: knowing
+  // "here's what you had" versus "here's what probarr found better" was
+  // only answerable by reading two different parts of the screen and
+  // matching names by eye.
+  if(String(c.stream_id||"").startsWith("dispatcharr:"))
+    out.push(['<span class="spec" title="This is the exact stream that was '+
+      'already live in Dispatcharr before this run — not something probarr '+
+      'found, your existing pick.">', 'already in Dispatcharr', '</span>']);
   if(c.dropped) out.push(['<span class="spec err" title="Dispatcharr\'s own '+
     'event log: this exact stream has genuinely failed over '+c.dropped+
     ' time(s) in real use, not a probe guess. Turn off in Settings if you '+

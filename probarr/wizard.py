@@ -365,11 +365,32 @@ $("ww-pulldisp").addEventListener("click", async ()=>{
       box.textContent = "Dispatcharr has no channels in its active lineup yet — "+
         "nothing to pull in. Skip this step, or type your own list below.";
     } else {
-      $("ww-body").value = d.channels.map(c=>c.name).join("\n");
+      // Uses the wantlist format's own number/tvg-id/group syntax (see
+      // wantlist.py's TEMPLATE) rather than bare names, so Dispatcharr's
+      // number and guide id genuinely carry over instead of being
+      // dropped on the floor -- a channel imported this way used to lose
+      // its number entirely and sit unnumbered (dropped from every
+      // export) until someone noticed and set it by hand in Curate.
+      const sorted = [...d.channels].sort((a,b)=>
+        (a.group||"").localeCompare(b.group||"") ||
+        (a.number ?? 1e9) - (b.number ?? 1e9));
+      let lastGroup, lines = [];
+      for(const c of sorted){
+        if(c.group !== lastGroup){
+          lines.push((lines.length?"\n":"")+"["+(c.group||"")+"]");
+          lastGroup = c.group;
+        }
+        lines.push((c.number!=null?c.number+": ":"")+c.name+
+          (c.tvg_id?" | "+c.tvg_id:""));
+      }
+      $("ww-body").value = lines.join("\n");
       if(!$("ww-name").value.trim()) $("ww-name").value = "dispatcharr-channels";
       box.className = "testresult show good";
-      box.textContent = "Pulled "+d.channels.length+" channel(s) from Dispatcharr — "+
-        "check the list below, then Save and continue.";
+      const numbered = d.channels.filter(c=>c.number!=null).length;
+      box.textContent = "Pulled "+d.channels.length+" channel(s) from Dispatcharr"+
+        (numbered<d.channels.length ? " ("+(d.channels.length-numbered)+
+          " with no number set in Dispatcharr)" : "")+
+        " — check the list below, then Save and continue.";
     }
   }catch(e){ box.className="testresult show bad"; box.textContent="Request failed."; }
   btn.disabled = false; btn.textContent =

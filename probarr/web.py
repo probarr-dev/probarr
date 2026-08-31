@@ -2986,7 +2986,8 @@ class Handler(BaseHTTPRequestHandler):
                               "application/json", 502)
 
         channels = [{"key": "dispatcharr:%s" % c["id"], "name": c["name"],
-                     "count": 1, "examples": [c["name"]], "group": c["group"]}
+                     "count": 1, "examples": [c["name"]], "group": c["group"],
+                     "number": c.get("number"), "tvg_id": c.get("tvg_id") or ""}
                     for c in lineup]
         channels.sort(key=lambda c: c["name"].lower())
         groups = sorted({c["group"] for c in channels if c["group"]})
