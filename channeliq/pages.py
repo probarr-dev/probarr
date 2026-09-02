@@ -2980,6 +2980,11 @@ __TOPBAR__
 
     <p class="relnote"><b>Fixes.</b></p>
     <ul>
+      <li>The "placeholder" verdict now names the container that reported the
+        fixed duration &mdash; <code>reports a fixed 600.0s duration
+        (hls)</code>. On MPEG-TS that means what the check assumes; on
+        HLS/DASH it can just be the segment window a healthy live playlist
+        publishes.</li>
       <li>Curate showed only ONE candidate as "in the channel" for a channel
         that had only ever had a group written to it &mdash; and baked that
         single-stream failover chain in if you then touched it.</li>

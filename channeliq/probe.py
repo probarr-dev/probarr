@@ -657,9 +657,20 @@ def probe(stream, opts: ProbeOptions, thumb_path: str,
         # question that matters. See _parse_container_duration()'s
         # docstring for why this needs no cross-channel corroboration,
         # unlike annotate_placeholders()'s still-picture matching.
+        # The container is named in the reason because it is what decides
+        # whether this verdict is trustworthy, and it is the one thing a
+        # screenshot of the card could never otherwise tell us. On MPEG-TS a
+        # finite duration means what this check assumes it means. On HLS or
+        # DASH it may not: a live playlist's reported duration can just be
+        # the length of the segment window currently published, which is a
+        # perfectly normal thing for a healthy live stream to have. Naming
+        # it turns "every channel says placeholder" from a mystery into a
+        # one-glance diagnosis of whose fault it is.
+        cont = (meta.get("container") or "").strip()
         return {"status": STATUS_PLACEHOLDER, **meta,
                 "reason": (f"reports a fixed {meta['container_duration']:.1f}s "
-                          "duration; a live channel has none"),
+                          f"duration{f' ({cont})' if cont else ''}; "
+                          "a live channel has none"),
                 "total_seconds": round(time.time() - t0, 1)}
 
     cap = capture(stream.url, opts, thumb_path, frame_path, crop_path, clip_path)

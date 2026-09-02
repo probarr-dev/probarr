@@ -54,6 +54,12 @@ Runs made before this keep whatever they probed; a re-verify picks up the
 extra candidates.
 
 ### Fixes
+- The "placeholder" verdict now names the container that reported the fixed
+  duration — `reports a fixed 600.0s duration (hls)`. On MPEG-TS a finite
+  duration means what this check assumes; on HLS/DASH it can just be the
+  length of the segment window a healthy live playlist currently publishes,
+  so a whole lineup coming back placeholder is now diagnosable at a glance
+  instead of being a mystery.
 - Curate showed only ONE candidate as "in the channel" for a channel that
   had only ever had a `group` written to it, and persisted that single-stream
   failover chain if you then touched it — the client-side default disagreed

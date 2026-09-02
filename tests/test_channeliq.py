@@ -1313,6 +1313,53 @@ class TestFiniteFilePlaceholder(unittest.TestCase):
         fake_capture.assert_not_called()
         self.assertEqual(result["status"], probe_mod.STATUS_PLACEHOLDER)
         self.assertIn("12.3s", result["reason"])
+        # The container decides whether this verdict can be trusted at all
+        # (mpegts: yes; hls/dash: a live playlist may report its segment
+        # window here), so it has to be visible on the card itself.
+        self.assertIn("mpegts", result["reason"])
+
+    def test_the_placeholder_reason_names_an_hls_container(self):
+        """The case this was added for: a whole lineup coming back
+        placeholder is a mystery until the card says which container
+        reported the duration."""
+        import unittest.mock
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
+
+        fake_meta = {"has_video": True, "width": 1920, "height": 1080,
+                    "fps": 25.0, "video_codec": "h264", "video_profile": "",
+                    "pix_fmt": "yuv420p", "audio_codec": "aac",
+                    "audio_channels": 2, "video_variant_count": 1,
+                    "declared_kbps": 0, "container": "hls",
+                    "container_duration": 600.0}
+        with unittest.mock.patch.object(probe_mod, "probe_metadata",
+                                        return_value=fake_meta), \
+             unittest.mock.patch.object(probe_mod, "capture"):
+            result = probe_mod.probe(Stream(id="s1", name="NPO 1",
+                                            url="http://x/1"),
+                                     probe_mod.ProbeOptions(), "/tmp/t.jpg")
+        self.assertIn("600.0s", result["reason"])
+        self.assertIn("(hls)", result["reason"])
+
+    def test_the_placeholder_reason_survives_a_missing_container(self):
+        import unittest.mock
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
+
+        fake_meta = {"has_video": True, "width": 1920, "height": 1080,
+                    "fps": 25.0, "video_codec": "h264", "video_profile": "",
+                    "pix_fmt": "yuv420p", "audio_codec": "aac",
+                    "audio_channels": 2, "video_variant_count": 1,
+                    "declared_kbps": 0, "container": "",
+                    "container_duration": 600.0}
+        with unittest.mock.patch.object(probe_mod, "probe_metadata",
+                                        return_value=fake_meta), \
+             unittest.mock.patch.object(probe_mod, "capture"):
+            result = probe_mod.probe(Stream(id="s1", name="NPO 1",
+                                            url="http://x/1"),
+                                     probe_mod.ProbeOptions(), "/tmp/t.jpg")
+        self.assertIn("600.0s duration;", result["reason"])
+        self.assertNotIn("()", result["reason"])
 
     def test_probe_does_not_flag_a_stream_with_no_declared_duration(self):
         import unittest.mock
