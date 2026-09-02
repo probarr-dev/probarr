@@ -4240,6 +4240,76 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
             "selection": selection, "channels": channels}
 
 
+# --- server-side health summary, for the Runs list -----------------------
+# Exact ports of curate.py's own client-side evidenceSig/needsReview/state/
+# changesSig/activeChanges (see the big JS string above) -- kept in step
+# with those deliberately, not reimplemented from scratch, so the Runs
+# list's counts never disagree with what a curator sees on landing in this
+# run's own Curate page. Needed because the Runs list summarizes many runs
+# at once and has no client-side SEL/DATA to compute this from live.
+def _evidence_sig(ch):
+    cs = "|".join(f"{c['id']}:{c['status']}" for c in ch.get("candidates") or [])
+    mm = ""
+    if ch.get("epg_mismatch"):
+        mm = (f"{ch['epg_mismatch']['dispatcharr']['guide_id']}>"
+              f"{ch['epg_mismatch']['probarr']['guide_id']}")
+    return f"{cs}||{mm}"
+
+
+def _needs_review(ch):
+    if ch.get("missing"):
+        return True
+    cs = ch.get("candidates") or []
+    if not any(c["status"] == "ok" for c in cs):
+        return True
+    if any(c.get("dup") for c in cs):
+        return True
+    if ch.get("epg_mismatch"):
+        return True
+    return False
+
+
+def channel_state(ch, sel):
+    if ch.get("missing"):
+        return "bad"
+    sel = sel or {}
+    if sel.get("include") is False:
+        return "off"
+    clean = [c for c in (ch.get("candidates") or []) if c["status"] == "ok"]
+    if sel.get("confirmed") and sel.get("settled_on"):
+        if _evidence_sig(ch) != sel["settled_on"] and _needs_review(ch):
+            return "review" if clean else "bad"
+        return "ok"
+    if not clean:
+        return "bad"
+    if _needs_review(ch):
+        return "review"
+    return "ok"
+
+
+def active_changes(ch, sel):
+    sig = "␟".join(ch.get("changes") or [])
+    if not sig:
+        return []
+    if (sel or {}).get("changes_dismissed_on") == sig:
+        return []
+    return ch.get("changes") or []
+
+
+def summarize(payload):
+    """{needs_you, changed, total} for one run's Curate payload."""
+    selection = payload.get("selection") or {}
+    needs_you = changed = 0
+    for ch in payload["channels"]:
+        sel = selection.get(ch["key"])
+        if channel_state(ch, sel) in ("review", "bad"):
+            needs_you += 1
+        if active_changes(ch, sel):
+            changed += 1
+    return {"needs_you": needs_you, "changed": changed,
+           "total": len(payload["channels"])}
+
+
 def _url(store, rel, version=None):
     """Image URL, versioned by when the frame was captured.
 

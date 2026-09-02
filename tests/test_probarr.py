@@ -2611,6 +2611,61 @@ class TestBuildPayloadRanksAgainstTheConfirmedPick(Temp):
                         ch["changes"])
 
 
+class TestCurateSummarize(Temp):
+    """curate.summarize() powers the Runs list's "Needs you"/"Changed"
+    pills -- it has to agree exactly with the client-side state()/
+    activeChanges() it's a port of, or the Runs list would show a count
+    that doesn't match what's actually found on landing in that run.
+    """
+
+    def _probe(self, key, sid, status="ok", w=1920, h=1080, fps=25, kbps=4000):
+        return {"rec_key": f"{key}|{sid}", "channel_key": key, "stream_id": sid,
+                "stream_name": sid, "status": status, "width": w, "height": h,
+                "fps": fps, "measured_kbps": kbps, "probed_at": 1000}
+
+    def _payload_for(self, store):
+        from probarr.verify import annotate_placeholders
+        by_channel = annotate_placeholders(store)
+        return curate.build_payload(by_channel, store, False, None)
+
+    def test_a_channel_with_no_clean_stream_counts_as_needs_you(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("A", "s1", status="dead"))
+        s = curate.summarize(self._payload_for(store))
+        self.assertEqual(s, {"needs_you": 1, "changed": 0, "total": 1})
+
+    def test_a_settled_channel_with_unchanged_evidence_does_not_count(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("A", "s1", status="dead"))
+        # Settle it exactly as the "This is fine" button does: confirmed +
+        # settled_on = the evidence signature at settle time.
+        from probarr.verify import annotate_placeholders
+        payload = curate.build_payload(annotate_placeholders(store), store, False, None)
+        ch = payload["channels"][0]
+        sig = curate._evidence_sig(ch)
+        store.write_selection({"A": {"confirmed": True, "settled_on": sig}})
+        s = curate.summarize(self._payload_for(store))
+        self.assertEqual(s["needs_you"], 0)
+
+    def test_a_dismissed_change_does_not_count(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(dict(self._probe("A", "s1"), probed_at=1000))
+        store.append(dict(self._probe("A", "s1", status="dead"), probed_at=2000))
+        undismissed = curate.summarize(self._payload_for(store))
+        self.assertEqual(undismissed["changed"], 1)
+        payload = self._payload_for(store)
+        sig = "␟".join(payload["channels"][0]["changes"])
+        store.write_selection({"A": {"changes_dismissed_on": sig}})
+        dismissed = curate.summarize(self._payload_for(store))
+        self.assertEqual(dismissed["changed"], 0)
+
+
 class TestDispatcharrCurrentCandidateFlag(Temp):
     """Real bug found running the Wizard's "pull my Dispatcharr channels"
     path live: the "already in Dispatcharr" candidate badge was keyed off

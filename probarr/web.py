@@ -87,6 +87,10 @@ INDEX = r"""<!doctype html><html><head><meta charset="utf-8">
 .run a{text-decoration:none}
 .run button.danger{background:var(--panel2);border-color:var(--bad);color:var(--bad)}
 .run button.danger:hover{background:var(--bad);color:#3a0000}
+.healthpip{display:inline-block;margin-right:6px;font-size:11px;font-weight:700;
+  border-radius:3px;padding:1px 6px;text-decoration:none}
+.healthpip-review{color:#3a2200;background:var(--warn)}
+.healthpip-changed{color:#3a2200;background:var(--warn);opacity:.75}
 </style></head><body>
 __TOPBAR__
 <div class="runs">__ROWS__</div>
@@ -3759,6 +3763,43 @@ class Handler(BaseHTTPRequestHandler):
         return ('not completed yet -- probably an aborted or empty run; '
                "safe to Delete if you don't recognise it")
 
+    def _health_pips(self, r):
+        """"Needs you (N)"/"Changed (N)" pills for the Runs list, so a
+        curator can see across every lineup at once which ones actually
+        need a look without opening each in turn -- the Runs list used to
+        show only channel/candidate counts, which say nothing about
+        whether anything is actually wrong. Skipped for a run mid-probe
+        (its own results are still being written, so a summary computed
+        now would be stale by the time anyone reads it) or with nothing
+        probed yet.
+        """
+        run_id = r["run_id"]
+        if r.get("run_state") == "running" and runs_mod.status(run_id):
+            return ""
+        store = RunStore(self.root, run_id)
+        if not os.path.exists(store.results_path):
+            return ""
+        try:
+            by_channel = annotate_placeholders(store)
+            payload = curate.build_payload(by_channel, store, False,
+                                           self._inherited(store))
+            s = curate.summarize(payload)
+        except Exception:
+            return ""      # a summary is a nicety; never break the Runs list over it
+        href = f"/run/{urllib.parse.quote(run_id)}/curate"
+        pips = []
+        if s["needs_you"]:
+            pips.append(f'<a class="healthpip healthpip-review" '
+                       f'href="{href}#f=triage" title="Channels with no clean '
+                       f'stream, a placeholder, or a guide mismatch.">'
+                       f'Needs you ({s["needs_you"]})</a>')
+        if s["changed"]:
+            pips.append(f'<a class="healthpip healthpip-changed" '
+                       f'href="{href}#f=changed" title="Channels where '
+                       f'something measurably changed since the last '
+                       f'verify.">Changed ({s["changed"]})</a>')
+        return "".join(pips)
+
     def _index(self):
         runs = RunStore.list_runs(self.root)
         if not runs:
@@ -3785,8 +3826,8 @@ class Handler(BaseHTTPRequestHandler):
         else:
             rows = "".join(
                 f'<div class="run"><div style="flex:1"><b>{html.escape(r["run_id"])}</b>'
-                f'<div class="m">{r.get("channels","?")} channels &middot; '
-                f'{r.get("candidates","?")} candidates &middot; '
+                f'<div class="m">{self._health_pips(r)}{r.get("channels","?")} channels '
+                f'&middot; {r.get("candidates","?")} candidates &middot; '
                 f'{html.escape(str(r.get("source","")))}</div>'
                 f'<div class="m">{self._run_dates(r)}</div></div>'
                 f'<a href="/run/{urllib.parse.quote(r["run_id"])}/curate">'
