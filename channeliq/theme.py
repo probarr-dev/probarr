@@ -201,7 +201,8 @@ _NAV_SETUP = [("wizard", "/wizard", "Setup wizard"),
               # a place to send you -- otherwise "blocked" in a push
               # preview is a dead end with no next step.
               ("unclaimed", "/unclaimed", "Unclaimed"),
-              ("settings", "/settings", "Settings")]
+              ("settings", "/settings", "Settings"),
+              ("about", "/about", "About")]
 _NAV_ITEMS = _NAV_DAILY + _NAV_SETUP   # kept for anything still iterating the flat list
 
 

@@ -1,5 +1,6 @@
 """Standalone web pages that are not tied to a single run."""
-from .theme import CSS, topbar
+from . import __version__
+from .theme import CSS, brand_icon_svg, topbar
 
 WANTLIST_EXTRA = """
 .page{max-width:1000px;margin:18px auto;padding:0 16px 60px}
@@ -2874,3 +2875,111 @@ def unclaimed_page():
     return (UNCLAIMED_PAGE
             .replace("__TOPBAR__", topbar("unclaimed", active="unclaimed"))
             .replace("__CSS__", CSS).replace("__EXTRA__", UNCLAIMED_EXTRA))
+
+
+ABOUT_EXTRA = """
+.about-hero{display:flex;align-items:center;gap:16px;margin-bottom:4px}
+.about-hero .brand-icon{width:56px;height:56px}
+.about-hero h1{margin:0;font-size:26px;display:flex;align-items:baseline;gap:9px}
+.about-hero h1 span{color:var(--accent)}
+.about-hero .ver{color:var(--faint);font-size:13px;font-weight:400}
+.about-rel{margin-bottom:26px}
+.about-rel h3{margin:0 0 4px;font-size:14px}
+.about-rel .relnote{color:var(--dim);font-size:13px;line-height:1.6;margin:0 0 10px}
+.about-rel ul{margin:0 0 10px;padding-left:19px}
+.about-rel li{margin:3px 0;color:var(--dim);font-size:13px;line-height:1.55}
+.about-rel .wip{border-left:3px solid var(--warn);padding-left:11px;margin-top:14px}
+.about-rel .wip h3{color:var(--warn)}
+"""
+
+# Kept in step with CHANGELOG.md by hand -- there is no markdown renderer in
+# this stdlib-only app to keep the two in sync automatically, and a repo
+# file nobody using the Docker image ever sees is not a substitute for
+# something visible from inside the app itself.
+ABOUT_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChannelIQ &middot; about</title><style>__CSS____EXTRA__</style></head><body>
+
+__TOPBAR__
+
+<div class="page" style="max-width:760px">
+  <div class="about-hero">
+    __ICON__
+    <h1>Channel<span>IQ</span> <span class="ver">v__VERSION__</span></h1>
+  </div>
+  <p class="lead">Renamed from probarr &mdash; same tool, same data. Verifies,
+    ranks and helps you visually curate IPTV streams, then pushes the result
+    to Dispatcharr.</p>
+
+  <div class="about-rel">
+    <h3>Unreleased</h3>
+
+    <p class="relnote"><b>Renamed: probarr &rarr; ChannelIQ.</b> Dropping the
+      -arr suffix. Package, CLI, env vars, Docker image internals, docs and
+      UI branding all renamed. Both <code>python3 -m probarr</code> and
+      <code>python3 -m channeliq</code> keep working (as do
+      <code>PROBARR_*</code> env vars alongside the new
+      <code>CHANNELIQ_*</code> ones). New retro, diagnostic-icon-styled
+      favicon, also shown right here in the topbar.</p>
+
+    <p class="relnote"><b>Ranking stability (the "Changed" alert
+      flip-flop).</b></p>
+    <ul>
+      <li>Bitrate ranking now compares each candidate against the channel's
+        own <i>currently confirmed pick</i>, not a fixed tolerance grid.</li>
+      <li>Tightened bitrate tolerance from 35% to 15% &mdash; the old value
+        let real ~20-30% differences get swallowed and decided by a minor
+        codec tiebreak instead, ahead of corruption count.</li>
+      <li>The "Changed" box is always visible again, and each channel gets
+        its own <b>Dismiss</b> &mdash; acknowledges the exact current text
+        without silencing a genuinely different future change.</li>
+    </ul>
+
+    <p class="relnote"><b>Runs list.</b></p>
+    <ul>
+      <li><b>Needs you</b> / <b>Changed</b> health pills per run, computed
+        server-side so they always agree with what Curate itself shows.</li>
+      <li>Runs actually needing a look sort to the top; the topbar rolls up
+        a "N need you" total.</li>
+    </ul>
+
+    <p class="relnote"><b>Curate.</b></p>
+    <ul>
+      <li>Channel list is grouped under collapsible headers, each with a
+        "select all in group" checkbox feeding the existing bulk-action
+        mechanism.</li>
+      <li>Bulk edit page gained an opt-in <b>Edit Mode</b>: batches changes
+        into a local undo/redo stack instead of saving each one
+        immediately, with Commit/Discard to close it out.</li>
+    </ul>
+
+    <p class="relnote"><b>Fixes.</b></p>
+    <ul>
+      <li>Deleting a run now releases the Dispatcharr claims it made.</li>
+      <li>The "dropped stream" failure counts on candidate cards had never
+        actually worked, for any run &mdash; fixed.</li>
+      <li>Watchtower no longer tries (and fails) to pull the test instance's
+        locally-built image from Docker Hub.</li>
+    </ul>
+
+    <div class="wip">
+      <h3>In progress, not yet active</h3>
+      <p class="relnote">Watchdog: ongoing per-channel maintenance driven by
+        Dispatcharr's own event log. The decision logic, ranking hook, and
+        Settings page are built and tested, but the background poller that
+        actually watches Dispatcharr's events and drives the schedule
+        hasn't been written yet &mdash; the Settings toggle exists but
+        doesn't do anything live yet.</p>
+    </div>
+  </div>
+</div>
+</body></html>
+"""
+
+
+def about_page():
+    return (ABOUT_PAGE
+            .replace("__TOPBAR__", topbar("about", active="about"))
+            .replace("__ICON__", brand_icon_svg(56))
+            .replace("__VERSION__", __version__)
+            .replace("__CSS__", CSS).replace("__EXTRA__", ABOUT_EXTRA))

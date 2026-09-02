@@ -274,6 +274,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(pages.lineups_page())
         if path == "/unclaimed":
             return self._send(pages.unclaimed_page())
+        if path == "/about":
+            return self._send(pages.about_page())
         if path == "/api/runs":
             return self._send(json.dumps({"runs": RunStore.list_runs(self.root)}),
                               "application/json")
