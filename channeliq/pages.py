@@ -584,6 +584,11 @@ SETTINGS_EXTRA = WANTLIST_EXTRA + """
 .tagaddinput{background:var(--bg);color:var(--text);border:1px solid var(--line);
   border-radius:var(--radius);padding:5px 9px;font-size:12.5px;max-width:220px}
 .tagaddbtn,.restoretags{font-size:11.5px;padding:4px 9px}
+.settings-jump{display:flex;gap:4px;flex-wrap:wrap;
+  padding:9px 16px;background:var(--bg);border-bottom:1px solid var(--line)}
+.settings-jump a{font-size:12px;color:var(--dim);text-decoration:none;
+  padding:4px 9px;border-radius:12px;white-space:nowrap}
+.settings-jump a:hover{color:var(--text);background:var(--panel)}
 """
 
 SETTINGS_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -592,8 +597,20 @@ SETTINGS_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 
 __TOPBAR__
 
+<nav class="settings-jump">
+  <a href="#s-probing">Probing</a>
+  <a href="#s-defaults">Defaults</a>
+  <a href="#s-tags">Tags</a>
+  <a href="#s-reasons">Delete reasons</a>
+  <a href="#s-failover">Failover evidence</a>
+  <a href="#s-watchdog">Watchdog</a>
+  <a href="#s-backup">Backup &amp; restore</a>
+  <a href="#s-aliases">Name aliases</a>
+  <a href="#s-decisions">Ranking vs. you</a>
+</nav>
+
 <div class="page">
-  <div class="card">
+  <div class="card" id="s-probing">
     <h2>Probing</h2>
     <div class="lead">Applies to new runs and to re-probing a single stream.</div>
 
@@ -655,7 +672,7 @@ __TOPBAR__
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-defaults">
     <h2>Defaults for new runs</h2>
     <div class="lead">Optional &mdash; saves retyping these every time.</div>
     <div class="field"><div class="lab">Source</div>
@@ -670,20 +687,20 @@ __TOPBAR__
         placeholder="name of a saved wantlist"></div></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-tags">
     <h2>Manage tags</h2>
     <div class="lead">Region ("UK:") and quality ("HD") markers channeliq strips before
       matching &mdash; add your provider's own labels here if they're not one of these already.</div>
     <div id="tagcards"></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-reasons">
     <h2>Manage delete reasons</h2>
     <div class="lead">The one-click reasons Curate's "Delete stream" offers.</div>
     <div id="reasoncard"></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-failover">
     <h2>Dispatcharr failover evidence</h2>
     <div class="lead">Real playback failures from Dispatcharr's own log, shown per channel during import.</div>
     <div class="field"><div class="lab">Reporting</div>
@@ -697,7 +714,7 @@ __TOPBAR__
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-watchdog">
     <h2>Watchdog</h2>
     <div class="lead">Ongoing maintenance for channels Dispatcharr's own log reports real
       trouble on &mdash; demotes the affected stream in ranking right away, re-checks it on
@@ -739,7 +756,7 @@ __TOPBAR__
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="s-backup">
     <h2>Backup &amp; restore</h2>
     <div class="lead">Everything needed to rebuild this install elsewhere (not images,
       those are disposable) &mdash; includes your credentials, so keep it safe.</div>
@@ -758,7 +775,7 @@ __TOPBAR__
     <span class="muted" id="msg"></span>
   </div>
 
-  <h2 style="margin-top:26px">Name aliases</h2>
+  <h2 id="s-aliases" style="margin-top:26px">Name aliases</h2>
   <p class="muted" style="margin:0 0 10px">When a provider spells a channel
     differently enough that the matcher cannot connect it &mdash; UKTV's
     <b>U&amp;Drama</b> against a provider's plain <b>Drama</b> &mdash; an alias
@@ -775,7 +792,7 @@ __TOPBAR__
   </div>
   <div id="al-list"></div>
 
-  <h2 style="margin-top:26px">Ranking vs. you</h2>
+  <h2 id="s-decisions" style="margin-top:26px">Ranking vs. you</h2>
   <div id="dec"></div>
 </div>
 
