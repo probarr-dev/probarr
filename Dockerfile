@@ -10,6 +10,14 @@ RUN apk add --no-cache python3 ffmpeg tzdata ca-certificates
 
 WORKDIR /app
 COPY channeliq/ /app/channeliq/
+# Compatibility shim: probarr was renamed to channeliq, but README's own
+# documented cron/scripting invocation was `python3 -m probarr ...` --
+# anyone with that in an existing script or cron job would hit a hard
+# ModuleNotFoundError the moment they pulled the renamed image, with no
+# warning and no way to know why. A plain copy under the old name keeps
+# `python3 -m probarr` working identically, indefinitely, at the cost of
+# one duplicated (tiny, pure-Python) directory in the image.
+RUN cp -r /app/channeliq /app/probarr
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

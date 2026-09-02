@@ -2835,7 +2835,8 @@ class Handler(BaseHTTPRequestHandler):
         stale = (os.path.isfile(out_path)
                 and os.path.getmtime(frame_path) > os.path.getmtime(out_path))
         if not os.path.isfile(out_path) or stale:
-            ffmpeg = os.environ.get("CHANNELIQ_FFMPEG", "ffmpeg")
+            ffmpeg = os.environ.get("CHANNELIQ_FFMPEG",
+                                    os.environ.get("PROBARR_FFMPEG", "ffmpeg"))
             # A marked area is often a small fraction of an already
             # modest-resolution frame -- confirmed live, a ~7%x5% box on a
             # 704x396 source (a real BBC One candidate, itself a lower-

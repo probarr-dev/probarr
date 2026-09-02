@@ -192,7 +192,8 @@ class ProbeOptions:
                 raise RuntimeError(
                     f"{binary} not found on PATH. channeliq needs ffmpeg and ffprobe. "
                     f"The supported install is the Docker image, which bundles both; "
-                    f"otherwise install ffmpeg and/or set CHANNELIQ_FFMPEG.")
+                    f"otherwise install ffmpeg and/or set CHANNELIQ_FFMPEG "
+                    f"(PROBARR_FFMPEG also still works).")
         return self
 
 

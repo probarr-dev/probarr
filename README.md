@@ -1,5 +1,12 @@
 # channeliq
 
+> **Renamed from probarr.** Same project, same data format, nothing to
+> migrate. `python3 -m probarr ...` and `PROBARR_*` env vars still work
+> exactly as before -- the image carries both names. If something broke on
+> your next pull and you're not sure why, it's almost certainly this rename;
+> please open an issue and it'll get fixed properly rather than worked
+> around in Discord.
+
 **Verify, compare and visually curate IPTV streams.**
 
 Providers list the same channel dozens of times — `UK: Meridian Sports 1`,

@@ -14,11 +14,17 @@ from .sources import load_source
 from .store import RunStore
 from .verify import annotate_placeholders
 
-DEFAULT_ROOT = os.environ.get("CHANNELIQ_CONFIG", "/config")
+# CHANNELIQ_* checked first, PROBARR_* honoured as a fallback -- anyone who
+# set a custom PROBARR_CONFIG/PROBARR_PORT/PROBARR_FFMPEG in their own
+# compose file (this app was renamed from probarr) keeps working exactly as
+# before on their next pull, with nothing for them to change.
+DEFAULT_ROOT = os.environ.get("CHANNELIQ_CONFIG",
+                              os.environ.get("PROBARR_CONFIG", "/config"))
 
 
 def _env(name, default=None):
-    return os.environ.get(f"CHANNELIQ_{name}", default)
+    return os.environ.get(f"CHANNELIQ_{name}",
+                          os.environ.get(f"PROBARR_{name}", default))
 
 
 def _log(msg):
