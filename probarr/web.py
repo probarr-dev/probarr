@@ -3763,29 +3763,38 @@ class Handler(BaseHTTPRequestHandler):
         return ('not completed yet -- probably an aborted or empty run; '
                "safe to Delete if you don't recognise it")
 
-    def _health_pips(self, r):
-        """"Needs you (N)"/"Changed (N)" pills for the Runs list, so a
-        curator can see across every lineup at once which ones actually
-        need a look without opening each in turn -- the Runs list used to
-        show only channel/candidate counts, which say nothing about
-        whether anything is actually wrong. Skipped for a run mid-probe
-        (its own results are still being written, so a summary computed
-        now would be stale by the time anyone reads it) or with nothing
-        probed yet.
+    def _health_summary(self, r):
+        """{needs_you, changed, total}, or None -- see curate.summarize().
+
+        None for a run mid-probe (its own results are still being written,
+        so a summary computed now would be stale by the time anyone reads
+        it) or with nothing probed yet. A summary is a nicety, never
+        anything the Runs list itself depends on, so any failure computing
+        one is swallowed rather than breaking the page.
         """
         run_id = r["run_id"]
         if r.get("run_state") == "running" and runs_mod.status(run_id):
-            return ""
+            return None
         store = RunStore(self.root, run_id)
         if not os.path.exists(store.results_path):
-            return ""
+            return None
         try:
             by_channel = annotate_placeholders(store)
             payload = curate.build_payload(by_channel, store, False,
                                            self._inherited(store))
-            s = curate.summarize(payload)
+            return curate.summarize(payload)
         except Exception:
-            return ""      # a summary is a nicety; never break the Runs list over it
+            return None
+
+    @staticmethod
+    def _health_pips(run_id, s):
+        """"Needs you (N)"/"Changed (N)" pills for one Runs-list row, from
+        an already-computed _health_summary() -- so a curator can see
+        across every lineup at once which ones actually need a look
+        without opening each in turn.
+        """
+        if not s:
+            return ""
         href = f"/run/{urllib.parse.quote(run_id)}/curate"
         pips = []
         if s["needs_you"]:
@@ -3824,9 +3833,24 @@ class Handler(BaseHTTPRequestHandler):
                 'where you see the actual pictures and pick the winners.'
                 '</div></div></div>')
         else:
+            # Computed once per run (not inline in the f-string below) so
+            # the same summary can both sort the list and render its pill,
+            # rather than running build_payload() over every run's results
+            # twice for no reason.
+            summaries = [(r, self._health_summary(r)) for r in runs]
+            # Runs actually needing a look sort first -- list_runs() is
+            # otherwise newest-first by run_id, which buries a stale
+            # problem on an older run beneath any merely-newer clean one.
+            # Ties keep the original newest-first order (Python's sort is
+            # stable), so this only ever reorders across the needs-you
+            # line, never within it.
+            summaries.sort(key=lambda pair: 0 if pair[1] and pair[1]["needs_you"]
+                          else 1)
+            total_needs_you = sum((s or {}).get("needs_you", 0) for _, s in summaries)
             rows = "".join(
                 f'<div class="run"><div style="flex:1"><b>{html.escape(r["run_id"])}</b>'
-                f'<div class="m">{self._health_pips(r)}{r.get("channels","?")} channels '
+                f'<div class="m">{self._health_pips(r["run_id"], s)}'
+                f'{r.get("channels","?")} channels '
                 f'&middot; {r.get("candidates","?")} candidates &middot; '
                 f'{html.escape(str(r.get("source","")))}</div>'
                 f'<div class="m">{self._run_dates(r)}</div></div>'
@@ -3839,11 +3863,13 @@ class Handler(BaseHTTPRequestHandler):
                 f'next probed.">Clear images</button>'
                 f'<button class="danger" data-del-run="{html.escape(r["run_id"])}">'
                 f'Delete</button></div>'
-                for r in runs)
+                for r, s in summaries)
+        label = f"{len(runs)} run(s)"
+        if runs and total_needs_you:
+            label += f" &middot; {total_needs_you} need you"
         self._send(INDEX
                    .replace("__CSS__", CSS)
-                   .replace("__TOPBAR__", topbar(f"{len(runs)} run(s)",
-                                                 active="runs"))
+                   .replace("__TOPBAR__", topbar(label, active="runs"))
                    .replace("__ROWS__", rows))
 
     def _sheet(self, run_id):
