@@ -19,8 +19,6 @@ Ordering rules, in priority order:
    for being more efficient at the same bitrate, and nothing more.
 5. More audio channels, then fewer decode errors.
 """
-import math
-
 from .probe import (STATUS_OK, STATUS_DIRTY, STATUS_PLACEHOLDER,
                     STATUS_NO_FRAME, STATUS_NO_VIDEO, STATUS_DEAD)
 
@@ -105,8 +103,8 @@ def dominant_cadence(records, threshold=0.8):
 # really is off air at probe time and will be fine later.
 PLACEHOLDER_PENALTY = 1
 
-# Two candidates within roughly this fraction of each other's bitrate rank
-# as EQUAL on bitrate, not by whoever happened to measure one kbps higher.
+# A rival within roughly this fraction of the CURRENT PICK's bitrate does
+# not outrank it on bitrate alone -- see score_key()'s `incumbent_kbps`.
 # Real complaint that motivated this: probarr's own "Changed" alert kept
 # firing "X now ranks above your pick" between one re-verify and the next,
 # with no real difference in either stream -- the actual cause was this
@@ -117,29 +115,19 @@ PLACEHOLDER_PENALTY = 1
 # visibly worse feed, easily 2x+) decisive while treating ordinary
 # scene-to-scene noise as the noise it is.
 #
-# "Roughly": the bucketing below is log-spaced, not a sliding window, so a
-# pair sitting right on a bucket edge can still land on opposite sides even
-# within this tolerance -- an accepted tradeoff of any discrete bucket
-# (see _bitrate_bucket's own docstring). It reliably absorbs the small,
-# genuinely-noise-scale differences this exists for; a difference close to
-# the tolerance itself is a near-toss-up either way, which is fine.
+# First attempt here was a fixed log-spaced bucket grid (bucketing every
+# candidate's bitrate independently of any other, not just the incumbent's).
+# It worked, but every discrete bucket has edges, and a pair sitting right on
+# one still flip-flopped exactly like before, just at a different threshold
+# -- fixing the reported case while leaving the class of bug in place.
+# Comparing against the actual incumbent instead removes the edge entirely:
+# there is nothing to straddle when the reference point is "how far from the
+# stream that's ALREADY primary", because the incumbent is always, trivially,
+# a zero-distance match against itself.
 BITRATE_TOLERANCE = 0.35
 
 
-def _bitrate_bucket(kbps):
-    """Coarse rank bucket for a bitrate -- see BITRATE_TOLERANCE. Buckets
-    are log-spaced (not a flat kbps step) so the same tolerance applies
-    proportionally whether comparing two SD streams around 800kbps or two
-    4K streams around 15,000kbps; a flat step would be too coarse for the
-    former and too fine for the latter. Negated so sorting ascending on
-    the result still means "higher bitrate first", matching every other
-    term in score_key.
-    """
-    kbps = max(float(kbps or 0), 1.0)
-    return -round(math.log(kbps) / math.log(1 + BITRATE_TOLERANCE))
-
-
-def score_key(r: dict):
+def score_key(r: dict, incumbent_kbps=None):
     status = r.get("status", STATUS_DEAD)
     area = (r.get("width", 0) or 0) * (r.get("height", 0) or 0)
     fps = float(r.get("fps", 0) or 0)
@@ -186,7 +174,21 @@ def score_key(r: dict):
         # still decides between two streams of equal size and bitrate, which
         # is where it genuinely matters (sport at 50fps against 25).
         -area,
-        _bitrate_bucket(r.get("measured_kbps", 0)),
+        # `incumbent_kbps` is the CURRENTLY CONFIRMED PICK's measured
+        # bitrate, passed in by the caller (curate.build_payload) -- not
+        # discovered from the candidate pool itself. A candidate within
+        # BITRATE_TOLERANCE of it sorts as though it measured exactly the
+        # incumbent's own bitrate, tying it on this term and falling through
+        # to fps/hevc/audio/corruption below, which do not carry the same
+        # probe-to-probe measurement noise. The incumbent itself always ties
+        # with itself here (zero distance), so it never loses its own slot to
+        # noise; a rival genuinely outside the tolerance is left un-snapped
+        # and wins or loses on its real, larger difference, same as before.
+        # With no incumbent (nothing picked yet, e.g. a channel's first ever
+        # probe), this has no effect and bitrate compares on raw kbps.
+        -(incumbent_kbps if incumbent_kbps and r.get("measured_kbps")
+          and abs(r["measured_kbps"] - incumbent_kbps) <= BITRATE_TOLERANCE * incumbent_kbps
+          else (r.get("measured_kbps", 0) or 0)),
         -fps,
         hevc,
         -(r.get("audio_channels", 0) or 0),
@@ -198,9 +200,12 @@ def score_key(r: dict):
     )
 
 
-def rank(results):
-    """Sort probe results best-first. Pure; does not mutate input order."""
-    return sorted(results, key=score_key)
+def rank(results, incumbent_kbps=None):
+    """Sort probe results best-first. Pure; does not mutate input order.
+
+    `incumbent_kbps` -- see score_key(); passed straight through.
+    """
+    return sorted(results, key=lambda r: score_key(r, incumbent_kbps))
 
 
 def pick(results, depth=2):

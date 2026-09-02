@@ -1822,24 +1822,48 @@ class TestRank(unittest.TestCase):
         term comparing raw measured_kbps -- a single live feed's bitrate
         moves with what's on screen (busy action vs a static shot), so two
         probes of the SAME stream a few seconds apart were never going to
-        report identical numbers. A close difference must fall through to
-        the next real tiebreaker (here, frame rate) instead of deciding it.
+        report identical numbers.
+
+        Fixed via `incumbent_kbps`, not a fixed bucket grid: curate.py
+        passes in the channel's CURRENTLY CONFIRMED pick's own bitrate, and
+        a rival within tolerance of THAT ties on this term and falls
+        through to the next real tiebreaker (here, frame rate) instead of
+        deciding it. With no incumbent (nothing picked yet), a close
+        difference is real information and does decide -- see the sibling
+        "with no prior pick" test below.
         """
-        slightly_lower_but_smoother = {"status": "ok", "width": 1920, "height": 1080,
-                                       "fps": 50, "measured_kbps": 4800}
+        incumbent = {"status": "ok", "width": 1920, "height": 1080,
+                    "fps": 50, "measured_kbps": 4800}
         slightly_higher_but_choppier = {"status": "ok", "width": 1920, "height": 1080,
                                         "fps": 25, "measured_kbps": 5000}
-        self.assertIs(rank([slightly_higher_but_choppier,
-                            slightly_lower_but_smoother])[0],
-                      slightly_lower_but_smoother,
-                      "a ~4% bitrate difference must not outrank double the frame rate")
+        self.assertIs(rank([slightly_higher_but_choppier, incumbent],
+                           incumbent_kbps=incumbent["measured_kbps"])[0],
+                      incumbent,
+                      "a ~4% bitrate difference must not outrank the incumbent's "
+                      "double frame rate")
+
+    def test_with_no_prior_pick_a_small_bitrate_difference_still_decides(self):
+        """No incumbent yet (e.g. this channel's very first probe) -- there
+        is nothing to compare against, so bitrate compares on raw kbps same
+        as any other channel with no prior pick, and the genuinely higher
+        one wins even by a small margin."""
+        lower = {"status": "ok", "width": 1920, "height": 1080,
+                "fps": 50, "measured_kbps": 4800}
+        higher = {"status": "ok", "width": 1920, "height": 1080,
+                 "fps": 25, "measured_kbps": 5000}
+        self.assertIs(rank([lower, higher])[0], higher)
 
     def test_a_real_bitrate_difference_still_decides_the_winner(self):
         clearly_better = {"status": "ok", "width": 1920, "height": 1080,
                           "fps": 25, "measured_kbps": 8000}
-        clearly_worse = {"status": "ok", "width": 1920, "height": 1080,
-                         "fps": 25, "measured_kbps": 2000}
-        self.assertIs(rank([clearly_worse, clearly_better])[0], clearly_better)
+        clearly_worse_incumbent = {"status": "ok", "width": 1920, "height": 1080,
+                                   "fps": 25, "measured_kbps": 2000}
+        # Even naming the WORSE stream as the incumbent -- the case that
+        # would most favour clinging to it -- a difference this large (4x)
+        # is well outside BITRATE_TOLERANCE and still overtakes it.
+        self.assertIs(rank([clearly_worse_incumbent, clearly_better],
+                           incumbent_kbps=clearly_worse_incumbent["measured_kbps"])[0],
+                      clearly_better)
 
     def test_errors_break_a_tie_between_equals(self):
         a = {"status": "dirty", "width": 1920, "height": 1080, "fps": 25,
@@ -2516,6 +2540,55 @@ class TestChangedAlertOnlyFiresForTopTwoNegativeChanges(Temp):
         self.assertEqual(ch["changes"], [],
                          "an upgrade is not a negative change and must not "
                          "trigger a Changed alert")
+
+
+class TestBuildPayloadRanksAgainstTheConfirmedPick(Temp):
+    """End-to-end version of rank.py's incumbent_kbps tests: with a
+    channel's primary already confirmed in the selection, a rival whose
+    bitrate wobbles within tolerance of it must not become cands[0] and
+    must not raise the "now ranks above your pick" message -- that
+    unconditional pick-vs-algorithm comparison in build_payload() is
+    exactly what the real "Changed" noise on production traced back to.
+    """
+
+    def _probe(self, key, sid, w, h, fps, kbps, status="ok"):
+        return {"rec_key": f"{key}|{sid}", "channel_key": key, "stream_id": sid,
+                "stream_name": sid, "status": status, "width": w, "height": h,
+                "fps": fps, "measured_kbps": kbps, "probed_at": 1000}
+
+    def _payload_for(self, store):
+        from probarr.verify import annotate_placeholders
+        by_channel = annotate_placeholders(store)
+        return curate.build_payload(by_channel, store, False, None, None, None, None)
+
+    def test_a_rival_within_tolerance_does_not_outrank_the_confirmed_pick(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        # s1 (the confirmed pick) is slightly lower bitrate but smoother;
+        # s2 is slightly higher bitrate -- within the ~4% noise band.
+        store.append(self._probe("A", "s1", 1920, 1080, 50, 4800))
+        store.append(self._probe("A", "s2", 1920, 1080, 25, 5000))
+        store.write_selection({"A": {"primary": "A|s1", "streams": ["A|s1"]}})
+        payload = self._payload_for(store)
+        ch = next(c for c in payload["channels"] if c["key"] == "A")
+        self.assertEqual(ch["candidates"][0]["id"], "A|s1")
+        self.assertEqual(ch["changes"], [],
+                         "a bitrate difference inside tolerance of the "
+                         "confirmed pick must not raise a mismatch")
+
+    def test_a_rival_genuinely_beating_the_confirmed_pick_still_overtakes_it(self):
+        from probarr.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("A", "s1", 1920, 1080, 25, 2000))
+        store.append(self._probe("A", "s2", 1920, 1080, 25, 8000))
+        store.write_selection({"A": {"primary": "A|s1", "streams": ["A|s1"]}})
+        payload = self._payload_for(store)
+        ch = next(c for c in payload["channels"] if c["key"] == "A")
+        self.assertEqual(ch["candidates"][0]["id"], "A|s2")
+        self.assertTrue(any("now ranks above your pick" in m for m in ch["changes"]),
+                        ch["changes"])
 
 
 class TestDispatcharrCurrentCandidateFlag(Temp):

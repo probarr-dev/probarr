@@ -4089,10 +4089,21 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
     wanted = want.get("wanted") or []
     by_key = {w["key"]: w for w in wanted}
     order = {w["key"]: i for i, w in enumerate(wanted)}
+    # Computed up front (not just below, where the second pass used to read
+    # it fresh) because ranking itself now needs it -- see rank.score_key's
+    # `incumbent_kbps`: comparing every candidate's bitrate against the
+    # channel's OWN currently-confirmed pick, not a fixed grid, is what
+    # keeps the "Changed" alert from flip-flopping between re-verifies.
+    sel_now = {**(inherited or {}), **(store.read_selection() or {})}
 
     channels = []
     for key, records in by_channel.items():
-        ranked = rank_mod.rank(records)
+        pick_id = (sel_now.get(key) or {}).get("primary")
+        incumbent = next((r for r in records
+                          if (r.get("rec_key") or r.get("stream_id")) == pick_id
+                          and r.get("status") in ("ok", "dirty")), None) \
+                    if pick_id else None
+        ranked = rank_mod.rank(records, incumbent.get("measured_kbps") if incumbent else None)
         w = by_key.get(key, {})
         # A rename is a durable property of the CHANNEL, not of this run's
         # candidates, so a name carried on the lineup wins over whatever the
@@ -4189,7 +4200,6 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
                              "missing": True, "candidates": []})
 
     moved = changes_since_last_probe(store)
-    sel_now = {**(inherited or {}), **(store.read_selection() or {})}
     for c in channels:
         cands = c.get("candidates") or []
         # Only a NEGATIVE change to one of the top 2 ranked candidates is
