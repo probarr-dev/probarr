@@ -33,6 +33,7 @@ from . import aliases as aliases_mod
 from . import lineups as lineups_mod
 from . import epgsources as epgsources_mod
 from . import rank as rank_mod
+from . import watchdog as watchdog_mod
 from . import runs as runs_mod
 from . import settings as settings_mod
 from . import wantlist as wl
@@ -5091,6 +5092,249 @@ def _scheduler(root, interval=600):
     _t.Thread(target=tick, daemon=True).start()
 
 
+def _watchdog_resolve_provider(root, settings):
+    """The Dispatcharr connection to watch and push through -- the same
+    one channeliq already pushes to (settings.push_provider), falling back
+    to any saved Dispatcharr connection so this still works before a first
+    push has ever set that. Returns None if there is nothing to watch.
+    """
+    name = settings.get("push_provider") or ""
+    prov = providers_mod.get(root, name) if name else None
+    if prov and prov.get("scheme") == "dispatcharr":
+        return prov
+    return next((p for p in providers_mod.list_all(root)
+                if p.get("scheme") == "dispatcharr"), None)
+
+
+def _watchdog_poll_events(root, client, settings):
+    """Flag any channel a NEW channel_error/channel_reconnect event names,
+    demoting its currently confirmed pick immediately -- see watchdog.py's
+    module docstring. Only ever reacts to events newer than the high-water
+    mark from the last poll, so a channel is not re-flagged forever just
+    because its old trouble is still sitting in Dispatcharr's retained log.
+    """
+    try:
+        data = client.api("GET", "/api/core/system-events/?limit=1000")
+    except Exception as e:
+        print(f"watchdog: could not read events: {e}", flush=True)
+        return
+    events = (data or {}).get("events") or []
+    if not events:
+        return
+    last_id = watchdog_mod.last_event_id(root)
+    newest_id = max((e.get("id") or 0) for e in events)
+    new_events = [e for e in events if (e.get("id") or 0) > last_id]
+    if newest_id > last_id:
+        watchdog_mod.set_last_event_id(root, newest_id)
+    if not new_events:
+        return
+    claims_by_name = {}
+    for c in claims_mod.read_all(root).values():
+        if c.get("name"):
+            claims_by_name[c["name"]] = c
+    counts = {}
+    for e in new_events:
+        corr = watchdog_mod.correlate_event(e, claims_by_name)
+        if corr:
+            counts[corr] = counts.get(corr, 0) + 1
+    threshold = int(settings.get("watchdog_threshold",
+                                 watchdog_mod.DEFAULT_THRESHOLD))
+    for (key, run_id), n in counts.items():
+        if n < threshold:
+            continue
+        store = RunStore(root, run_id)
+        if not os.path.exists(store.results_path):
+            continue
+        sel = (store.read_selection() or {}).get(key) or {}
+        demoted_id = sel.get("primary")
+        if not demoted_id:
+            continue    # nothing confirmed yet -- no incumbent to demote
+        watchdog_mod.flag(root, key, run_id, demoted_id, settings=settings)
+        print(f"watchdog: flagged {key} in run {run_id} "
+              f"({n} new event(s))", flush=True)
+
+
+# Prepended to the live Dispatcharr channel name while it has genuinely no
+# usable candidate at all -- so a fully dead channel looks visibly
+# different in Dispatcharr's own channel list rather than sitting there
+# looking exactly like every working one. Never deleted outright: deleting
+# a Dispatcharr channel loses its number, EPG link and viewer-facing
+# history for what may well be a transient provider outage, and this
+# codebase's own push() already treats "never delete automatically"
+# as a hard rule (see dispatcharr_export.py) -- Watchdog does not get its
+# own exception to that.
+DOWN_MARKER = "⚠ DOWN: "
+
+
+def _watchdog_set_dead(root, channel_key, dead, settings):
+    """Rename the live Dispatcharr channel to flag it as down, or restore
+    its real name once a later recheck finds it working again. A no-op
+    (not a repeated rename) once the current state already matches.
+    """
+    prov = _watchdog_resolve_provider(root, settings)
+    if not prov:
+        return
+    claim = claims_mod.claimed_by_key(root).get(channel_key)
+    if not claim or not claim.get("dispatcharr_id"):
+        return
+    current_name = claim.get("name") or ""
+    is_marked = current_name.startswith(DOWN_MARKER)
+    if dead == is_marked:
+        return
+    new_name = (DOWN_MARKER + current_name) if dead else current_name[len(DOWN_MARKER):]
+    try:
+        client = client_from_spec(prov["spec"])
+        client.update_channel(claim["dispatcharr_id"], {"name": new_name})
+        claims_mod.claim(root, claim["dispatcharr_id"], channel_key, new_name,
+                         source=claim.get("source"), number=claim.get("number"))
+        print(f"watchdog: {'marked down' if dead else 'restored the name of'} "
+              f"{channel_key} in Dispatcharr", flush=True)
+    except Exception as e:
+        print(f"watchdog: rename failed for {channel_key}: {e}", flush=True)
+
+
+def _watchdog_promote(root, run_id, channel_key, best_id, settings):
+    """Make `best_id` this channel's confirmed primary and push just this
+    channel -- the same "drag to slot 1, it saves and pushes" a curator
+    would do by hand, done unattended because that is the entire point of
+    Watchdog. Reuses Handler's own push machinery (_run_export) rather than
+    a second implementation of it; called synchronously since this already
+    runs off the watchdog's own background thread.
+    """
+    store = RunStore(root, run_id)
+    sel = store.read_selection() or {}
+    entry = dict(sel.get(channel_key) or {})
+    existing = entry.get("streams") or (
+        [x for x in (entry.get("primary"), entry.get("fallback")) if x])
+    new_order = [best_id] + [x for x in existing if x != best_id]
+    entry["streams"] = new_order
+    entry["primary"] = new_order[0]
+    entry["fallback"] = new_order[1] if len(new_order) > 1 else None
+    entry["include"] = True
+    sel[channel_key] = entry
+    store.write_selection(sel)
+
+    prov = _watchdog_resolve_provider(root, settings)
+    if not prov:
+        return
+    h = Handler.__new__(Handler)
+    h.root = root
+    curated = h._resolve_curated(store)
+    curated = [c for c in curated if c["key"] == channel_key]
+    if not curated:
+        return
+    default_group_name = prov.get("last_group_name") or f"channeliq ({run_id})"
+    # _run_export assumes its caller already claimed push_status (see
+    # _export_dispatcharr, which always writes this immediately before
+    # spawning _run_export) -- skipping it crashed _run_export's own
+    # progress bookkeeping the first time this ran for real.
+    # _run_export assumes its caller already claimed push_status (see
+    # _export_dispatcharr, which always writes this immediately before
+    # spawning _run_export) -- skipping it crashed _run_export's own
+    # progress bookkeeping the first time this ran for real.
+    store.write_push_status({"state": "running", "phase": "starting",
+                             "done": 0, "total": len(curated),
+                             "started": time.time()})
+    try:
+        h._run_export(store, prov, prov["name"], curated,
+                      settings.get("push_fallback") or "native",
+                      None, default_group_name,
+                      bool(settings.get("push_prune", True)),
+                      False, False)
+        print(f"watchdog: promoted and pushed {channel_key} in run "
+              f"{run_id}", flush=True)
+    except Exception as e:
+        print(f"watchdog: push failed for {channel_key} in {run_id}: {e}",
+              flush=True)
+
+
+def _watchdog_process_due(root, settings):
+    """One pass over the watchlist: evaluate whatever a prior tick's
+    reprobe produced, or submit a fresh one for whatever is due -- see
+    watchdog.py's mark_probing()/record_check() docstrings for the two-
+    phase reasoning (a reprobe is queued and asynchronous, so a single
+    tick can only ever submit it OR judge a previous one, never both).
+    """
+    watchlist = watchdog_mod.read_all(root)
+    for key, entry in list(watchlist.items()):
+        if key.startswith("_") or not watchdog_mod.due(entry):
+            continue
+        run_id = entry.get("run_id")
+        store = RunStore(root, run_id)
+        if not os.path.exists(store.results_path):
+            watchdog_mod.unflag(root, key)
+            continue
+
+        if entry.get("awaiting_results_since"):
+            h = Handler.__new__(Handler)
+            h.root = root
+            by_channel = annotate_placeholders(store)
+            payload = curate.build_payload(by_channel, store, False,
+                                           h._inherited(store))
+            ch = next((c for c in payload["channels"] if c["key"] == key), None)
+            cands = (ch or {}).get("candidates") or []
+            top = cands[0] if cands else None
+            ok = bool(top and top["status"] in ("ok", "dirty"))
+            current_primary = (store.read_selection().get(key) or {}).get("primary")
+            if ok:
+                # Whatever else happens, a clean candidate exists again --
+                # the channel is not dead any more, restore its real name
+                # even if this particular candidate isn't worth promoting to.
+                _watchdog_set_dead(root, key, False, settings)
+                if top["id"] != current_primary:
+                    _watchdog_promote(root, run_id, key, top["id"], settings)
+            watchdog_mod.record_check(root, key, ok, settings=settings)
+            continue
+
+        records = Handler._records_by_channel(store, {key}).get(key) or {}
+        usable = [r for r in records.values() if r.get("status") in ("ok", "dirty")]
+        if not usable:
+            # Genuinely nothing usable -- flag it visibly in Dispatcharr
+            # rather than leaving a dead channel looking normal, but still
+            # only ever re-check the candidates this channel already has.
+            # Finding NEW ones is a different, heavier operation (Find
+            # streams' catalogue search) that Watchdog does not do on its
+            # own initiative.
+            _watchdog_set_dead(root, key, True, settings)
+        elif len(usable) < 2:
+            watchdog_mod.defer_check(root, key)
+            continue
+        lane = Handler._lane_for_run(store)
+        for rk in records:
+            Handler._queue().submit(f"{run_id}|{rk}",
+                                    {"run_id": run_id, "rec_key": rk,
+                                     "lane": lane, "diagnose": False})
+        watchdog_mod.mark_probing(root, key)
+
+
+def _watchdog_scheduler(root, interval=120):
+    """Unattended per-channel maintenance -- see watchdog.py's module
+    docstring. Off unless Settings explicitly enables it, and every write
+    it makes (a demotion, a promotion, a push) is a direct consequence of
+    something Dispatcharr's own event log actually reported, never a
+    guess.
+    """
+    import threading as _t
+
+    def tick():
+        while True:
+            time.sleep(interval)
+            try:
+                settings = settings_mod.read(root)
+                if not settings.get("watchdog_enabled"):
+                    continue
+                prov = _watchdog_resolve_provider(root, settings)
+                if not prov:
+                    continue
+                client = client_from_spec(prov["spec"])
+                _watchdog_poll_events(root, client, settings)
+                _watchdog_process_due(root, settings)
+            except Exception as e:
+                print(f"watchdog: {e}", flush=True)
+
+    _t.Thread(target=tick, daemon=True).start()
+
+
 def serve(root, host="0.0.0.0", port=7799):
     Handler.root = os.path.abspath(root)
     os.makedirs(Handler.root, exist_ok=True)
@@ -5101,6 +5345,7 @@ def serve(root, host="0.0.0.0", port=7799):
     # losing the queue silently left the UI waiting on probes that no longer
     # existed.
     _scheduler(Handler.root)
+    _watchdog_scheduler(Handler.root)
     restored = Handler._queue().restore()
     if restored:
         print(f"resumed {restored} probe(s) left over from the last run",

@@ -58,8 +58,13 @@ def _write(root, data):
 
 
 def read_all(root):
-    """{channel_key: entry}. See flag() for an entry's shape."""
-    return _read(root)
+    """{channel_key: entry}. See flag() for an entry's shape.
+
+    Filters out "_last_event_id" -- the same file's high-water mark is a
+    scalar int, not an entry, and every consumer of this dict (including
+    curate.build_payload, via for_run()) assumes every value is one.
+    """
+    return {k: v for k, v in _read(root).items() if isinstance(v, dict)}
 
 
 def for_run(root, run_id):
@@ -67,7 +72,7 @@ def for_run(root, run_id):
     ranking needs, since a channel_key is only meaningful within the run
     that produced its candidates.
     """
-    return {k: v for k, v in _read(root).items() if v.get("run_id") == run_id}
+    return {k: v for k, v in read_all(root).items() if v.get("run_id") == run_id}
 
 
 def last_event_id(root):
@@ -139,6 +144,31 @@ def defer_check(root, channel_key, now=None):
     return entry
 
 
+# Reprobing is queued and asynchronous (see probequeue.py) -- a tick that
+# finds a channel due can only ever SUBMIT the recheck, not evaluate it in
+# the same breath. mark_probing() records that a recheck is in flight and
+# schedules a short evaluation checkpoint; the tick that lands on THAT
+# checkpoint reads whatever the queue has produced by then (via
+# curate.build_payload's own ranking) and calls record_check() with the
+# real outcome. PROBE_EVAL_DELAY is generous relative to a single-candidate
+# probe's real cost specifically so a channel with several candidates and a
+# busy queue still has time to actually finish before being judged.
+PROBE_EVAL_DELAY = 180
+
+
+def mark_probing(root, channel_key, now=None, delay_seconds=PROBE_EVAL_DELAY):
+    now = now if now is not None else time.time()
+    data = _read(root)
+    entry = data.get(channel_key)
+    if not entry:
+        return None
+    entry["awaiting_results_since"] = now
+    entry["next_check"] = now + delay_seconds
+    data[channel_key] = entry
+    _write(root, data)
+    return entry
+
+
 def record_check(root, channel_key, ok, settings=None, now=None):
     """Record one completed recheck. Returns the updated entry, or None
     if the channel just graduated off the watchlist (removed).
@@ -161,6 +191,7 @@ def record_check(root, channel_key, ok, settings=None, now=None):
     entry = data.get(channel_key)
     if not entry:
         return None
+    entry.pop("awaiting_results_since", None)
     if not ok:
         entry["interval_seconds"] = start
         entry["stable_since"] = None

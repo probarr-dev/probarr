@@ -2962,15 +2962,27 @@ __TOPBAR__
         locally-built image from Docker Hub.</li>
     </ul>
 
-    <div class="wip">
-      <h3>In progress, not yet active</h3>
-      <p class="relnote">Watchdog: ongoing per-channel maintenance driven by
-        Dispatcharr's own event log. The decision logic, ranking hook, and
-        Settings page are built and tested, but the background poller that
-        actually watches Dispatcharr's events and drives the schedule
-        hasn't been written yet &mdash; the Settings toggle exists but
-        doesn't do anything live yet.</p>
-    </div>
+    <p class="relnote"><b>Watchdog</b> (opt-in, off by default in Settings).
+      Ongoing per-channel maintenance driven by Dispatcharr's own event
+      log.</p>
+    <ul>
+      <li>Flags a channel on a real channel_error/channel_reconnect and
+        demotes the affected stream in ranking immediately &mdash; not
+        waiting for a re-probe to confirm what Dispatcharr just reported
+        directly.</li>
+      <li>Re-checks on an escalating schedule (30 min, doubling up to a
+        48h cap), resetting straight back to the start on any renewed
+        trouble.</li>
+      <li>A channel with genuinely no usable candidate is renamed with a
+        "&#9888; DOWN:" marker in Dispatcharr rather than left looking
+        normal, and its existing candidates keep being re-checked &mdash;
+        never a catalogue search for new ones.</li>
+      <li>Promotes and pushes a clean fallback automatically once one
+        outranks the demoted pick, and restores a "DOWN"-marked name the
+        moment a candidate is clean again.</li>
+      <li>Graduates off the watchlist after the configured stable window
+        with no further trouble. Never deletes a Dispatcharr channel.</li>
+    </ul>
   </div>
 </div>
 </body></html>

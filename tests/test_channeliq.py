@@ -6505,5 +6505,245 @@ class TestDeletingARunReleasesItsClaims(Temp):
         self.assertIn(2, claims_mod.read_all(self.root))
 
 
+class TestWatchdogReadAllIgnoresTheEventIdMarker(Temp):
+    """Real bug found live: read_all()/for_run() iterated every key in
+    watchdog.json as though it were a channel entry, including
+    "_last_event_id" -- a plain int, not a dict -- crashing the very first
+    time curate.build_payload() (via for_run()) ran against a watchlist
+    that had ever actually processed an event.
+    """
+
+    def test_read_all_excludes_the_marker(self):
+        from channeliq import watchdog
+        watchdog.flag(self.root, "A", "run1", "A|s1")
+        watchdog.set_last_event_id(self.root, 42)
+        entries = watchdog.read_all(self.root)
+        self.assertIn("A", entries)
+        self.assertNotIn("_last_event_id", entries)
+
+    def test_for_run_does_not_crash_with_a_marker_present(self):
+        from channeliq import watchdog
+        watchdog.flag(self.root, "A", "run1", "A|s1")
+        watchdog.set_last_event_id(self.root, 42)
+        self.assertEqual(list(watchdog.for_run(self.root, "run1").keys()), ["A"])
+
+
+class TestWatchdogCorrelateEvent(unittest.TestCase):
+    """watchdog.correlate_event() is the pure link between a raw
+    Dispatcharr system-event and (channel_key, run_id) -- see its own
+    docstring for why only a claim recorded by a run's own push (source
+    starting "run:") is matchable at all.
+    """
+
+    def test_matches_a_channel_error_by_dispatcharr_name(self):
+        from channeliq import watchdog
+        event = {"event_type": "channel_error", "channel_name": "BBC One"}
+        claims_by_name = {"BBC One": {"key": "BBCONE", "source": "run:run1"}}
+        self.assertEqual(watchdog.correlate_event(event, claims_by_name),
+                         ("BBCONE", "run1"))
+
+    def test_ignores_event_types_it_does_not_watch(self):
+        from channeliq import watchdog
+        event = {"event_type": "channel_start", "channel_name": "BBC One"}
+        claims_by_name = {"BBC One": {"key": "BBCONE", "source": "run:run1"}}
+        self.assertIsNone(watchdog.correlate_event(event, claims_by_name))
+
+    def test_ignores_a_claim_not_made_by_a_run(self):
+        from channeliq import watchdog
+        event = {"event_type": "channel_error", "channel_name": "BBC One"}
+        claims_by_name = {"BBC One": {"key": "BBCONE", "source": "manual"}}
+        self.assertIsNone(watchdog.correlate_event(event, claims_by_name))
+
+
+class TestWatchdogPollEvents(Temp):
+    """web._watchdog_poll_events() -- the tick's event-ingestion half.
+    Real production behaviour, not just the pure correlation logic: it has
+    to find the confirmed pick to demote, only react to events it hasn't
+    already processed, and never flag a channel with nothing confirmed yet.
+    """
+
+    def _setup_run(self, primary="A|s1"):
+        from channeliq.store import RunStore
+        from channeliq import claims as claims_mod
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+                      "stream_name": "s1", "status": "ok", "width": 1920,
+                      "height": 1080, "fps": 25, "measured_kbps": 4000,
+                      "probed_at": 1000})
+        if primary:
+            store.write_selection({"A": {"primary": primary}})
+        claims_mod.claim(self.root, 42, "A", "BBC One", source="run:run1")
+        return store
+
+    def test_flags_the_channel_and_demotes_its_confirmed_pick(self):
+        from channeliq import web as web_mod, watchdog
+        self._setup_run(primary="A|s1")
+        client = unittest.mock.MagicMock()
+        client.api.return_value = {"events": [
+            {"id": 1, "event_type": "channel_error", "channel_name": "BBC One"}]}
+        web_mod._watchdog_poll_events(self.root, client,
+                                      {"watchdog_threshold": 1})
+        entry = watchdog.read_all(self.root).get("A")
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["demoted_stream_id"], "A|s1")
+        self.assertEqual(watchdog.last_event_id(self.root), 1)
+
+    def test_does_not_reflag_an_event_already_processed(self):
+        from channeliq import web as web_mod, watchdog
+        self._setup_run(primary="A|s1")
+        client = unittest.mock.MagicMock()
+        client.api.return_value = {"events": [
+            {"id": 1, "event_type": "channel_error", "channel_name": "BBC One"}]}
+        web_mod._watchdog_poll_events(self.root, client,
+                                      {"watchdog_threshold": 1})
+        first = watchdog.read_all(self.root)["A"]["flagged_at"]
+        # Same event, seen again on a later poll (still in Dispatcharr's
+        # retained log) -- must not re-trigger.
+        web_mod._watchdog_poll_events(self.root, client,
+                                      {"watchdog_threshold": 1})
+        second = watchdog.read_all(self.root)["A"]["flagged_at"]
+        self.assertEqual(first, second)
+
+    def test_does_not_flag_a_channel_with_no_confirmed_pick(self):
+        from channeliq import web as web_mod, watchdog
+        self._setup_run(primary=None)
+        client = unittest.mock.MagicMock()
+        client.api.return_value = {"events": [
+            {"id": 1, "event_type": "channel_error", "channel_name": "BBC One"}]}
+        web_mod._watchdog_poll_events(self.root, client,
+                                      {"watchdog_threshold": 1})
+        self.assertNotIn("A", watchdog.read_all(self.root))
+
+
+class TestWatchdogProcessDue(Temp):
+    """web._watchdog_process_due() -- the tick's recheck half: defer when
+    there's genuinely nothing to fail over to, submit a reprobe when there
+    is, and promote + push once a reprobe (mocked here, see
+    TestRunExportUsesTheSourceProviderSpec for the same pattern) shows a
+    clean fallback outranking the demoted pick.
+    """
+
+    def _probe(self, key, sid, status="ok", w=1920, h=1080, fps=25, kbps=4000):
+        return {"rec_key": f"{key}|{sid}", "channel_key": key, "stream_id": sid,
+                "stream_name": sid, "status": status, "width": w, "height": h,
+                "fps": fps, "measured_kbps": kbps, "probed_at": 1000}
+
+    def test_defers_when_fewer_than_two_usable_candidates(self):
+        from channeliq import web as web_mod, watchdog
+        from channeliq.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("A", "s1"))
+        store.write_selection({"A": {"primary": "A|s1"}})
+        watchdog.flag(self.root, "A", "run1", "A|s1", now=1000)
+        with unittest.mock.patch.object(watchdog, "time") as fake_time:
+            fake_time.time.return_value = 1000 + 3600
+            web_mod._watchdog_process_due(self.root, {})
+        entry = watchdog.read_all(self.root)["A"]
+        self.assertEqual(entry["interval_seconds"], 30 * 60,
+                         "a deferred check must not escalate the interval")
+        self.assertNotIn("awaiting_results_since", entry)
+
+    def test_a_fully_dead_channel_is_marked_down_and_still_rechecked(self):
+        """No usable candidate at all -- must NOT defer silently (that
+        left a dead channel looking exactly like a working one in
+        Dispatcharr forever): it gets renamed down, and its EXISTING
+        candidates are still reprobed so a real recovery is caught. Never
+        a catalogue search for new ones.
+        """
+        from channeliq import web as web_mod, watchdog
+        from channeliq.store import RunStore
+        from channeliq import providers as providers_mod, claims as claims_mod
+        providers_mod.save(self.root, "mydispatch", "dispatcharr://u:p@wd-dead-host:9191")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("A", "s1", status="dead"))
+        store.write_selection({"A": {"primary": "A|s1"}})
+        claims_mod.claim(self.root, 9, "A", "Channel A", source="run:run1")
+        watchdog.flag(self.root, "A", "run1", "A|s1", now=1000)
+
+        fake_client = unittest.mock.MagicMock()
+        with unittest.mock.patch.object(watchdog, "time") as fake_time, \
+             unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client):
+            fake_time.time.return_value = 1000 + 3600
+            web_mod._watchdog_process_due(self.root, {"push_provider": "mydispatch"})
+
+        fake_client.update_channel.assert_called_once_with(
+            9, {"name": web_mod.DOWN_MARKER + "Channel A"})
+        entry = watchdog.read_all(self.root)["A"]
+        self.assertIn("awaiting_results_since", entry,
+                      "a dead channel's existing candidates must still be re-checked")
+
+    def test_a_recovered_channel_gets_its_real_name_back(self):
+        from channeliq import web as web_mod, watchdog
+        from channeliq.store import RunStore
+        from channeliq import providers as providers_mod, claims as claims_mod
+        providers_mod.save(self.root, "mydispatch", "dispatcharr://u:p@wd-recover-host:9191")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("A", "s1", status="ok"))
+        store.write_selection({"A": {"primary": "A|s1"}})
+        claims_mod.claim(self.root, 9, "A", web_mod.DOWN_MARKER + "Channel A",
+                         source="run:run1")
+        watchdog.flag(self.root, "A", "run1", "A|s1", now=1000)
+        watchdog.mark_probing(self.root, "A", now=1000)
+
+        fake_client = unittest.mock.MagicMock()
+        with unittest.mock.patch.object(watchdog, "time") as fake_time, \
+             unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client):
+            fake_time.time.return_value = 1000 + 300
+            web_mod._watchdog_process_due(self.root, {"push_provider": "mydispatch"})
+
+        fake_client.update_channel.assert_called_once_with(9, {"name": "Channel A"})
+
+    def test_promotes_a_clean_fallback_over_a_dead_demoted_pick(self):
+        from channeliq import web as web_mod, watchdog
+        from channeliq.store import RunStore
+        from channeliq import providers as providers_mod
+        providers_mod.save(self.root, "mydispatch", "dispatcharr://u:p@wd-test-host:9191")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("A", "s1", status="dead"))
+        store.append(self._probe("A", "s2", status="ok"))
+        store.write_selection({"A": {"primary": "A|s1"}})
+        watchdog.flag(self.root, "A", "run1", "A|s1", now=1000)
+        watchdog.mark_probing(self.root, "A", now=1000)
+
+        # Real bug found live on test: _watchdog_promote called _run_export
+        # directly without first claiming push_status the way the real
+        # HTTP handler (_export_dispatcharr) always does before spawning
+        # it -- _run_export's own body assumes that already happened and
+        # crashed reading it back. _watchdog_promote's own try/except
+        # swallows that (logs, does not raise), so this records the state
+        # at call time into a plain list rather than asserting inside the
+        # mock, where a failure would just be silently caught right back.
+        status_at_call = []
+
+        def _record_status(*a, **kw):
+            status_at_call.append(store.read_push_status())
+
+        fake_client = unittest.mock.MagicMock()
+        with unittest.mock.patch.object(watchdog, "time") as fake_time, \
+             unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client), \
+             unittest.mock.patch.object(web_mod.Handler, "_run_export",
+                                        side_effect=_record_status) as fake_export:
+            fake_time.time.return_value = 1000 + 300
+            web_mod._watchdog_process_due(self.root, {"push_provider": "mydispatch"})
+
+        self.assertEqual(len(status_at_call), 1)
+        self.assertIsNotNone(status_at_call[0],
+                             "push_status must be claimed before _run_export runs")
+
+        self.assertEqual(store.read_selection()["A"]["primary"], "A|s2")
+        fake_export.assert_called_once()
+        entry = watchdog.read_all(self.root)["A"]
+        self.assertIsNotNone(entry["stable_since"],
+                             "a clean outcome must start the stability clock")
+
+
 if __name__ == "__main__":
     unittest.main()

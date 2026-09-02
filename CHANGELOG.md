@@ -51,12 +51,21 @@ now also shown inline in the topbar next to the wordmark.
 - Watchtower no longer tries (and fails) to pull the test instance's
   locally-built image from Docker Hub.
 
-### In progress, not yet active
-Watchdog: ongoing per-channel maintenance driven by Dispatcharr's own
-event log (flag on a real channel_error, demote the affected stream in
-ranking immediately, re-check on an escalating schedule, auto-promote and
-push a clean fallback, graduate off the watchlist after a stable window).
-The decision logic, ranking hook, and Settings page are built and tested,
-but the background poller that actually watches Dispatcharr's events and
-drives the schedule hasn't been written yet — the Settings toggle exists
-but doesn't do anything live yet.
+### Watchdog (opt-in, off by default in Settings)
+Ongoing per-channel maintenance driven by Dispatcharr's own event log:
+- Flags a channel on a real channel_error/channel_reconnect and demotes
+  the affected stream in ranking immediately -- not waiting for a
+  re-probe to confirm what Dispatcharr just reported directly.
+- Re-checks on an escalating schedule (30 min, doubling up to a 48h cap),
+  resetting straight back to the start on any renewed trouble.
+- A channel with genuinely no usable candidate is renamed with a
+  "⚠ DOWN:" marker in Dispatcharr rather than left looking normal, and
+  its existing candidates keep being re-checked -- never a catalogue
+  search for new ones, only what it already has.
+- Promotes and pushes a clean fallback automatically once one outranks
+  the demoted pick, and restores a "DOWN"-marked name the moment a
+  candidate is clean again.
+- Graduates off the watchlist (and its demotion lifts) after the
+  configured stable window with no further trouble.
+- Never deletes a Dispatcharr channel -- matches this codebase's
+  existing "never delete automatically" rule for pushes.
