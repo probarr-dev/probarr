@@ -13,8 +13,7 @@ from . import __version__
 # channel's colour bars, under a magnifying glass -- literally what this
 # app does to a stream, drawn the way that whole icon generation drew
 # "something is being inspected."
-FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"
-  shape-rendering="crispEdges">
+_FAVICON_BODY = """
   <line x1="9" y1="8" x2="6" y2="2" stroke="#000" stroke-width="1"/>
   <line x1="13" y1="8" x2="16" y2="2" stroke="#000" stroke-width="1"/>
   <rect x="3" y="8" width="20" height="16" fill="#c8c2b6" stroke="#000" stroke-width="1"/>
@@ -36,8 +35,20 @@ FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"
   <circle cx="20" cy="12" r="6.4" fill="#bfe8f5" stroke="#000" stroke-width="1.4"/>
   <circle cx="20" cy="12" r="4.6" fill="#eaf7fc" stroke="#5aa9c4" stroke-width="0.6"/>
   <circle cx="18" cy="10" r="1.4" fill="#ffffff" opacity="0.85"/>
-</svg>
 """
+
+FAVICON_SVG = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" '
+              f'shape-rendering="crispEdges">{_FAVICON_BODY}</svg>\n')
+
+
+def brand_icon_svg(size=22):
+    """The favicon artwork at a given pixel size, for embedding inline (the
+    topbar) rather than served standalone -- same markup, just with real
+    width/height instead of relying on the favicon route's own <img>/tab
+    sizing.
+    """
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 32 32" '
+           f'shape-rendering="crispEdges" class="brand-icon">{_FAVICON_BODY}</svg>')
 
 CSS = """
 :root{
@@ -57,8 +68,9 @@ header.topbar{position:sticky;top:0;z-index:50;background:var(--bg2);
 .tbrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;width:100%}
 .tbmain{gap:14px}
 .brand{font-weight:700;font-size:16px;letter-spacing:.3px;color:var(--text);
-  text-decoration:none;display:inline-block}
+  text-decoration:none;display:inline-flex;align-items:center;gap:7px}
 .brand span{color:var(--accent)}
+.brand-icon{flex:none;border-radius:3px}
 a.brand:hover{opacity:.8}
 .brand-version{font-weight:400;font-size:11px;color:var(--faint);
   letter-spacing:normal;margin-left:6px}
@@ -213,8 +225,9 @@ def topbar(label="", active="", right="", home=True, newrun_primary=True):
     run, not act on this one.
     """
     ver = f'<span class="brand-version">v{__version__}</span>'
-    brand = ((f'<a class="brand" href="/">Channel<span>IQ</span></a>{ver}') if home
-             else f'<div class="brand">Channel<span>IQ</span></div>{ver}')
+    icon = brand_icon_svg()
+    brand = ((f'<a class="brand" href="/">{icon}Channel<span>IQ</span></a>{ver}') if home
+             else f'<div class="brand">{icon}Channel<span>IQ</span></div>{ver}')
     nav = ""
     newrun = nav = ""
     if home:
