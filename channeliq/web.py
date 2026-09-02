@@ -133,7 +133,36 @@ document.addEventListener("click", async e => {
 # ranked first. Deliberately not 1 -- a single guess exporting with nothing
 # behind it meant the first failure was a dead channel until someone
 # noticed and opened it by hand.
-AUTO_FALLBACK_DEPTH = 4
+#
+# An alias for rank.FALLBACK_DEPTH, not a second copy of the number: this is
+# the consuming end of the chain verify.py's clean_target supplies, and the
+# two silently disagreed (4 here, 2 there) until it was reported as
+# "limited to 2 streams per channel".
+AUTO_FALLBACK_DEPTH = rank_mod.FALLBACK_DEPTH
+
+
+def _build_norm(root, store=None):
+    """The one place a Normalizer is built outside a run.
+
+    Mirrors runner._run()'s own construction: the operator's saved tag
+    vocabulary (Settings -> Manage tags) as the base, plus -- when the work
+    belongs to a specific run -- that run's one-off "Custom prefixes" on
+    top. Those extras used to exist only for the duration of the run that
+    was given them, so every later re-match of the same names (Find
+    streams, the EPG panel, a re-group) silently used a narrower vocabulary
+    than the run itself had, and could resolve a name to a different key.
+    """
+    extra = []
+    if store is not None:
+        try:
+            extra = list(store.read_meta().get("region_tags") or [])
+        except Exception:
+            extra = []
+    return Normalizer(
+        region_tags=list(dict.fromkeys(
+            tagsettings_mod.tags(root, "region") + extra)),
+        quality_tags=tagsettings_mod.tags(root, "quality"),
+        aliases=aliases_mod.read(root))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1207,17 +1236,20 @@ class Handler(BaseHTTPRequestHandler):
                 lock = cls._wantlist_locks[run_id] = threading.Lock()
             return lock
 
-    def _norm(self):
+    def _norm(self, store=None):
         """A Normalizer that knows the saved aliases.
 
         Every construction in the request path goes through here, because an
         alias that applied to matching but not to searching (or to the run
         but not to the catalogue) would be worse than none at all -- the two
         halves of the tool would disagree about what a channel is called.
+
+        `store`: when the work is scoped to one run, pass it. That run may
+        have been matched with one-off "Custom prefixes" on top of the saved
+        vocabulary (see runner._run), and re-matching its names without them
+        is the same class of disagreement as dropping the aliases would be.
         """
-        return Normalizer(region_tags=tagsettings_mod.tags(self.root, "region"),
-                         quality_tags=tagsettings_mod.tags(self.root, "quality"),
-                         aliases=aliases_mod.read(self.root))
+        return _build_norm(self.root, store)
 
     def _fetch_reference_json(self, url):
         """GET a reference-lineup URL and parse it as JSON. Returns (data, error)."""
@@ -3605,9 +3637,7 @@ class Handler(BaseHTTPRequestHandler):
                 name = entry["name"]
             chsel = (store.read_selection() or {}).get(channel_key) or {}
         try:
-            norm = Normalizer(region_tags=tagsettings_mod.tags(cls.root, "region"),
-                             quality_tags=tagsettings_mod.tags(cls.root, "quality"),
-                             aliases=aliases_mod.read(cls.root))
+            norm = _build_norm(cls.root, store)
             at = datetime.datetime.now(datetime.timezone.utc)
             # An explicit EPG source pick (Check EPG's "Use this", or a
             # manually pinned exact guide entry) has to keep being honoured
@@ -5140,7 +5170,12 @@ def _watchdog_poll_events(root, client, settings):
     threshold = int(settings.get("watchdog_threshold",
                                  watchdog_mod.DEFAULT_THRESHOLD))
     for (key, run_id), n in counts.items():
-        if n < threshold:
+        # Accumulated across polls, not counted within one: this poll's
+        # events are gone for good once the high-water mark moves, so a
+        # threshold above 1 could otherwise never be reached by a channel
+        # failing at any normal rate. See watchdog.bump_pending().
+        total = watchdog_mod.bump_pending(root, key, n)
+        if total < threshold:
             continue
         store = RunStore(root, run_id)
         if not os.path.exists(store.results_path):
@@ -5150,8 +5185,9 @@ def _watchdog_poll_events(root, client, settings):
         if not demoted_id:
             continue    # nothing confirmed yet -- no incumbent to demote
         watchdog_mod.flag(root, key, run_id, demoted_id, settings=settings)
+        watchdog_mod.clear_pending(root, key)
         print(f"watchdog: flagged {key} in run {run_id} "
-              f"({n} new event(s))", flush=True)
+              f"({total} event(s), threshold {threshold})", flush=True)
 
 
 # Prepended to the live Dispatcharr channel name while it has genuinely no
@@ -5228,10 +5264,6 @@ def _watchdog_promote(root, run_id, channel_key, best_id, settings):
     # _export_dispatcharr, which always writes this immediately before
     # spawning _run_export) -- skipping it crashed _run_export's own
     # progress bookkeeping the first time this ran for real.
-    # _run_export assumes its caller already claimed push_status (see
-    # _export_dispatcharr, which always writes this immediately before
-    # spawning _run_export) -- skipping it crashed _run_export's own
-    # progress bookkeeping the first time this ran for real.
     store.write_push_status({"state": "running", "phase": "starting",
                              "done": 0, "total": len(curated),
                              "started": time.time()})
@@ -5287,6 +5319,12 @@ def _watchdog_process_due(root, settings):
             continue
 
         records = Handler._records_by_channel(store, {key}).get(key) or {}
+        if not records:
+            # Nothing has ever been probed for this channel, so there is
+            # literally nothing to re-check. Retried at the same interval
+            # rather than escalating on a check that never happened.
+            watchdog_mod.defer_check(root, key)
+            continue
         usable = [r for r in records.values() if r.get("status") in ("ok", "dirty")]
         if not usable:
             # Genuinely nothing usable -- flag it visibly in Dispatcharr
@@ -5296,9 +5334,14 @@ def _watchdog_process_due(root, settings):
             # streams' catalogue search) that Watchdog does not do on its
             # own initiative.
             _watchdog_set_dead(root, key, True, settings)
-        elif len(usable) < 2:
-            watchdog_mod.defer_check(root, key)
-            continue
+        # Everything with candidates gets reprobed, including a channel down
+        # to its LAST usable one. That case used to defer here instead --
+        # "there is no fallback to promote, so don't bother" -- which read
+        # as caution and was the opposite: deferring skips the reprobe, so
+        # its results never change, so it stays at one usable candidate
+        # forever. A single-candidate channel could never be re-checked,
+        # never be marked DOWN when that last stream died, and never
+        # graduate -- while being exactly the channel most worth watching.
         lane = Handler._lane_for_run(store)
         for rk in records:
             Handler._queue().submit(f"{run_id}|{rk}",
@@ -5357,9 +5400,7 @@ def serve(root, host="0.0.0.0", port=7799):
     # idle container instead of the next person's page load.
     threading.Thread(target=epgcheck_mod.prewarm_all_sources,
                      args=(Handler.root,
-                           Normalizer(region_tags=tagsettings_mod.tags(Handler.root, "region"),
-                                     quality_tags=tagsettings_mod.tags(Handler.root, "quality"),
-                                     aliases=aliases_mod.read(Handler.root))),
+                           _build_norm(Handler.root)),
                      daemon=True).start()
     print(f"channeliq web UI on http://{host}:{port} (data: {Handler.root})", flush=True)
     try:

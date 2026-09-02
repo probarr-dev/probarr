@@ -55,7 +55,7 @@ DEFAULTS = {
     # the prior result forward instead of spending a connection on a
     # stream nothing has actually touched. 0 disables it, matching every
     # run's behaviour before this existed: always probe everything.
-    # Defaults to a week, just under the common weekly re-verify schedule,
+    # Defaults to six days, just under the common weekly re-verify schedule,
     # so a routine Monday run mostly skips and a real change still gets
     # caught on its own next pass.
     "freshness_hours": 24 * 6,

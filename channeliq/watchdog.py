@@ -60,11 +60,14 @@ def _write(root, data):
 def read_all(root):
     """{channel_key: entry}. See flag() for an entry's shape.
 
-    Filters out "_last_event_id" -- the same file's high-water mark is a
-    scalar int, not an entry, and every consumer of this dict (including
-    curate.build_payload, via for_run()) assumes every value is one.
+    Filters out the file's own bookkeeping keys -- "_last_event_id" (a
+    scalar high-water mark) and "_pending" (a dict of event counts, not an
+    entry). Every consumer of this dict, including curate.build_payload via
+    for_run(), assumes every value is an entry, so a leading underscore is
+    reserved for this module's own use and never a channel key.
     """
-    return {k: v for k, v in _read(root).items() if isinstance(v, dict)}
+    return {k: v for k, v in _read(root).items()
+            if not k.startswith("_") and isinstance(v, dict)}
 
 
 def for_run(root, run_id):
@@ -87,6 +90,43 @@ def last_event_id(root):
 def set_last_event_id(root, event_id):
     data = _read(root)
     data["_last_event_id"] = event_id
+    _write(root, data)
+
+
+def bump_pending(root, channel_key, n=1):
+    """Add `n` newly-seen qualifying events for a channel and return its
+    running total.
+
+    Counts have to persist between polls, because the high-water mark
+    (last_event_id) advances every poll whether or not the threshold was
+    met -- so an event seen in one poll is never seen again. Counting only
+    within a single poll window made watchdog_threshold mean "this many
+    events within one 2-minute tick" rather than the "this many events
+    before a channel is flagged" the setting actually promises: a channel
+    erroring steadily every ten minutes would sit at 1-per-poll and never
+    reach a threshold of 2, forever. Only correct by accident at the
+    default of 1, which is why it looked fine.
+    """
+    data = _read(root)
+    pending = data.get("_pending")
+    if not isinstance(pending, dict):
+        pending = {}
+    total = int(pending.get(channel_key) or 0) + n
+    pending[channel_key] = total
+    data["_pending"] = pending
+    _write(root, data)
+    return total
+
+
+def clear_pending(root, channel_key):
+    """Drop a channel's accumulated count -- called once it has actually
+    been flagged, so the next flag needs a fresh threshold's worth."""
+    data = _read(root)
+    pending = data.get("_pending")
+    if not isinstance(pending, dict) or channel_key not in pending:
+        return
+    del pending[channel_key]
+    data["_pending"] = pending
     _write(root, data)
 
 
@@ -124,13 +164,16 @@ def due(entry, now=None):
 
 
 def defer_check(root, channel_key, now=None):
-    """Not enough usable candidates to meaningfully check yet (see
-    web.py's tick: fewer than 2 ok/dirty candidates means there is no
-    fallback to promote even if the current pick is bad). Tried again at
-    the SAME interval rather than escalating on a check that never
-    actually happened -- escalating here would silently stop watching a
-    channel that has no fallback at all, which is exactly the case this
-    is meant to keep an eye on.
+    """Nothing to check at all -- the channel has no probe records yet, so
+    there is no candidate to re-probe (see web.py's tick). Tried again at
+    the SAME interval rather than escalating on a check that never actually
+    happened.
+
+    Deliberately narrow: this used to also cover "fewer than 2 usable
+    candidates", on the reasoning that a channel with no fallback has
+    nothing to promote. That silently un-watched exactly the channels most
+    worth watching -- deferring skips the reprobe, so a single-candidate
+    channel's results never changed, so it never left that state.
     """
     now = now if now is not None else time.time()
     data = _read(root)

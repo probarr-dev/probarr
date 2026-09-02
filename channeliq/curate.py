@@ -1151,8 +1151,8 @@ function specHTML(c, expectedAspect){
     'entirely '+esc((c.housecad||"").toUpperCase())+' \u2014 UK and European '+
     'broadcast is 25 or 50fps. A candidate at '+esc((c.cad||"").toUpperCase())+
     ' rates (29.97/59.94) is another country\'s feed under the right name, '+
-    'however it is labelled.">'+
-    (c.cad==="ntsc" ? "60Hz \u2014 likely a US feed" : "wrong cadence")+
+    'however it is labelled.">',
+    (c.cad==="ntsc" ? "60Hz \u2014 likely a US feed" : "wrong cadence"),
     '</span>']);
   if(c.abr) out.push(['<span class="spec warn2" title="Source is a multi-rendition manifest \u2014 the relay has to do real ABR switching, which has caused real buffering.">','multi-bitrate manifest','</span>']);
   if(c.slowfetch) out.push(['<span class="spec warn2" title="Sample took close to real-time or longer to download \u2014 delivery may struggle to keep up with playback.">','slow fetch','</span>']);

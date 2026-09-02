@@ -10,6 +10,7 @@ actually shipped more than once.
     python3 -m unittest discover -s tests -v
 """
 import datetime
+import inspect
 import io
 import json
 import os
@@ -890,6 +891,104 @@ class TestRateLimitGuard(Temp):
 
         self.assertFalse(overlap_detected[0],
                          "two candidates of the same channel ran simultaneously")
+
+
+class TestProbeDepthMatchesPushDepth(unittest.TestCase):
+    """The supply and demand ends of one failover chain must agree.
+
+    verify() stops probing a channel once it has clean_target clean
+    candidates; web.py's push picks AUTO_FALLBACK_DEPTH of them when
+    nothing has been curated. They silently disagreed -- 2 and 4 -- so an
+    uncurated channel could never offer the push more than two clean
+    streams however many the provider listed, which is what reached us as
+    "is channeliq limited to 2 streams per channel?".
+    """
+
+    def test_the_three_defaults_are_the_same_number(self):
+        from channeliq import rank as rank_mod, verify as verify_mod
+        from channeliq import runner as runner_mod, web as web_mod
+        self.assertEqual(web_mod.AUTO_FALLBACK_DEPTH, rank_mod.FALLBACK_DEPTH)
+        for fn in (verify_mod.verify, runner_mod.start_run, runner_mod._run):
+            sig = inspect.signature(fn)
+            self.assertEqual(
+                sig.parameters["clean_target"].default,
+                rank_mod.FALLBACK_DEPTH,
+                f"{fn.__name__} probes to a different depth than the push uses")
+
+    def test_every_spec_badge_is_a_three_part_tuple(self):
+        """specHTML() builds [open, text, close] triples and renders them
+        as x[0]+esc(x[1])+x[2]. The off-cadence badge was pushed as a
+        1-element array, so x[2] was undefined and JS concatenation put the
+        literal string "undefined" on screen after it -- reported from a
+        real curate page ("aac 2ch | 60Hz - likely a US feed | undefined").
+        """
+        from channeliq import curate as curate_mod
+        body = curate_mod.HTML[curate_mod.HTML.index("function specHTML"):]
+        body = body[:body.index("\nfunction ")]
+        # Each out.push([...]) must contain two top-level commas, i.e. the
+        # separators between the three parts.
+        for chunk in re.findall(r"out\.push\(\[(.*?)\]\);", body, re.S):
+            depth = 0
+            commas = 0
+            in_str = None
+            prev = ""
+            for chgit in chunk:
+                if in_str:
+                    if chgit == in_str and prev != "\\":
+                        in_str = None
+                elif chgit in "\"'":
+                    in_str = chgit
+                elif chgit in "([{":
+                    depth += 1
+                elif chgit in ")]}":
+                    depth -= 1
+                elif chgit == "," and depth == 0:
+                    commas += 1
+                prev = chgit
+            self.assertEqual(commas, 2,
+                             f"badge is not a 3-part triple: {chunk[:80]!r}")
+
+    def test_the_client_side_mirror_agrees_too(self):
+        """curate.py's JS has its own copy for the browser's bootstrap
+        guess -- a third place the same number has to be right."""
+        from channeliq import curate as curate_mod, rank as rank_mod
+        m = re.search(r"const AUTO_FALLBACK_DEPTH = (\d+);", curate_mod.HTML)
+        self.assertIsNotNone(m, "curate.py's JS no longer declares the depth")
+        self.assertEqual(int(m.group(1)), rank_mod.FALLBACK_DEPTH)
+
+
+class TestRunCustomPrefixesSurviveTheRun(Temp):
+    """A run's one-off "Custom prefixes" must outlive the run that used them.
+
+    They were passed into runner._run(), used to build that run's Normalizer,
+    and then discarded -- persisted nowhere. Every later re-match of the same
+    names (Find streams, the EPG panel) rebuilt a Normalizer from the saved
+    tag vocabulary alone, so it could resolve a name the run had already
+    matched to a completely different key. Reported by a user whose provider
+    prefixes everything with "OD:", "PLAY+:", "ZG:".
+    """
+
+    def test_they_are_written_to_the_run_metadata(self):
+        from channeliq import runner as runner_mod
+        from channeliq.store import RunStore
+        with unittest.mock.patch.object(runner_mod, "_run",
+                                        side_effect=RuntimeError("stop here")):
+            with self.assertRaises(RuntimeError):
+                runner_mod.start_run(self.root, "m3u://x", run_id="run1",
+                                     region_tags=["OD", "PLAY+"])
+        meta = RunStore(self.root, "run1").read_meta()
+        self.assertEqual(meta.get("region_tags"), ["OD", "PLAY+"])
+
+    def test_a_run_scoped_normalizer_includes_them(self):
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_meta({"region_tags": ["ZG"], "run_state": "done"})
+        # Without the run, "ZG" is not vocabulary and stays part of the name.
+        plain = web_mod._build_norm(self.root)
+        scoped = web_mod._build_norm(self.root, store)
+        self.assertNotEqual(plain.key("ZG: NPO 1"), plain.key("NPO 1"))
+        self.assertEqual(scoped.key("ZG: NPO 1"), scoped.key("NPO 1"))
 
 
 class TestProviderDeclined(Temp):
@@ -6589,6 +6688,57 @@ class TestWatchdogPollEvents(Temp):
         self.assertEqual(entry["demoted_stream_id"], "A|s1")
         self.assertEqual(watchdog.last_event_id(self.root), 1)
 
+    def test_a_threshold_above_one_accumulates_across_polls(self):
+        """The high-water mark advances every poll whether or not the
+        threshold was met, so events counted only within one poll window
+        were gone for good. A channel erroring once per poll would never
+        reach a threshold of 2 -- it must accumulate instead.
+        """
+        from channeliq import web as web_mod, watchdog
+        self._setup_run(primary="A|s1")
+        client = unittest.mock.MagicMock()
+        settings = {"watchdog_threshold": 2}
+
+        client.api.return_value = {"events": [
+            {"id": 1, "event_type": "channel_error", "channel_name": "BBC One"}]}
+        web_mod._watchdog_poll_events(self.root, client, settings)
+        self.assertIsNone(watchdog.read_all(self.root).get("A"),
+                          "one event must not meet a threshold of two")
+
+        client.api.return_value = {"events": [
+            {"id": 2, "event_type": "channel_error", "channel_name": "BBC One"}]}
+        web_mod._watchdog_poll_events(self.root, client, settings)
+        self.assertIsNotNone(watchdog.read_all(self.root).get("A"),
+                             "a second event in a LATER poll must still count")
+
+    def test_flagging_resets_the_accumulated_count(self):
+        from channeliq import web as web_mod, watchdog
+        self._setup_run(primary="A|s1")
+        client = unittest.mock.MagicMock()
+        client.api.return_value = {"events": [
+            {"id": 1, "event_type": "channel_error", "channel_name": "BBC One"}]}
+        web_mod._watchdog_poll_events(self.root, client,
+                                      {"watchdog_threshold": 1})
+        self.assertIsNotNone(watchdog.read_all(self.root).get("A"))
+        watchdog.unflag(self.root, "A")
+        # A fresh flag must need a fresh threshold's worth, not inherit the
+        # count that already fired once.
+        client.api.return_value = {"events": [
+            {"id": 2, "event_type": "channel_error", "channel_name": "BBC One"}]}
+        web_mod._watchdog_poll_events(self.root, client,
+                                      {"watchdog_threshold": 2})
+        self.assertIsNone(watchdog.read_all(self.root).get("A"))
+
+    def test_the_pending_counter_is_not_read_as_a_watchlist_entry(self):
+        """_pending is this module's own bookkeeping, living in the same
+        file as the entries -- read_all() must not hand it to callers that
+        assume every value is an entry (curate.build_payload, via for_run).
+        """
+        from channeliq import watchdog
+        watchdog.bump_pending(self.root, "A", 1)
+        self.assertEqual(watchdog.read_all(self.root), {})
+        self.assertEqual(watchdog.for_run(self.root, "run1"), {})
+
     def test_does_not_reflag_an_event_already_processed(self):
         from channeliq import web as web_mod, watchdog
         self._setup_run(primary="A|s1")
@@ -6629,12 +6779,36 @@ class TestWatchdogProcessDue(Temp):
                 "stream_name": sid, "status": status, "width": w, "height": h,
                 "fps": fps, "measured_kbps": kbps, "probed_at": 1000}
 
-    def test_defers_when_fewer_than_two_usable_candidates(self):
+    def test_a_single_candidate_channel_is_still_reprobed(self):
+        """One usable candidate and no fallback used to DEFER, which read as
+        caution and was the opposite: deferring skips the reprobe, so its
+        results never change, so it stays at one candidate forever -- never
+        re-checked, never marked DOWN when that last stream died, never
+        graduating. It must be reprobed like anything else.
+        """
         from channeliq import web as web_mod, watchdog
         from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         store.append(self._probe("A", "s1"))
+        store.write_selection({"A": {"primary": "A|s1"}})
+        watchdog.flag(self.root, "A", "run1", "A|s1", now=1000)
+        with unittest.mock.patch.object(watchdog, "time") as fake_time:
+            fake_time.time.return_value = 1000 + 3600
+            web_mod._watchdog_process_due(self.root, {})
+        entry = watchdog.read_all(self.root)["A"]
+        self.assertIn("awaiting_results_since", entry,
+                      "a channel down to its last candidate is exactly the "
+                      "one worth re-checking, not the one to stop checking")
+
+    def test_defers_only_when_there_is_nothing_probed_at_all(self):
+        """The one case with genuinely nothing to re-probe: retried at the
+        same interval rather than escalating on a check that never ran."""
+        from channeliq import web as web_mod, watchdog
+        from channeliq.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        store.append(self._probe("B", "s1"))   # a DIFFERENT channel
         store.write_selection({"A": {"primary": "A|s1"}})
         watchdog.flag(self.root, "A", "run1", "A|s1", now=1000)
         with unittest.mock.patch.object(watchdog, "time") as fake_time:

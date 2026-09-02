@@ -41,7 +41,33 @@ now also shown inline in the topbar next to the wordmark.
   source/Exclude/Clear watermark into a local undo/redo stack instead of
   saving each one immediately, with Commit/Discard to close it out.
 
+### Failover depth: probing and pushing now agree
+Probing stopped collecting candidates once a channel had **2** clean ones,
+while the push wanted the top **4** — so an uncurated channel could never
+offer more than two streams however many the provider actually listed. This
+is what reached us as "is it limited to 2 streams per channel?", and what a
+run log was showing as `skipped X: already has 2 clean candidate(s)`. Both
+ends now read one constant (`rank.FALLBACK_DEPTH`), with a test that fails
+if they ever drift again.
+
+Runs made before this keep whatever they probed; a re-verify picks up the
+extra candidates.
+
 ### Fixes
+- Curate showed only ONE candidate as "in the channel" for a channel that
+  had only ever had a `group` written to it, and persisted that single-stream
+  failover chain if you then touched it — the client-side default disagreed
+  with both the server's and the auto-picker's.
+- Candidate cards rendered a stray `undefined` after the "60Hz — likely a US
+  feed" badge, on every off-cadence stream, since that badge was added.
+- A run's one-off **Custom prefixes** are now stored with the run. They were
+  used for matching and then thrown away, so anything that re-matched the
+  same names afterwards (Find streams, the EPG panel) quietly used a
+  narrower vocabulary than the run itself had.
+- The contact sheet's download is now `contact-sheet-picks.json`. It was
+  offered as `selection.json` — a different shape entirely, next to the
+  run's real `selection.json`, where saving it would have silently
+  overwritten your curation.
 - Deleting a run now releases the Dispatcharr claims it made — previously
   a channel a deleted run had pushed stayed marked "ours" forever and never
   reappeared in Unclaimed (found live: 138 stale claims on production).
@@ -67,5 +93,13 @@ Ongoing per-channel maintenance driven by Dispatcharr's own event log:
   candidate is clean again.
 - Graduates off the watchlist (and its demotion lifts) after the
   configured stable window with no further trouble.
+- A channel down to its LAST usable stream is re-checked like any other.
+  It used to be skipped on the reasoning that there was no fallback to
+  promote — which meant its results never changed, so it could never be
+  re-checked, never be marked DOWN when that last stream died, and never
+  graduate, while being the channel most worth watching.
+- "Events to flag" above 1 now accumulates across checks. Events were only
+  ever counted within a single two-minute poll, so anything above the
+  default of 1 would rarely (or never) fire.
 - Never deletes a Dispatcharr channel -- matches this codebase's
   existing "never delete automatically" rule for pushes.

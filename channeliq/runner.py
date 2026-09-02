@@ -14,6 +14,7 @@ import time
 from . import __version__
 from . import epgcheck as epgcheck_mod
 from . import lineups as lineups_mod
+from . import rank as rank_mod
 from . import settings as settings_mod
 from . import tagsettings
 from . import wantlist as wantlist_mod
@@ -31,7 +32,8 @@ def start_run(root, source, run_id=None, wantlist=None, epg=None,
               sample_seconds=10, frame_height=720, thumb_height=240,
               max_candidates=None, min_candidates=1, only_channels=None,
               limit_channels=None, resume=True, provider_name=None, log=None,
-              progress_cb=None, should_stop=None, clean_target=2,
+              progress_cb=None, should_stop=None,
+              clean_target=rank_mod.FALLBACK_DEPTH,
               lineup=None, prioritise=False, budget_seconds=None, gate=None,
               prefer_dispatcharr_proxy=False):
     """Run a full verification pass. Returns the RunStore it wrote to.
@@ -54,6 +56,15 @@ def start_run(root, source, run_id=None, wantlist=None, epg=None,
                       # any -- what lets curation inherit that lineup's
                       # accumulated per-channel decisions.
                       "lineup": lineup,
+                      # The New Run form's one-off "Custom prefixes", kept
+                      # with the run rather than thrown away after matching.
+                      # Everything that re-matches a name LATER (Find
+                      # streams, the EPG panel, a re-group) builds its own
+                      # Normalizer from the saved tag vocabulary alone -- so
+                      # without this, a run matched on a vocabulary no other
+                      # part of the tool could reconstruct, and quietly
+                      # disagreed with itself about what a channel is called.
+                      "region_tags": list(region_tags or []),
                       "run_state": "running",
                       "started": time.time(), "version": __version__})
     try:
@@ -200,7 +211,8 @@ def _seed_groups(root, store, lineup, wanted):
 def _run(store, root, source, wantlist, epg, regions, strict_region, region_tags,
          aliases, concurrency, gap_seconds, sample_seconds, frame_height,
          thumb_height, max_candidates, min_candidates, only_channels,
-         limit_channels, resume, log, progress_cb, should_stop, clean_target=2,
+         limit_channels, resume, log, progress_cb, should_stop,
+         clean_target=rank_mod.FALLBACK_DEPTH,
          lineup=None, prioritise=False, budget_seconds=None, gate=None,
          prefer_dispatcharr_proxy=False):
     # The operator's own saved tag vocabulary (Settings -> Manage tags) is

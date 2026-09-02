@@ -238,7 +238,8 @@ def _wait_for_free_connection(gate, log, should_stop):
 
 def verify(pools, store, opts, concurrency=1, gap_seconds=0.4,
            resume=True, max_candidates_per_channel=None, progress_cb=None,
-           should_stop=None, guide=None, normalizer=None, clean_target=2,
+           should_stop=None, guide=None, normalizer=None,
+           clean_target=rank_mod.FALLBACK_DEPTH,
            gate=None,
            log=None, prioritise=False, budget_seconds=None):
     """Probe every candidate, appending each result to the store immediately.
@@ -249,11 +250,18 @@ def verify(pools, store, opts, concurrency=1, gap_seconds=0.4,
     clean_target: stop probing a channel's remaining (lower-ranked) candidates
     once it has this many genuinely clean (status "ok") results. Candidates
     are already sorted best-declared-first by build_worklist(), so the common
-    case is exactly 2 probes per channel -- try the best, try the second-best,
-    both come back clean, stop. A channel only spills into its 3rd/4th/...
-    candidate when one of the first two actually had errors, which is the
+    case is exactly rank.FALLBACK_DEPTH probes per channel -- work down the
+    declared order until that many come back clean, then stop. A channel
+    spills further only when one of those actually had errors, which is the
     real, adaptive version of what max_candidates_per_channel could only do
-    as a blind, non-adaptive ceiling. Only applied to the serial
+    as a blind, non-adaptive ceiling.
+
+    Defaults to rank.FALLBACK_DEPTH rather than its own number: this is the
+    supply side of exactly the same failover chain web.py's push consumes
+    (AUTO_FALLBACK_DEPTH), and when the two disagreed the smaller one won
+    silently -- probing stopped at 2, so a push that wanted 4 could never
+    find more than 2 clean candidates to use, however many the provider
+    listed. Only applied to the serial
     (concurrency<=1) path -- see the note in the concurrent branch below for
     why parallel probing doesn't get the same treatment.
 

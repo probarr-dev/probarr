@@ -2970,8 +2970,30 @@ __TOPBAR__
         immediately, with Commit/Discard to close it out.</li>
     </ul>
 
+    <p class="relnote"><b>Failover depth: probing and pushing now agree.</b>
+      Probing stopped collecting candidates once a channel had <b>2</b> clean
+      ones, while the push wanted the top <b>4</b> &mdash; so an uncurated
+      channel could never offer more than two streams however many the
+      provider actually listed. Both ends now read one constant. Runs made
+      before this keep whatever they probed; a re-verify picks up the
+      extra candidates.</p>
+
     <p class="relnote"><b>Fixes.</b></p>
     <ul>
+      <li>Curate showed only ONE candidate as "in the channel" for a channel
+        that had only ever had a group written to it &mdash; and baked that
+        single-stream failover chain in if you then touched it.</li>
+      <li>Candidate cards rendered a stray <code>undefined</code> after the
+        "60Hz &mdash; likely a US feed" badge, on every off-cadence
+        stream.</li>
+      <li>A run's one-off <b>Custom prefixes</b> are now stored with the run.
+        They were used for matching and then thrown away, so anything
+        re-matching the same names later (Find streams, the EPG panel)
+        quietly used a narrower vocabulary than the run itself had.</li>
+      <li>The contact sheet's download is now
+        <code>contact-sheet-picks.json</code> &mdash; it was offered as
+        <code>selection.json</code>, a different shape entirely, right next
+        to the run's real one.</li>
       <li>Deleting a run now releases the Dispatcharr claims it made.</li>
       <li>The "dropped stream" failure counts on candidate cards had never
         actually worked, for any run &mdash; fixed.</li>
@@ -2999,6 +3021,12 @@ __TOPBAR__
         moment a candidate is clean again.</li>
       <li>Graduates off the watchlist after the configured stable window
         with no further trouble. Never deletes a Dispatcharr channel.</li>
+      <li>A channel down to its LAST usable stream is re-checked like any
+        other. It used to be skipped &mdash; no fallback to promote &mdash;
+        which meant its results never changed, so it could never be
+        re-checked, marked DOWN, or graduate.</li>
+      <li>"Events to flag" above 1 now accumulates across checks; events
+        were only counted within a single two-minute poll.</li>
     </ul>
   </div>
 </div>

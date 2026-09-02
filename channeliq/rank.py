@@ -22,6 +22,20 @@ Ordering rules, in priority order:
 from .probe import (STATUS_OK, STATUS_DIRTY, STATUS_PLACEHOLDER,
                     STATUS_NO_FRAME, STATUS_NO_VIDEO, STATUS_DEAD)
 
+# How many ranked candidates make up a channel's failover chain when nobody
+# has curated one by hand. Lives HERE, at the bottom of the import graph, so
+# the two ends of the pipeline cannot drift apart: verify.py stops probing a
+# channel once it has this many clean candidates, and web.py's push picks
+# this many when a channel has no explicit selection (AUTO_FALLBACK_DEPTH,
+# and its client-side mirror in curate.py's JS).
+#
+# Real bug this fixes: probing stopped at 2 while the push wanted 4, so an
+# uncurated channel could never have more than two `ok` candidates for the
+# push to choose from no matter how many the provider actually offered --
+# reported as "is channeliq limited to 2 streams per channel?", and visible
+# in a run log as "skipped X: already has 2 clean candidate(s)".
+FALLBACK_DEPTH = 4
+
 # A still picture ranks below a corrupted one on purpose. Corruption is often
 # transient and the channel is at least the right channel; a placeholder card
 # is not the content at all.

@@ -117,8 +117,8 @@ __TOPBAR__
 <footer class="bar">
   <div id="selsum"></div>
   <div class="spacer"></div>
-  <button id="copy">Copy selection JSON</button>
-  <button class="primary" id="download">Download selection.json</button>
+  <button id="copy">Copy picks as JSON</button>
+  <button class="primary" id="download">Download picks</button>
 </footer>
 
 <div class="lightbox" id="lb"><img alt=""><div class="cap"></div></div>
@@ -326,13 +326,19 @@ document.getElementById("reset").addEventListener("click", resetSel);
 document.getElementById("copy").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(selectionJSON());
         document.getElementById("copy").textContent = "Copied"; 
-        setTimeout(() => document.getElementById("copy").textContent = "Copy selection JSON", 1500);
+        setTimeout(() => document.getElementById("copy").textContent = "Copy picks as JSON", 1500);
   } catch(e){ alert(selectionJSON()); }
 });
 document.getElementById("download").addEventListener("click", () => {
   const blob = new Blob([selectionJSON()], {type: "application/json"});
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = "selection.json";
+  // NOT "selection.json": the contact sheet is written into the run's own
+  // directory, right next to the real selection.json the app reads back --
+  // and this file is a flat report ({run_id, generated, channels:[...]}),
+  // a completely different shape. Downloading it and saving it in the
+  // obvious place would silently overwrite the run's actual curation with
+  // something read_selection() would parse as garbage channel keys.
+  a.href = URL.createObjectURL(blob); a.download = "contact-sheet-picks.json";
   document.body.appendChild(a); a.click(); a.remove();
 });
 document.addEventListener("keydown", e => {
