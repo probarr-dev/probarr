@@ -111,9 +111,8 @@ PLACEHOLDER_PENALTY = 1
 # exact sort term, comparing raw measured_kbps. A single live stream's
 # bitrate moves with what's ON SCREEN (an action scene versus a static
 # studio shot), so two probes of the SAME feed a few seconds apart were
-# never going to report identical numbers. 35% keeps a real difference (a
-# visibly worse feed, easily 2x+) decisive while treating ordinary
-# scene-to-scene noise as the noise it is.
+# never going to report identical numbers, and the documented real-world
+# case was a ~4% wobble.
 #
 # First attempt here was a fixed log-spaced bucket grid (bucketing every
 # candidate's bitrate independently of any other, not just the incumbent's).
@@ -124,7 +123,18 @@ PLACEHOLDER_PENALTY = 1
 # there is nothing to straddle when the reference point is "how far from the
 # stream that's ALREADY primary", because the incumbent is always, trivially,
 # a zero-distance match against itself.
-BITRATE_TOLERANCE = 0.35
+#
+# 35% was this constant's value under THAT bucket grid, and stayed wrong
+# after the grid was removed: it was widened that far only to guarantee two
+# genuinely-close values landed in the same discrete bucket despite the
+# grid's own quantization error, not because 35% reflects real probe noise.
+# With no grid left to compensate for, that margin just swallowed real
+# differences -- confirmed live: a confirmed pick and a rival measuring
+# two-thirds its bitrate (34.6% apart) tied on bitrate and lost the tiebreak
+# to the rival's codec, without corruption count (222 errors against the
+# rival's near-zero) ever being consulted. 15% comfortably covers the
+# ~4% noise this exists for while leaving a real 20-35% gap decisive again.
+BITRATE_TOLERANCE = 0.15
 
 
 def score_key(r: dict, incumbent_kbps=None):

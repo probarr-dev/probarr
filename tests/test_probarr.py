@@ -1865,6 +1865,26 @@ class TestRank(unittest.TestCase):
                            incumbent_kbps=clearly_worse_incumbent["measured_kbps"])[0],
                       clearly_better)
 
+    def test_a_35_percent_gap_does_not_hide_behind_the_hevc_tiebreak(self):
+        """Real case seen live: a confirmed h264 pick (4082kbps, 222 decode
+        errors) was outranked by an HEVC rival measuring 2668kbps -- a 34.6%
+        gap, just inside the OLD 35% tolerance, so bitrate tied and the HEVC
+        codec tiebreak decided the winner WITHOUT corruption count ever being
+        consulted (hevc is ranked ahead of corruption in score_key's tuple).
+        BITRATE_TOLERANCE was 35% only as a holdover from the old bucket
+        grid's own quantization error; at the correct ~15%, a gap this size
+        must decide on raw bitrate before HEVC gets a vote.
+        """
+        incumbent = {"status": "ok", "width": 1920, "height": 1080, "fps": 25,
+                    "measured_kbps": 4082, "video_codec": "h264",
+                    "corruption_errors": 222}
+        rival = {"status": "ok", "width": 1920, "height": 1080, "fps": 25,
+                "measured_kbps": 2668, "video_codec": "hevc",
+                "corruption_errors": 0}
+        self.assertIs(rank([rival, incumbent], incumbent_kbps=4082)[0], incumbent,
+                      "a 34.6% bitrate gap must decide the ranking outright, "
+                      "not tie and fall through to the HEVC tiebreak")
+
     def test_errors_break_a_tie_between_equals(self):
         a = {"status": "dirty", "width": 1920, "height": 1080, "fps": 25,
              "measured_kbps": 4000, "corruption_per_sec": 9.0}
