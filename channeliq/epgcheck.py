@@ -112,7 +112,7 @@ def _display_clean(name):
 _CACHE_TTL = 1800
 _cache = {}  # url -> (Guide, loaded_at)
 
-# KNM fix (probarr-vz7): Curate's per-channel "what's on now" badge fires
+# KNM fix (channeliq-vz7): Curate's per-channel "what's on now" badge fires
 # one _epg_check per channel on page load, concurrently -- a 6-channel
 # lineup means 6 threads calling load_cached() for the SAME url at once.
 # Without a lock, every one of them sees the same cold/expired cache entry
@@ -163,7 +163,7 @@ def _fetch_to_disk(root, url):
     path = _disk_path(root, url)
     if os.path.exists(path) and (time.time() - os.path.getmtime(path)) < _DISK_TTL:
         return path
-    req = urllib.request.Request(url, headers={"User-Agent": "probarr/0.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "channeliq/0.1"})
     raw = urllib.request.urlopen(req, timeout=120).read()
     if raw[:2] == b"\x1f\x8b":
         import gzip
@@ -192,7 +192,7 @@ def load_cached(url, window_hours=6, root=None):
     -- this only ever needs to answer "what's on right now", so there is no
     reason to parse or hold two days of programmes in memory for it.
 
-    KNM fix (probarr-vz7): locked per-url. Curate's per-channel "what's on
+    KNM fix (channeliq-vz7): locked per-url. Curate's per-channel "what's on
     now" badge fires one call per channel on page load, concurrently -- a
     6-channel lineup means 6 threads calling this for the SAME url at once.
     Without the lock, every one of them sees the same cold/expired entry
@@ -381,11 +381,11 @@ def list_channels(root, source_name, normalizer=None):
     different reasons:
 
     1. Quality variants ("BBC One" / "BBC One HD") -- not two channels at
-       all, probarr already picks the best available quality among a
+       all, channeliq already picks the best available quality among a
        channel's candidates once streams are matched, so offering both as
        separate tickable rows just means one gets ticked twice under two
        different keys. Folded with the SAME normaliser that already treats
-       them as one key everywhere else in probarr, so this agrees with the
+       them as one key everywhere else in channeliq, so this agrees with the
        rest of the tool rather than doing its own, different thing.
     2. Regional variants ("BBC One London" / "BBC One Scotland") -- these
        ARE genuinely different broadcasts, not a bug to collapse away, but

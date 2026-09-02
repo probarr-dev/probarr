@@ -47,7 +47,7 @@ def _expand(channels, fallback_mode):
         # shape for callers that still send it. Dispatcharr's own model is
         # an ordered streams array with failover down it, so a curated
         # order of three or five maps onto it directly -- there was never
-        # a reason to stop at two beyond probarr's own data model.
+        # a reason to stop at two beyond channeliq's own data model.
         ordered = [x["stream_id"] for x in (ch.get("streams") or [])
                    if x and x.get("stream_id") is not None]
         if fallback_mode == "native":
@@ -79,7 +79,7 @@ def _conflict(existing_ch, name, stream_ids):
     """Why an untagged number collision is or isn't safe to skip past.
 
     Called only when `existing_ch` is real (something is already sitting
-    at this number in Dispatcharr) and claims.py says probarr has never
+    at this number in Dispatcharr) and claims.py says channeliq has never
     tagged its id -- i.e. push() cannot prove this channel is one it
     already owns. Two independent, cheap signals are checked before
     treating it as a hard stop, because id-only matching has a real gap:
@@ -143,7 +143,7 @@ def _decide(existing_ch, name, stream_ids, target_group_id, logo_id, epg_data_id
     return ("update" if changes else "unchanged"), changes, payload
 
 
-def plan(client, channels, group_name=None, default_group_name="probarr",
+def plan(client, channels, group_name=None, default_group_name="channeliq",
         fallback_mode="native", claimed_ids=None):
     """What a push WOULD do, computed without writing anything.
 
@@ -161,7 +161,7 @@ def plan(client, channels, group_name=None, default_group_name="probarr",
     describe it -- planning must not have side effects, or previewing
     becomes as consequential as pushing.
 
-    `claimed_ids`: the set of Dispatcharr channel ids probarr already owns
+    `claimed_ids`: the set of Dispatcharr channel ids channeliq already owns
     (see claims.py). None (the default) means "no gate" -- every existing
     caller that hasn't been taught about claims yet keeps its old
     behaviour. Passed a real set, a number match against an unclaimed id
@@ -244,7 +244,7 @@ def plan(client, channels, group_name=None, default_group_name="probarr",
     return {"actions": actions, "counts": counts}
 
 
-def push(client, channels, group_name=None, default_group_name="probarr",
+def push(client, channels, group_name=None, default_group_name="channeliq",
         fallback_mode="native", log=None, progress_cb=None,
         prune_empty_groups=True, claimed_ids=None):
     """Push curated channels into Dispatcharr.
@@ -263,7 +263,7 @@ def push(client, channels, group_name=None, default_group_name="probarr",
     existing channel into it regardless -- real bug, confirmed live twice:
     a blank group field (the common case, especially for a single-channel
     push) silently relocated a channel out of its real lineup group and
-    into a fresh "probarr (<run>)" group of its own.
+    into a fresh "channeliq (<run>)" group of its own.
 
     `prune_empty_groups`: after moving channels, delete any group THIS PUSH
     emptied. Deliberately scoped to groups the push itself vacated, never
@@ -296,7 +296,7 @@ def push(client, channels, group_name=None, default_group_name="probarr",
     rather than only a single result at the very end.
 
     `claimed_ids`: same meaning as plan()'s parameter of the same name --
-    the set of Dispatcharr channel ids probarr already owns. None (the
+    the set of Dispatcharr channel ids channeliq already owns. None (the
     default) is the old, ungated behaviour: a number match updates
     whatever is there, no questions asked. Passed a real set, a number
     match against an id NOT in it is never written to -- recorded in the
@@ -342,7 +342,7 @@ def push(client, channels, group_name=None, default_group_name="probarr",
     # Every channel this push actually wrote to, with the id Dispatcharr
     # confirmed for it -- the caller (web.py) claims each of these right
     # after a successful push, which is what makes claiming automatic and
-    # certain for anything probarr itself pushes: no guessing needed, we
+    # certain for anything channeliq itself pushes: no guessing needed, we
     # just did it and Dispatcharr just told us the id.
     touched = []
     # Number collisions with an id claims.py doesn't recognise -- left
@@ -422,7 +422,7 @@ def push(client, channels, group_name=None, default_group_name="probarr",
             else:
                 unchanged += 1
                 # Still touched: an id claims.py has never seen before (the
-                # channel was created outside probarr, then a wantlist entry
+                # channel was created outside channeliq, then a wantlist entry
                 # was later pointed at its number by hand) should still end
                 # up tagged the first time a push confirms it is genuinely
                 # unchanged, not only on an update.

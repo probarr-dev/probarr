@@ -1,6 +1,6 @@
 """A lineup: the durable thing a run is a snapshot OF.
 
-The object-model gap this closes. Everything in probarr was scoped to a
+The object-model gap this closes. Everything in channeliq was scoped to a
 `run`, but nobody thinks in runs -- you think in "my UK lineup", a
 persistent thing that gets re-verified periodically. Runs are events
 against that thing, not the thing itself.

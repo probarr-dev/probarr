@@ -258,7 +258,7 @@ class Normalizer:
         return self.aliases.get(folded, folded)
 
     def explain(self, name: str) -> dict:
-        """Show what normalisation did to a title. Used by `probarr explain`.
+        """Show what normalisation did to a title. Used by `channeliq explain`.
 
         Exists because the failure mode here is silent: a too-narrow rule
         doesn't error, it just quietly yields fewer candidates.
@@ -276,7 +276,7 @@ class Normalizer:
 # a genuinely common, separate convention from the UK:/UKHD: name-prefix
 # style Normalizer.region_of() already handles. Found for real: a
 # multi-country provider whose foreign entries carried NO region marker in
-# the name at all (often wrapped in brackets probarr already strips as
+# the name at all (often wrapped in brackets channeliq already strips as
 # decoration, e.g. "(PT) (Meo) TLC"), but a reliable full country name in
 # group-title ("Portugal", "Poland", "Russia", "Austria", "Romania"...).
 # Checking name alone let every one of those through as "unmarked" once

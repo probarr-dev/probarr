@@ -14,7 +14,7 @@ class HttpError(Exception):
 
 def request(url, method="GET", body=None, headers=None, timeout=30, raw=False):
     data = None
-    hdrs = {"User-Agent": "probarr/0.1"}
+    hdrs = {"User-Agent": "channeliq/0.1"}
     if body is not None:
         data = json.dumps(body).encode()
         hdrs["Content-Type"] = "application/json"

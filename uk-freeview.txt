@@ -1,6 +1,6 @@
 # UK Free-to-Air (Freeview) wantlist
 #
-# The 12 channels probarr's own README/demo runs are built against --
+# The 12 channels channeliq's own README/demo runs are built against --
 # BBC, S4C, Bloomberg, QVC. Verified end-to-end this session: real
 # BBC pips-CDN / S4C-CDN stream URLs, probed clean, curated, and exported
 # into a live Dispatcharr instance from a genuine blank-slate rebuild.

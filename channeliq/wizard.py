@@ -4,7 +4,7 @@ time.
 Every piece this walks through already has its own full page (Providers,
 Wantlists, EPG sources, New Run, Curate) -- this is not a replacement for
 any of them, it is the on-ramp a brand-new install has never had. Someone
-who has never used probarr before lands on an empty nav bar with six
+who has never used channeliq before lands on an empty nav bar with six
 destinations and no obvious order to visit them in; this imposes the order
 that actually works (a source before a wantlist means something before a
 run means something), does the real work through the exact same API
@@ -59,7 +59,7 @@ EXTRA_CSS = WANTLIST_EXTRA + """
 
 WIZARD_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; setup wizard</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; setup wizard</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 
@@ -70,7 +70,7 @@ __TOPBAR__
   <div class="wiz-step" id="wiz-dispatcharr">
     <div class="card">
       <h2>1. Connect Dispatcharr</h2>
-      <div class="lead">Optional &mdash; lets probarr push channels to Dispatcharr, and
+      <div class="lead">Optional &mdash; lets channeliq push channels to Dispatcharr, and
         pull your existing setup from it.</div>
       <div class="row" style="margin-bottom:10px">
         <input type="text" id="wd-name" placeholder="Name, e.g. My Dispatcharr">
@@ -92,7 +92,7 @@ __TOPBAR__
         <input type="checkbox" id="wd-proxy" style="width:auto">
         Prefer Dispatcharr's own proxy for probing
       </label>
-      <div class="hint2" style="margin-top:2px">Only tick this if probarr can't reach your
+      <div class="hint2" style="margin-top:2px">Only tick this if channeliq can't reach your
         provider directly but Dispatcharr can.</div>
       <div class="hint2" style="margin-top:6px;color:var(--warn)">
         Heads up: a clean result here means Dispatcharr delivered it clean, not
@@ -167,7 +167,7 @@ __TOPBAR__
   <div class="wiz-step" id="wiz-epg">
     <div class="card">
       <h2>4. A guide (EPG) source</h2>
-      <div class="lead">Optional &mdash; an XMLTV guide lets probarr catch a stream
+      <div class="lead">Optional &mdash; an XMLTV guide lets channeliq catch a stream
         that's alive but showing the wrong channel.</div>
       <div id="we-fromdisp" style="display:none;margin-bottom:12px">
         <button id="we-pulldisp">Use whichever guide Dispatcharr is already using</button>

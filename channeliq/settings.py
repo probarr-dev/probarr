@@ -1,7 +1,7 @@
 """Persistent settings, shared by the CLI and the web UI.
 
 Concurrency lives here rather than only on the command line because it is the
-one setting that depends on something probarr cannot discover: how many
+one setting that depends on something channeliq cannot discover: how many
 simultaneous connections your provider actually permits. A one-stream account
 must probe strictly serially; a three-stream account can go roughly three times
 faster. Getting it wrong in the generous direction does not fail cleanly -- an
@@ -14,6 +14,7 @@ import json
 import os
 
 from . import providers as providers_mod
+from . import watchdog as watchdog_mod
 
 # Fields whose value is (or may contain) a live provider credential --
 # e.g. a "source" of xtream://user:pass@host:port. Never sent to an HTTP
@@ -32,7 +33,7 @@ DEFAULTS = {
     # Remembered from the last successful push, so the export dialog opens
     # ready to go instead of demanding the same three answers every time.
     # Server-side rather than in the browser: the answer is a property of
-    # this probarr and its Dispatcharr, not of whichever device happens to
+    # this channeliq and its Dispatcharr, not of whichever device happens to
     # be looking at it.
     "push_provider": "",
     "push_fallback": "native",
@@ -63,6 +64,19 @@ DEFAULTS = {
     # wantlist.py's TOKEN_SORT_THRESHOLDS. "strict" tries none of it and is
     # every wantlist's behaviour before this existed.
     "match_sensitivity": "strict",
+    # Ongoing per-channel maintenance from Dispatcharr's own event log --
+    # see watchdog.py's module docstring for the full mechanism. Off by
+    # default, same reasoning as the lineup scheduler: this pushes to
+    # Dispatcharr unattended, which is a real behaviour change from every
+    # other push in channeliq (always curator-confirmed first), and should
+    # be an explicit opt-in.
+    "watchdog_enabled": False,
+    # channel_error/channel_reconnect events needed (within the log
+    # Dispatcharr still retains) before a channel is flagged.
+    "watchdog_threshold": watchdog_mod.DEFAULT_THRESHOLD,
+    "watchdog_start_minutes": watchdog_mod.DEFAULT_START_MINUTES,
+    "watchdog_max_hours": watchdog_mod.DEFAULT_MAX_HOURS,
+    "watchdog_stable_hours": watchdog_mod.DEFAULT_STABLE_HOURS,
 }
 
 # Anything above this is almost certainly a mistake rather than a real
@@ -100,6 +114,10 @@ def coerce(values):
     _int("frame_height", 180, 2160)
     _int("thumb_height", 90, 720)
     _int("freshness_hours", 0, 24 * 60)
+    _int("watchdog_threshold", 1, 20)
+    _int("watchdog_start_minutes", 5, 24 * 60)
+    _int("watchdog_max_hours", 1, 24 * 14)
+    _int("watchdog_stable_hours", 1, 24 * 30)
     try:
         out["gap_seconds"] = max(0.0, min(10.0, float(out.get("gap_seconds", 0.4))))
     except (TypeError, ValueError):
@@ -118,6 +136,9 @@ def coerce(values):
     v = out.get("push_prune", True)
     out["push_prune"] = (v.lower() not in ("false", "0", "no", "")
                          if isinstance(v, str) else bool(v))
+    v = out.get("watchdog_enabled", False)
+    out["watchdog_enabled"] = (v.lower() not in ("false", "0", "no", "")
+                               if isinstance(v, str) else bool(v))
     return out
 
 

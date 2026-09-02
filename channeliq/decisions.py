@@ -14,7 +14,7 @@ always prefers the HD stream over the marginally-higher-bitrate one with any
 corruption at all" would show up as a cluster in this log, and that's the
 kind of finding that should change score_key(), not just this one pick.
 
-Deliberately global (one file per probarr instance, not per-run) so patterns
+Deliberately global (one file per channeliq instance, not per-run) so patterns
 across many runs accumulate in one place rather than being scattered.
 """
 import json

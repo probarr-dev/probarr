@@ -14,11 +14,11 @@ from .sources import load_source
 from .store import RunStore
 from .verify import annotate_placeholders
 
-DEFAULT_ROOT = os.environ.get("PROBARR_CONFIG", "/config")
+DEFAULT_ROOT = os.environ.get("CHANNELIQ_CONFIG", "/config")
 
 
 def _env(name, default=None):
-    return os.environ.get(f"PROBARR_{name}", default)
+    return os.environ.get(f"CHANNELIQ_{name}", default)
 
 
 def _log(msg):
@@ -143,9 +143,9 @@ def cmd_serve(args):
 
 def build_parser():
     p = argparse.ArgumentParser(
-        prog="probarr",
+        prog="channeliq",
         description="Verify, compare and visually curate IPTV streams.")
-    p.add_argument("--version", action="version", version=f"probarr {__version__}")
+    p.add_argument("--version", action="version", version=f"channeliq {__version__}")
     p.add_argument("--root", default=DEFAULT_ROOT,
                    help="config/data directory (default %(default)s)")
     sub = p.add_subparsers(dest="cmd", required=True)

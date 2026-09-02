@@ -1,6 +1,6 @@
 """Saved provider connections.
 
-The thing probarr had no obvious home for at all: where do you tell it about
+The thing channeliq had no obvious home for at all: where do you tell it about
 your IPTV subscription? Wantlists and settings both had a visible page; the
 provider address had nowhere to live except a CLI flag or an unlabelled text
 box on the settings page that did nothing on its own.
@@ -109,9 +109,9 @@ def set_last_group_name(root, name, group_name):
     """Remember the Dispatcharr group a push into this provider last used.
 
     Deliberately attached to the PROVIDER (the actual persistent Dispatcharr
-    destination), not to whichever probarr run happened to trigger the
+    destination), not to whichever channeliq run happened to trigger the
     push. Real bug this fixes: group-name memory was originally kept on the
-    run instead, so a channel re-pushed from a DIFFERENT, newer probarr run
+    run instead, so a channel re-pushed from a DIFFERENT, newer channeliq run
     of the same conceptual lineup (re-verifying the same channels a
     second time, say) had no memory of the group the FIRST run's push had
     used, and defaulted to a brand new group instead -- even though from

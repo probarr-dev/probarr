@@ -105,7 +105,7 @@ PLACEHOLDER_PENALTY = 1
 
 # A rival within roughly this fraction of the CURRENT PICK's bitrate does
 # not outrank it on bitrate alone -- see score_key()'s `incumbent_kbps`.
-# Real complaint that motivated this: probarr's own "Changed" alert kept
+# Real complaint that motivated this: channeliq's own "Changed" alert kept
 # firing "X now ranks above your pick" between one re-verify and the next,
 # with no real difference in either stream -- the actual cause was this
 # exact sort term, comparing raw measured_kbps. A single live stream's
@@ -137,13 +137,31 @@ PLACEHOLDER_PENALTY = 1
 BITRATE_TOLERANCE = 0.15
 
 
-def score_key(r: dict, incumbent_kbps=None):
+def score_key(r: dict, incumbent_kbps=None, demoted_stream_id=None):
     status = r.get("status", STATUS_DEAD)
     area = (r.get("width", 0) or 0) * (r.get("height", 0) or 0)
     fps = float(r.get("fps", 0) or 0)
     hevc = 0 if "hevc" in (r.get("video_codec", "") or "").lower() else 1
     return (
         _STATUS_RANK.get(status, 9),
+        # `demoted_stream_id` -- see watchdog.py -- is not a probe's guess:
+        # it names the stream Dispatcharr's OWN system-events log just
+        # reported a real channel_error or channel_reconnect against, i.e.
+        # a viewer's player actually failed over. That is stronger evidence
+        # than anything a 10-25s sample can produce, so it is weighed
+        # immediately after integrity (still ahead of a placeholder card
+        # only because "unusable at all" always outranks "usable but just
+        # reported trouble"), well before any quality term -- a demoted
+        # stream still beats a genuinely broken one, but loses to any other
+        # OK candidate regardless of resolution or bitrate.
+        # Compared against rec_key-or-stream_id, not stream_id alone --
+        # that is the same identity curate.py's candidate "id" and every
+        # selection's primary/streams entries use (see build_payload),
+        # and watchdog.py's demoted_stream_id is set from exactly one of
+        # those (a channel's current confirmed pick).
+        1 if (demoted_stream_id and
+              (r.get("rec_key") or r.get("stream_id")) == demoted_stream_id)
+        else 0,
         PLACEHOLDER_PENALTY if r.get("placeholder_group") else 0,
         1 if r.get("low_contrast") else 0,
         # Immediately after the integrity checks and ahead of every quality
@@ -210,12 +228,14 @@ def score_key(r: dict, incumbent_kbps=None):
     )
 
 
-def rank(results, incumbent_kbps=None):
+def rank(results, incumbent_kbps=None, demoted_stream_id=None):
     """Sort probe results best-first. Pure; does not mutate input order.
 
-    `incumbent_kbps` -- see score_key(); passed straight through.
+    `incumbent_kbps`/`demoted_stream_id` -- see score_key(); passed
+    straight through.
     """
-    return sorted(results, key=lambda r: score_key(r, incumbent_kbps))
+    return sorted(results, key=lambda r: score_key(r, incumbent_kbps,
+                                                   demoted_stream_id))
 
 
 def pick(results, depth=2):

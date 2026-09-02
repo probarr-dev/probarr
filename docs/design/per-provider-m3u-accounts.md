@@ -14,13 +14,13 @@ naming/collision on rename -- see Open questions.
 
 ## The problem
 
-Every stream probarr pushes into Dispatcharr today goes through
-`get_or_create_custom_stream()` (`probarr/sources/dispatcharr.py`), which
+Every stream channeliq pushes into Dispatcharr today goes through
+`get_or_create_custom_stream()` (`channeliq/sources/dispatcharr.py`), which
 creates it under Dispatcharr's one special, hidden `"custom"` M3U account --
 the only mechanism Dispatcharr exposes for attaching a stream that didn't
 come from a real M3U/Xtream import.
 
-That account is **shared across every provider probarr has ever pushed
+That account is **shared across every provider channeliq has ever pushed
 from**, completely independent of which real upstream each stream's URL
 actually belongs to. Its `max_streams` is the only concurrency limit
 Dispatcharr can enforce on any of them, and it enforces it as one number
@@ -59,7 +59,7 @@ afterward:
    throwaway account above was created with an empty `server_url` (it was
    only ever meant to be a namespace for custom streams, never a real M3U
    source) -- and Dispatcharr surfaced a user-visible failure notification
-   almost immediately: `M3U Processing: probarr-scope-test / downloading
+   almost immediately: `M3U Processing: channeliq-scope-test / downloading
    failed: No M3U source available (missing URL and file)`. Confirmed via
    `docker logs dispatcharr` that the periodic task itself was created
    `enabled=False`, so this was NOT a recurring scheduled failure -- just a
@@ -100,7 +100,7 @@ actual benefit; it only fixes the cosmetics.
 
 So the target shape is: Dispatcharr genuinely parses each provider's M3U as
 a real, first-class account (exactly as if a user pointed Dispatcharr at it
-by hand), and probarr's export **attaches channels to the streams that
+by hand), and channeliq's export **attaches channels to the streams that
 parse already produced**, rather than inventing new ones. `is_custom`
 streams stop being the normal path; they are, at most, a rare fallback for
 a URL Dispatcharr's own parse doesn't have (see the open questions below),
@@ -109,7 +109,7 @@ not the mechanism.
 Practically: `get_or_create_custom_stream()` is replaced by something that
 looks up the candidate's URL in that provider's account's own
 already-parsed stream table first. **This is more feasible than it might
-sound**: checked live while scoping this, probarr's own M3U parser
+sound**: checked live while scoping this, channeliq's own M3U parser
 (`sources/m3u.py`) stores each stream's URL completely verbatim off the
 `#EXTINF` line (`url=line`, no rewriting, no normalisation of the URL
 itself -- only the display name gets that treatment, for matching
@@ -120,29 +120,29 @@ account once one exists, not just asserted (see the open questions below),
 but there's no structural reason to expect it to fail often.
 
 A URL that genuinely doesn't appear in Dispatcharr's own parse -- possible
-if probarr matched a redirect/alias variant, or probed between refreshes --
+if channeliq matched a redirect/alias variant, or probed between refreshes --
 still needs *some* answer. Falling back to a custom stream for that one
 candidate is acceptable as a rare edge case; it stops being acceptable if
 it turns out to be the common case, which is exactly the kind of thing to
 measure once this exists rather than assume either way.
 
 One more thing this surfaces: **there is currently no Dispatcharr M3U
-account, anywhere on this instance, that actually matches probarr's own
+account, anywhere on this instance, that actually matches channeliq's own
 current provider credentials.** The three that exist (`custom`,
 `BunnyCustom`, `BunnyVOD`) all carry older, superseded logins. So step
-zero of building this, before any probarr code changes, is a real account
+zero of building this, before any channeliq code changes, is a real account
 existing to natively parse against at all -- either created fresh, or one
 of the existing stale ones corrected. Worth remembering this is not purely
-a probarr-side change: it depends on Dispatcharr-side setup being right
+a channeliq-side change: it depends on Dispatcharr-side setup being right
 first, for however many providers a given user has.
 
 ## What actually shipped
 
-Two code changes, both in `probarr/sources/dispatcharr.py`, plus one
+Two code changes, both in `channeliq/sources/dispatcharr.py`, plus one
 Dispatcharr-side correction done by hand:
 
 1. **Step zero, done manually**: `BunnyCustom`'s `server_url` corrected to
-   probarr's live `mybunny` credentials, `max_streams` set to 4, refreshed.
+   channeliq's live `mybunny` credentials, `max_streams` set to 4, refreshed.
    `get_or_create_custom_stream()` needed **no code change at all** for
    this part -- it already looked up the full stream table by URL before
    ever creating anything new (re-read closely while starting this; the
@@ -236,7 +236,7 @@ short-circuits to "no match" instead.
   confirming that path explicitly (push without a wipe first) rather than
   assuming the clean-slate result generalises.
 - **Naming/collision**: what happens when a provider is renamed or deleted
-  in probarr's own `providers.json` -- does its Dispatcharr account get
+  in channeliq's own `providers.json` -- does its Dispatcharr account get
   renamed/orphaned/deleted too? Still unaddressed; `find_account_for_source`
   only ever looks up by the CURRENT spec, so a renamed provider with an
   unchanged URL keeps matching fine, but a provider whose URL itself
@@ -251,7 +251,7 @@ short-circuits to "no match" instead.
   correcting an existing one's URL by hand) against a live instance yet.
 - **Rate limits while doing this work**: Dispatcharr's own API throttles
   rapid repeated `/api/accounts/token/` calls (confirmed live -- 429s from
-  re-authenticating too quickly, twice, during this build). probarr's own
+  re-authenticating too quickly, twice, during this build). channeliq's own
   `Dispatcharr.api()` already retries 429s correctly, honouring the
   `"Expected available in N seconds"` body Dispatcharr returns; any
   exploratory scripting against a live instance should go through that
@@ -263,6 +263,6 @@ short-circuits to "no match" instead.
   core safety property (ratchet down, never silently up) -- a per-provider
   account just gives that ratchet a correctly-scoped account to apply to
   instead of one shared by everyone.
-- This is not a redesign of how probarr decides candidate *quality* or
+- This is not a redesign of how channeliq decides candidate *quality* or
   *matching* -- purely about which Dispatcharr account a pushed stream ends
   up filed under, and what Dispatcharr itself can therefore enforce.

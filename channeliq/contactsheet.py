@@ -95,7 +95,7 @@ def _prettify(key, records):
 HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr contact sheet &middot; __RUN__</title>
+<title>ChannelIQ contact sheet &middot; __RUN__</title>
 <style>__CSS__</style></head><body>
 
 __TOPBAR__
@@ -125,7 +125,7 @@ __TOPBAR__
 
 <script>
 const DATA = __DATA__;
-const LSKEY = "probarr:sel:" + DATA.run_id;
+const LSKEY = "channeliq:sel:" + DATA.run_id;
 
 // Selection state: {channelKey: {include, primary, fallback}}
 let SEL = {};

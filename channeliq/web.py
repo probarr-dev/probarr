@@ -57,7 +57,7 @@ def _reprobeable_url(record):
     """The URL to re-probe with, or None if none is safely usable.
 
     `url` is the raw address and is always right when present. It is missing
-    on runs created before probarr started storing it (added alongside M3U
+    on runs created before channeliq started storing it (added alongside M3U
     export, in the same session as re-probing itself) -- those older runs
     only have `url_redacted`.
 
@@ -79,7 +79,7 @@ def _reprobeable_url(record):
 
 INDEX = r"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr</title><style>__CSS__
+<title>ChannelIQ</title><style>__CSS__
 .runs{max-width:900px;margin:20px auto;padding:0 16px}
 .run{display:flex;gap:14px;align-items:center;background:var(--panel);
   border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px}
@@ -137,7 +137,7 @@ AUTO_FALLBACK_DEPTH = 4
 
 class Handler(BaseHTTPRequestHandler):
     root = "/config"
-    server_version = "probarr"
+    server_version = "channeliq"
     # Default is HTTP/1.0, whose cache semantics predate Cache-Control and are
     # interpreted inconsistently. Every response here sets Content-Length, so
     # 1.1 is safe and gets keep-alive as a bonus.
@@ -175,7 +175,7 @@ class Handler(BaseHTTPRequestHandler):
     def _same_origin(self):
         """True if this write request's Origin/Referer names this same host.
 
-        probarr has no login system (LAN appliance, team-decided low risk
+        channeliq has no login system (LAN appliance, team-decided low risk
         for read paths) but a POST with no Origin/Referer check at all lets
         any other device on the LAN -- or a malicious page loaded in a
         browser that also has this tab open -- blind-write config with a
@@ -482,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
         parts = [p for p in path.split("/") if p]
         # Applied to EVERY write, not just settings/backup (where it was
-        # first added). probarr has no login, so the only thing standing
+        # first added). channeliq has no login, so the only thing standing
         # between "any device on the LAN, or a malicious tab open
         # alongside this one" and a blind write was this check -- and with
         # it scoped to two of the ~75 POST branches here, the same
@@ -1212,7 +1212,7 @@ class Handler(BaseHTTPRequestHandler):
     def _fetch_reference_json(self, url):
         """GET a reference-lineup URL and parse it as JSON. Returns (data, error)."""
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "probarr/0.1"})
+            req = urllib.request.Request(url, headers={"User-Agent": "channeliq/0.1"})
             raw = urllib.request.urlopen(req, timeout=30).read()
             return json.loads(raw), None
         except Exception as e:
@@ -1836,7 +1836,7 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatcharr_read(self, store, body):
         """What Dispatcharr currently has, matched against this run.
 
-        probarr could only ever PUSH, so a channel added by hand in
+        channeliq could only ever PUSH, so a channel added by hand in
         Dispatcharr was invisible here and the two drifted apart with
         nothing able to see it. Reading the far side back is what makes the
         relationship two-way: every existing channel is matched to this
@@ -1935,7 +1935,7 @@ class Handler(BaseHTTPRequestHandler):
         # Every candidate this run already has a probe result for. Checked
         # against rec_key, the same identity the queue and the results file
         # use, so "already verified" means exactly what it does everywhere
-        # else in probarr -- and additionally against the URL, because
+        # else in channeliq -- and additionally against the URL, because
         # Dispatcharr's copy of a provider stream carries a different id
         # while being the very same address to probe.
         already_probed, probed_urls = set(), set()
@@ -2172,10 +2172,10 @@ class Handler(BaseHTTPRequestHandler):
                   "application/json")
 
     def _claimed_ids(self):
-        """Dispatcharr channel ids probarr already owns -- see claims.py.
+        """Dispatcharr channel ids channeliq already owns -- see claims.py.
 
         A plain set, cheap to recompute per request: claims.json is small
-        (one small dict entry per channel probarr has ever pushed or been
+        (one small dict entry per channel channeliq has ever pushed or been
         told about), and a push or preview only ever needs this once.
         """
         return set(claims_mod.read_all(self.root).keys())
@@ -2378,7 +2378,7 @@ class Handler(BaseHTTPRequestHandler):
 
         Read-only -- exactly like _export_plan, this only ever reads from
         Dispatcharr, never writes. Meant to be run any time, including
-        against an established instance that has never seen probarr
+        against an established instance that has never seen channeliq
         before, which is precisely when this list is least empty and most
         useful. See claims.py's module docstring for why "claimed" is
         tracked by id rather than by the channel's current number.
@@ -2408,7 +2408,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _delete_unclaimed_channel(self, body):
         """Permanently delete ONE Dispatcharr channel straight away -- no
-        staging, no preview, unlike every other deletion in probarr.
+        staging, no preview, unlike every other deletion in channeliq.
 
         That is deliberate here, not an oversight: Remove-from-run's
         "also delete in Dispatcharr" is staged because it is a decision
@@ -2416,7 +2416,7 @@ class Handler(BaseHTTPRequestHandler):
         as everything else that selection changes. An Unclaimed channel is
         the opposite case -- it belongs to no run and no lineup, there is
         no selection to review it alongside, and it is the very definition
-        of "probarr doesn't recognise this" -- so there is nothing to
+        of "channeliq doesn't recognise this" -- so there is nothing to
         preview it against. The UI's own confirmation dialog, naming
         exactly what's being destroyed, is the only safety net there is.
         """
@@ -2488,12 +2488,12 @@ class Handler(BaseHTTPRequestHandler):
         pair -- checked by the caller, which knows how to report each shape.
 
         The common case (see claims.py's module docstring): this "unclaimed"
-        channel is one probarr has been curating and pushing all along --
+        channel is one channeliq has been curating and pushing all along --
         it just predates the claims system, so it has never been tagged.
         Its key is very likely ALREADY in this run's wantlist, from before.
         That used to be treated as a conflict and refused outright, which
         was backwards: the whole point of Unclaimed is to close the gap
-        between "Dispatcharr has it" and "probarr has tagged it", and a
+        between "Dispatcharr has it" and "channeliq has tagged it", and a
         channel already curated here is the easiest case to close, not a
         reason to give up. So: an existing entry is claimed in place
         (picking up the real number if it didn't have one yet) instead of
@@ -2828,7 +2828,7 @@ class Handler(BaseHTTPRequestHandler):
         stale = (os.path.isfile(out_path)
                 and os.path.getmtime(frame_path) > os.path.getmtime(out_path))
         if not os.path.isfile(out_path) or stale:
-            ffmpeg = os.environ.get("PROBARR_FFMPEG", "ffmpeg")
+            ffmpeg = os.environ.get("CHANNELIQ_FFMPEG", "ffmpeg")
             # A marked area is often a small fraction of an already
             # modest-resolution frame -- confirmed live, a ~7%x5% box on a
             # 704x396 source (a real BBC One candidate, itself a lower-
@@ -3023,7 +3023,7 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatcharr_epg_sources(self, body):
         """Every XMLTV source a Dispatcharr connection already has configured.
 
-        Read-only -- nothing here saves anything into probarr's own
+        Read-only -- nothing here saves anything into channeliq's own
         epg_sources.json. That happens back through the ordinary
         /api/epg-sources/<name> endpoint, same as adding one by hand,
         once the Wizard (or anyone else) has picked which of these to
@@ -3154,7 +3154,7 @@ class Handler(BaseHTTPRequestHandler):
             # Dispatcharr channel, routed through Dispatcharr's own proxy
             # instead of the raw upstream URL -- see sources/dispatcharr.py's
             # load() for the real reasoning (network-path mismatch between
-            # probarr and a provider Dispatcharr already reaches; also the
+            # channeliq and a provider Dispatcharr already reaches; also the
             # only way a probe shows up in Dispatcharr's own Stats page).
             # Silently ignored by every source that isn't dispatcharr://.
             prefer_dispatcharr_proxy=bool(body.get("prefer_dispatcharr_proxy")),
@@ -3195,13 +3195,13 @@ class Handler(BaseHTTPRequestHandler):
         if not record:
             return self._send('{"error":"unknown stream"}', "application/json", 404)
         if _reprobeable_url(record) is None:
-            # An older run, from before probarr stored the real URL alongside
+            # An older run, from before channeliq stored the real URL alongside
             # the redacted one, whose URL genuinely had credentials in it --
             # the only piece left is the "***"-masked copy, which cannot be
             # probed. Distinguished from a plain missing-URL case so the
             # operator gets an actionable message instead of a bare 404.
             return self._send(
-                '{"error":"this run predates probarr storing the real URL, '
+                '{"error":"this run predates channeliq storing the real URL, '
                 'and its address had credentials redacted out of it -- '
                 're-run verify to enable re-probing on this run"}',
                 "application/json", 409)
@@ -3825,7 +3825,7 @@ class Handler(BaseHTTPRequestHandler):
                 'already run.<br>'
                 '<b>2.</b> <a href="/browse">Browse the channels</a> it '
                 'carries and tick the ones you want. That saves a '
-                '<i>wantlist</i>: the channels probarr will look for, which '
+                '<i>wantlist</i>: the channels channeliq will look for, which '
                 'is what keeps a run to minutes instead of hours.<br>'
                 '<b>3.</b> <a href="/new">Start a run</a>. It probes every '
                 'stream your provider offers for those channels, decodes a '
@@ -3899,6 +3899,14 @@ class Handler(BaseHTTPRequestHandler):
         """
         if settings_mod.read(self.root).get("failover_display", "info") == "off":
             return {}
+        # Same lookup as _epg_mismatches' -- the run's own provider is
+        # usually the M3U/Xtream source it probed, not the Dispatcharr the
+        # events actually come from, so this looks for any saved
+        # Dispatcharr connection rather than trusting store.read_meta().
+        prov = next((p for p in providers_mod.list_all(self.root)
+                    if p.get("scheme") == "dispatcharr"), None)
+        if not prov:
+            return {}
         try:
             client = client_from_spec(prov["spec"])
             failed = self._cached_failed_streams(client, client.base)
@@ -3949,12 +3957,12 @@ class Handler(BaseHTTPRequestHandler):
         return result
 
     def _compute_epg_mismatches(self, store, prov):
-        """{channel_key: {dispatcharr: {...}, probarr: {...}}} for every
+        """{channel_key: {dispatcharr: {...}, channeliq: {...}}} for every
         pushed channel where Dispatcharr's live EPG link disagrees with
-        what probarr itself resolves as correct.
+        what channeliq itself resolves as correct.
 
         Matched by channel NUMBER, not the uuid recorded at import time --
-        proved necessary live: a channel pushed straight from probarr,
+        proved necessary live: a channel pushed straight from channeliq,
         never pulled back in via Import, has no stored uuid at all despite
         genuinely existing in Dispatcharr under that number. Number is
         exactly what the export itself uses as identity, so it is never
@@ -3995,7 +4003,7 @@ class Handler(BaseHTTPRequestHandler):
             if not prog:
                 continue   # Dispatcharr has nothing scheduled -- not a mismatch, just unknown
 
-            # What probarr itself would resolve, by the same explicit-or-
+            # What channeliq itself would resolve, by the same explicit-or-
             # default rule the EPG check panel and the export both use.
             wsel = sel.get(w["key"]) or inherited.get(w["key"]) or {}
             pick = wsel.get("epg_source")
@@ -4022,7 +4030,7 @@ class Handler(BaseHTTPRequestHandler):
                               "guide_name": names[0] if names else cid}
                     break
             if not correct:
-                continue   # probarr itself has no opinion -- nothing to compare against
+                continue   # channeliq itself has no opinion -- nothing to compare against
 
             dispatcharr_tvg = prog.get("tvg_id") or ""
             # tvg-ids are compared case-insensitively -- the same real guide
@@ -4033,7 +4041,7 @@ class Handler(BaseHTTPRequestHandler):
                 out[w["key"]] = {
                     "dispatcharr": {"title": prog.get("title") or "",
                                     "guide_id": dispatcharr_tvg},
-                    "probarr": correct,
+                    "channeliq": correct,
                 }
         return out
 
@@ -4179,7 +4187,7 @@ class Handler(BaseHTTPRequestHandler):
             # An ordered list of streams, not a primary and a fallback.
             # Dispatcharr stores a channel as exactly that -- an ordered
             # streams array it fails over down -- so the two-slot model was
-            # a narrowing probarr imposed on itself, and it meant a third
+            # a narrowing channeliq imposed on itself, and it meant a third
             # good candidate had nowhere to go. primary/fallback are still
             # produced below, as the first two, so every existing caller
             # keeps working.
@@ -4278,12 +4286,12 @@ class Handler(BaseHTTPRequestHandler):
         # Exporting a bare name and URL made the "streamlined" playlist
         # worse in a player than the raw one it was distilled from -- no
         # icons, and nothing matching the guide.
-        rows = [(ch["number"], ch["name"], ch.get("group") or "probarr",
+        rows = [(ch["number"], ch["name"], ch.get("group") or "channeliq",
                 ch.get("logo_url") or "",
                 # Falls back to a stable synthesised id rather than none, so
                 # every channel lines up with export.xmltv -- an id only the
                 # playlist has is no more use than no id at all.
-                ch.get("tvg_id") or f"probarr.{ch['key'].lower()}",
+                ch.get("tvg_id") or f"channeliq.{ch['key'].lower()}",
                 self._real_url(store, ch["primary"]["stream_id"]))
                 for ch in curated]
         tmp = os.path.join(store.dir, "export.m3u")
@@ -4293,7 +4301,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "audio/x-mpegurl")
         self.send_header("Content-Disposition",
-                         f'attachment; filename="probarr-{run_id}.m3u"')
+                         f'attachment; filename="channeliq-{run_id}.m3u"')
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -4302,7 +4310,7 @@ class Handler(BaseHTTPRequestHandler):
         """A guide for exactly the curated channels, keyed to the M3U.
 
         Without this an exported playlist arrives in a player as a wall of
-        names: probarr knew which guide each channel matched, including a
+        names: channeliq knew which guide each channel matched, including a
         per-channel override chosen in Curate, and had no way to hand that
         knowledge over. Channel ids are the same tvg-ids export.m3u writes,
         so the two files line up with no mapping step.
@@ -4353,7 +4361,7 @@ class Handler(BaseHTTPRequestHandler):
                     return g, cid
             return None, None
 
-        rows = [{"id": ch.get("tvg_id") or f"probarr.{ch['key'].lower()}",
+        rows = [{"id": ch.get("tvg_id") or f"channeliq.{ch['key'].lower()}",
                 "name": ch["name"], "logo": ch.get("logo_url") or "",
                 "key": ch["key"], "tvg_id": ch.get("tvg_id") or ""}
                 for ch in curated]
@@ -4362,8 +4370,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/xml; charset=utf-8")
         self.send_header("Content-Disposition",
-                         f'attachment; filename="probarr-{run_id}.xml"')
-        self.send_header("X-Probarr-Matched",
+                         f'attachment; filename="channeliq-{run_id}.xml"')
+        self.send_header("X-ChannelIQ-Matched",
                          f"{stats['matched']}/{stats['channels']} channels, "
                          f"{stats['programmes']} programmes")
         self.send_header("Content-Length", str(len(body)))
@@ -4469,7 +4477,7 @@ class Handler(BaseHTTPRequestHandler):
         # fallback string here unconditionally is wrong: once because
         # leaving the field blank silently relocated a channel out of its
         # real group on a later push within the same run, and again across
-        # two different probarr runs of what the operator considers the
+        # two different channeliq runs of what the operator considers the
         # same conceptual lineup. default_group_name is still needed for a
         # genuinely NEW channel with nothing to preserve -- the provider's
         # own remembered group name is the sane choice there (see
@@ -4497,7 +4505,7 @@ class Handler(BaseHTTPRequestHandler):
                 "push_prune": bool(prune_empty)})
         except Exception:
             pass
-        default_group_name = prov.get("last_group_name") or f"probarr ({run_id})"
+        default_group_name = prov.get("last_group_name") or f"channeliq ({run_id})"
         store.write_push_status({"state": "running", "phase": "resolving",
                                  "done": 0, "total": len(curated),
                                  "started": time.time()})
@@ -4521,7 +4529,7 @@ class Handler(BaseHTTPRequestHandler):
         picked an EPG source in Curate's "Check EPG" modal (see epgcheck.py
         / the epg_source field in selection.json).
 
-        Ensures the chosen source exists in DISPATCHARR too (a probarr-saved
+        Ensures the chosen source exists in DISPATCHARR too (a channeliq-saved
         source is only useful for the live comparison in Curate otherwise --
         see get_or_create_epg_source()'s docstring), then resolves this
         specific channel against that specific source's guide to find the
@@ -4594,7 +4602,7 @@ class Handler(BaseHTTPRequestHandler):
             # never `prov["spec"]`, which is the DISPATCHARR connection this
             # push is going INTO, a completely different string that could
             # never equal any M3U account's server_url. meta["provider_name"]
-            # names that original provider when the run came from probarr's
+            # names that original provider when the run came from channeliq's
             # own saved list (the normal case); its full spec (credentials
             # included) is looked up fresh here rather than trusted from meta,
             # since meta["source"] is deliberately saved with its query
@@ -4665,7 +4673,7 @@ class Handler(BaseHTTPRequestHandler):
             # incident this closes (that account defaulting to unlimited
             # silently defeated a provider's genuine 1-connection cap).
             # This run's own concurrency is the only connection limit
-            # probarr actually knows for certain, since it is what the
+            # channeliq actually knows for certain, since it is what the
             # provider was verified against.
             client.enforce_custom_stream_limit(
                 store.read_meta().get("concurrency"), log=log_lines.append)
@@ -4697,7 +4705,7 @@ class Handler(BaseHTTPRequestHandler):
                 fallback_mode=fallback_mode, log=log_lines.append,
                 progress_cb=on_progress, prune_empty_groups=prune_empty,
                 claimed_ids=self._claimed_ids())
-            # The one moment probarr can tag a Dispatcharr channel with
+            # The one moment channeliq can tag a Dispatcharr channel with
             # total certainty rather than a guess: it just told Dispatcharr
             # what to do with this exact id, and Dispatcharr just confirmed
             # it. See claims.py's module docstring for why identity is
@@ -4733,7 +4741,7 @@ class Handler(BaseHTTPRequestHandler):
             # for brand-new channels either way. Remembered on SUCCESS only,
             # so a failed attempt (a typo'd name, a mid-push error) never
             # becomes the new default -- and against the PROVIDER, not this
-            # run, so a later push from a different probarr run of the same
+            # run, so a later push from a different channeliq run of the same
             # conceptual lineup still finds it.
             if group_name:
                 providers_mod.set_last_group_name(self.root, prov["name"], group_name)
@@ -4845,7 +4853,7 @@ class Handler(BaseHTTPRequestHandler):
             } for ch in curated]
 
             group_name = (body.get("group_name") or "").strip() or None
-            default_group_name = prov.get("last_group_name") or f"probarr ({run_id})"
+            default_group_name = prov.get("last_group_name") or f"channeliq ({run_id})"
             result = dispatcharr_export.plan(
                 client, channels, group_name=group_name,
                 default_group_name=default_group_name,
@@ -4993,7 +5001,7 @@ def _scheduler(root, interval=600):
         # an hour nobody is watching rather than whenever the interval
         # happens to elapse. Default 02:00, and for a weekly cadence a
         # chosen night, because "Monday at 2am" is a decision about the
-        # household, not about probarr.
+        # household, not about channeliq.
         if now.hour != int(lu.get("schedule_hour", 2)):
             return False
         if days == 7 and now.weekday() != int(lu.get("schedule_weekday", 0)):
@@ -5098,7 +5106,7 @@ def serve(root, host="0.0.0.0", port=7799):
                                      quality_tags=tagsettings_mod.tags(Handler.root, "quality"),
                                      aliases=aliases_mod.read(Handler.root))),
                      daemon=True).start()
-    print(f"probarr web UI on http://{host}:{port} (data: {Handler.root})", flush=True)
+    print(f"channeliq web UI on http://{host}:{port} (data: {Handler.root})", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

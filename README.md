@@ -1,10 +1,10 @@
-# probarr
+# channeliq
 
 **Verify, compare and visually curate IPTV streams.**
 
 Providers list the same channel dozens of times — `UK: Meridian Sports 1`,
 `UKFHD | Meridian Sports 1`, `UKUHD: Meridian Sports 1 UHD`, `HEVC FHD Meridian
-Sports 1`. Most are dead, corrupted, or serving a placeholder card. probarr
+Sports 1`. Most are dead, corrupted, or serving a placeholder card. channeliq
 works out which ones actually play, ranks them, and shows you the pictures so
 you can make the final call.
 
@@ -19,7 +19,7 @@ Any M3U or Xtream source in; M3U, XMLTV or Dispatcharr out.
 - [Install](#install)
 - [Your first run](#your-first-run) — start here
 - [Set your concurrency first](#set-your-concurrency-first)
-- [Wantlists: telling probarr what you want](#wantlists-telling-probarr-what-you-want)
+- [Wantlists: telling channeliq what you want](#wantlists-telling-channeliq-what-you-want)
 - [Browsing a provider when you don't know what to ask for](#browsing-a-provider-when-you-dont-know-what-to-ask-for)
 - [Curating a run](#curating-a-run)
 - [Checking a stream is really the right channel](#checking-a-stream-is-really-the-right-channel)
@@ -29,7 +29,7 @@ Any M3U or Xtream source in; M3U, XMLTV or Dispatcharr out.
 - [Settings worth knowing about](#settings-worth-knowing-about)
 - [Command line](#command-line)
 - [How ranking works](#how-ranking-works)
-- [Why probarr decodes instead of trusting metadata](#why-probarr-decodes-instead-of-trusting-metadata)
+- [Why channeliq decodes instead of trusting metadata](#why-channeliq-decodes-instead-of-trusting-metadata)
 - [Security](#security)
 - [Credits](#credits) · [License](#license)
 
@@ -41,7 +41,7 @@ Docker is the supported path — it bundles ffmpeg and needs nothing on the host
 identically on Windows, macOS and Linux.
 
 ```bash
-docker run -d --name probarr -p 7799:7799 -v ./config:/config ghcr.io/probarr-dev/probarr:latest
+docker run -d --name channeliq -p 7799:7799 -v ./config:/config ghcr.io/channeliq-dev/channeliq:latest
 ```
 
 Open `http://localhost:7799`.
@@ -58,17 +58,17 @@ is always exactly what's on `main` — nothing hand-uploaded. To build it
 yourself (it takes seconds — stdlib only, no dependency resolution):
 
 ```bash
-git clone https://github.com/probarr-dev/probarr.git
-cd probarr
-docker build -t probarr .
-docker run -d --name probarr -p 7799:7799 -v ./config:/config probarr
+git clone https://github.com/channeliq-dev/channeliq.git
+cd channeliq
+docker build -t channeliq .
+docker run -d --name channeliq -p 7799:7799 -v ./config:/config channeliq
 ```
 
 It runs as a plain script too, if you have `ffmpeg`, `ffprobe` and Python 3.9+.
 There are no Python dependencies at all:
 
 ```bash
-python3 -m probarr --root ./config verify --source playlist.m3u
+python3 -m channeliq --root ./config verify --source playlist.m3u
 ```
 </details>
 
@@ -89,7 +89,7 @@ as a few dozen bogus "channels").
 
 While you're here, add an EPG source too if you have one — an XMLTV URL under
 **EPG sources**. It's optional, but it unlocks the single most useful check
-probarr does (see [checking a stream is really the right
+channeliq does (see [checking a stream is really the right
 channel](#checking-a-stream-is-really-the-right-channel)).
 
 ### 2. Set your concurrency
@@ -101,7 +101,7 @@ your results rather than erroring.
 
 ### 3. Tell it which channels you want
 
-On a big provider you need a **wantlist**, or probarr would try to probe all
+On a big provider you need a **wantlist**, or channeliq would try to probe all
 55,000 listed streams. Two ways:
 
 - **Channels** (`/browse`) — pick a provider, load it, tick what you want, save
@@ -109,7 +109,7 @@ On a big provider you need a **wantlist**, or probarr would try to probe all
   the easy path if you don't already have a list.
 - **Wantlists** (`/wantlists`) — paste or import a text list if you already
   know exactly what you want. Format is in
-  [wantlists](#wantlists-telling-probarr-what-you-want).
+  [wantlists](#wantlists-telling-channeliq-what-you-want).
 
 ### 4. Run it, then curate
 
@@ -140,7 +140,7 @@ isn't held back by a restrictive one.
 
 ---
 
-## Wantlists: telling probarr what you want
+## Wantlists: telling channeliq what you want
 
 The single most important input on a large provider. Without one, verifying
 means probing every candidate for every listed stream — not a long job, an
@@ -156,7 +156,7 @@ BBC Four
 401: Meridian Sports Main Event | meridian.main.uk
 ```
 
-`/wantlists` gives you a live preview of exactly what probarr parsed, warning
+`/wantlists` gives you a live preview of exactly what channeliq parsed, warning
 about duplicates and unparseable lines before you save. Saved lists are used by
 name (`--wantlist uk-lineup`), and saving over an existing name **appends**
 rather than replacing, so you can extend a list as you browse a second
@@ -173,11 +173,11 @@ Curate to attach anything from the catalogue by hand.
 
 ### Region and quality tags
 
-Before any of the matching above happens, probarr strips **packaging** off
+Before any of the matching above happens, channeliq strips **packaging** off
 the raw name: a leading country marker ("UK:", "US:") and quality/format
 words ("HD", "RAW", "4K"…) built into the app already cover the common
 cases. A provider that uses its own non-country prefixes for a tier or
-source ("OD:", "PLAY+:", "ZG:") — or a quality word probarr has never
+source ("OD:", "PLAY+:", "ZG:") — or a quality word channeliq has never
 seen ("GOLD") — isn't covered by that built-in list, and without it the
 prefix stays glued to the front of the name forever: `OD: NPO 1` normalises
 to `ODNPO1`, which will never match a wantlist entry for `NPO 1` no matter
@@ -186,7 +186,7 @@ how the name is spelled otherwise.
 **Settings → Manage tags** is a durable, editable version of both lists:
 add your provider's own prefixes/words, remove one you don't want treated
 as packaging, or hit **Restore defaults** to drop your own changes and go
-back to whatever probarr's built-in list currently is. Applies to every run
+back to whatever channeliq's built-in list currently is. Applies to every run
 and to Browse Channels. New Run also has a one-off **Custom prefixes**
 field for a prefix worth using just this one time, without saving it
 permanently.
@@ -198,7 +198,7 @@ permanently.
 **Channels** (`/browse`) is the answer to "I don't have a wantlist and don't
 know what to type."
 
-Pick a saved provider, load it, and probarr groups the raw channel names — no
+Pick a saved provider, load it, and channeliq groups the raw channel names — no
 ffmpeg, no waiting, near-instant even on a huge catalogue, because it's the
 same text-grouping a run does before probing starts. Forty spellings of the
 same channel collapse into one row with a count and an expandable list of what
@@ -293,7 +293,7 @@ high-bitrate and showing entirely the wrong programme.
 
 ### The guide check
 
-Add an XMLTV source (Providers → EPG sources, or `--epg`) and probarr records
+Add an XMLTV source (Providers → EPG sources, or `--epg`) and channeliq records
 **what the guide said should be playing at the exact moment each frame was
 captured**, and prints it under that candidate's own picture. Wrong programme
 under a right-looking picture is then a glance, not an investigation.
@@ -326,7 +326,7 @@ channel: the provider's own, whichever matched EPG source's icon, or a search
 of the [tv-logo/tv-logos](https://github.com/tv-logo/tv-logos) catalogue.
 
 The pick is remembered on the lineup and pushed to Dispatcharr with everything
-else. probarr never downloads or stores a logo image — see
+else. channeliq never downloads or stores a logo image — see
 [credits](#credits).
 
 ---
@@ -348,7 +348,7 @@ Advisory flags, computed on every probe, never a verdict on their own:
   measured against live UK broadcast the classes genuinely overlap: BBC Four's
   off-air card scored 1.12, BBC Three's 2.25, and a *live* BBC One studio
   interview scored 1.87 — right between the two. No threshold separates them,
-  so probarr flags the low end and lets you read the words on the picture.
+  so channeliq flags the low end and lets you read the words on the picture.
 - **multi-bitrate manifest** — the source is an HLS master playlist or a DASH
   `.mpd` with several renditions rather than a fixed-quality stream. Shown as
   information, deliberately **not** penalised.
@@ -411,7 +411,7 @@ for why landing on native streams matters beyond tidiness: a real M3U account's
 connection limit is enforced against Live TV and VOD together, which a custom
 stream is invisible to.
 
-**probarr never deletes from Dispatcharr on its own.** A channel dropped from
+**channeliq never deletes from Dispatcharr on its own.** A channel dropped from
 your curated set is reported in the preview and left alone; removing it is an
 explicit action (**Remove** on the channel, with "also from Dispatcharr").
 
@@ -432,7 +432,7 @@ from Tuesday". It holds the provider, wantlist and EPG a run starts from, plus
 the accumulated per-channel decisions — group, EPG source, logo, watermark box,
 renames — that every later run inherits instead of asking again.
 
-probarr only ever reads your provider's list. To pick up a provider adding,
+channeliq only ever reads your provider's list. To pick up a provider adding,
 removing or changing streams, **re-verify the lineup** (a button on `/lineups`,
 or on a schedule) rather than starting a fresh run each time:
 
@@ -469,22 +469,22 @@ Set a lineup to re-verify on a schedule and this happens without you.
 ## Command line
 
 The browser flow doesn't need it, but it exists for scripting and cron, and
-runs the same code (`probarr/runner.py` is the single implementation both
+runs the same code (`channeliq/runner.py` is the single implementation both
 share).
 
 ```bash
 # Verify a playlist and build a contact sheet
-probarr verify --source https://example.com/list.m3u --regions UK
+channeliq verify --source https://example.com/list.m3u --regions UK
 
 # Only the channels you want, with expected programmes from a guide
-probarr verify --source list.m3u --wantlist channels.txt \
+channeliq verify --source list.m3u --wantlist channels.txt \
                --epg https://example.com/guide.xml.gz
 
 # Rebuild the sheet from a stored run
-probarr sheet --run 20260821-081343
+channeliq sheet --run 20260821-081343
 
 # See exactly how a title is matched — the matcher fails silently otherwise
-probarr explain "UKUHD: Meridian Sports 1 UHD" --source playlist.m3u
+channeliq explain "UKUHD: Meridian Sports 1 UHD" --source playlist.m3u
 ```
 
 ---
@@ -504,20 +504,20 @@ that you overrule it when it's wrong.
 
 ---
 
-## Why probarr decodes instead of trusting metadata
+## Why channeliq decodes instead of trusting metadata
 
-There are many playlist checkers. They answer *"is this URL alive?"*. probarr
+There are many playlist checkers. They answer *"is this URL alive?"*. channeliq
 answers *"which of these forty candidates should be my Meridian Sports 1, and
 is it actually showing Meridian Sports 1?"*
 
 **It decodes rather than reading metadata.** A stream can report a flawless
 1920x1080@50 HEVC and still decode into continuous `Skipping invalid
-undecodable NALU` errors — perfect metadata, unwatchable picture. probarr
+undecodable NALU` errors — perfect metadata, unwatchable picture. channeliq
 decodes a real sample and counts the errors.
 
 **It detects provider placeholder cards.** When a provider is out of
 connections it serves a banner, re-encoded per "channel" so no checksum
-matches. probarr compares frames perceptually and flags a still picture served
+matches. channeliq compares frames perceptually and flags a still picture served
 across several different channels.
 
 **It shows you the frames.** Some faults are only visible to a person: the
@@ -528,7 +528,7 @@ grid of thumbnails finds it instantly.
 
 ## Security
 
-probarr has **no authentication** and is intended for a trusted LAN. Don't
+channeliq has **no authentication** and is intended for a trusted LAN. Don't
 expose it directly to the internet; put it behind a reverse proxy with auth if
 you need remote access.
 
@@ -558,19 +558,19 @@ absorbing the idea:
   with adjustable sensitivity, and the starter-lineup-file concept.
 - **[StreamFlow](https://github.com/krinkuto11/streamflow)** (krinkuto11) —
   per-account concurrency limiting during parallel checks, which shaped how
-  probarr's own lanes are scoped.
+  channeliq's own lanes are scoped.
 
 None of this is literal ported code — different language, different
 architecture — but the design decisions are theirs first. Go look at what
-they've built; each does real things probarr doesn't.
+they've built; each does real things channeliq doesn't.
 
 The in-app logo picker searches
 **[tv-logo/tv-logos](https://github.com/tv-logo/tv-logos)** (CC BY-SA 4.0),
 using the same GitHub-contents-API fetch approach Lineuparr uses for the same
-repository. probarr never downloads, mirrors, or redistributes a logo image —
+repository. channeliq never downloads, mirrors, or redistributes a logo image —
 every result is a link straight to that repository's own
 `raw.githubusercontent.com` hosting, fetched directly by the browser (or by
-Dispatcharr, once a pick is pushed). probarr's own cache holds only the
+Dispatcharr, once a pick is pushed). channeliq's own cache holds only the
 directory listings (country and filename lists), never image bytes.
 
 Bug reports and code review from the Dispatcharr Discord have fixed real
@@ -604,7 +604,7 @@ MIT — see [LICENSE](LICENSE).
 4. **Curate** — pick a stream per channel, export the M3U.
 
 Nothing here requires the CLI. It still exists for scripting/cron use, and
-does exactly what the browser flow does under the hood (`probarr/runner.py`
+does exactly what the browser flow does under the hood (`channeliq/runner.py`
 is the one implementation both share).
 
 ## Using Dispatcharr as a source
@@ -615,7 +615,7 @@ maintain a second, separate connection straight to the underlying IPTV
 subscription. Two different things happen when Dispatcharr is your
 provider, and it's worth being clear on which is which:
 
-**By default**, probarr reads Dispatcharr's *entire raw ingested stream
+**By default**, channeliq reads Dispatcharr's *entire raw ingested stream
 table* — every stream from every M3U account it has, not just the ones
 currently assigned to a channel. If Dispatcharr already has an active M3U
 account pointed at the same subscription you'd otherwise connect to
@@ -635,18 +635,18 @@ only way a probe shows up in Dispatcharr's own live Stats page (a raw
 candidate's connection never touches Dispatcharr at all, so Dispatcharr
 has no way to know it happened).
 
-The real reason to reach for it: if **probarr itself doesn't have the
+The real reason to reach for it: if **channeliq itself doesn't have the
 network path a provider needs** (a VPN, a specific geo-IP) but Dispatcharr
 already does, routing through Dispatcharr's proxy means Dispatcharr makes
-the actual upstream connection, not probarr — sidestepping that mismatch
+the actual upstream connection, not channeliq — sidestepping that mismatch
 entirely for whatever Dispatcharr already has assigned.
 
 **That said, the strongly preferred fix for a network-path mismatch is
-installing probarr behind the same VPN/proxy Dispatcharr already uses.**
+installing channeliq behind the same VPN/proxy Dispatcharr already uses.**
 The proxy option only ever covers a channel Dispatcharr already has —
 it can't discover or compare a genuinely better alternate the way probing
 the raw catalogue can, since Dispatcharr's proxy has no concept of a
-stream that isn't already assigned to a channel. Running probarr on the
+stream that isn't already assigned to a channel. Running channeliq on the
 same network path keeps full candidate discovery working everywhere, not
 just for what's already been chosen.
 
@@ -699,7 +699,7 @@ worth doing silently on every push.
 ## Browsing a source without probing
 
 `/browse` (linked from Wantlists) is the answer to "I don't have a wantlist
-and don't know what to type." Pick a saved Provider, load it, and probarr
+and don't know what to type." Pick a saved Provider, load it, and channeliq
 groups the raw channel names — no ffmpeg, no waiting, near-instant even on a
 huge catalogue, since it's the same text-grouping a run already does before
 probing starts. Forty spellings of the same channel collapse into one row

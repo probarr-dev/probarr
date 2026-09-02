@@ -69,7 +69,7 @@ def _open(source, timeout=120):
     resident all at once.
     """
     if re.match(r"^https?://", source, re.I):
-        req = urllib.request.Request(source, headers={"User-Agent": "probarr/0.1",
+        req = urllib.request.Request(source, headers={"User-Agent": "channeliq/0.1",
                                                       "Accept-Encoding": "gzip"})
         raw = urllib.request.urlopen(req, timeout=timeout)
     else:

@@ -38,7 +38,7 @@ class RateLimitGuard:
     credited in the README for other ideas), which this project's own
     verification pipeline turned out to have no counterpart for. That gap
     matters concretely: a probe that comes back "no frame could be decoded"
-    because the provider said 403 looks IDENTICAL, in every field probarr
+    because the provider said 403 looks IDENTICAL, in every field channeliq
     used to record, to one that failed because the channel is genuinely off
     air. One specific channel's failures were investigated by hand and
     showed exactly this shape -- the same URL, seconds apart, zero other

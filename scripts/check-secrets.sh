@@ -60,7 +60,7 @@ for f in "${FILES[@]:-}"; do
     label="${entry%%|*}"; rx="${entry#*|}"
     if hits=$(grep -nEI "$rx" "$f" 2>/dev/null); then
       # Allow an explicit opt-out marker for genuine false positives.
-      hits=$(printf '%s\n' "$hits" | grep -v 'probarr:allow-secret' || true)
+      hits=$(printf '%s\n' "$hits" | grep -v 'channeliq:allow-secret' || true)
       [ -z "$hits" ] && continue
       fail=1
       printf '%s\n' "${RED}SECRET?${OFF} ${YEL}${label}${OFF} in ${f}"
@@ -84,7 +84,7 @@ if [ "$fail" -ne 0 ]; then
 Commit blocked. If a match is a genuine false positive, either add the file to
 the allowlist in scripts/check-secrets.sh or append the marker
 
-    probarr:allow-secret
+    channeliq:allow-secret
 
 to the offending line. Do NOT bypass with --no-verify: once a secret is in a
 commit it stays in the history even after you delete it.

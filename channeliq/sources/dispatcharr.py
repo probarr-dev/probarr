@@ -1,6 +1,6 @@
 """Dispatcharr as a stream source (and, separately, as an export target).
 
-Dispatcharr is optional throughout probarr -- it is one adapter among
+Dispatcharr is optional throughout channeliq -- it is one adapter among
 several, never a requirement.
 
 Two behaviours of its API are load-bearing and easy to get wrong:
@@ -39,8 +39,8 @@ Two behaviours of its API are load-bearing and easy to get wrong:
    fails with a bare HTTP 500 -- confirmed live, doing exactly that. The fix
    is to recreate it with the same fields the migration uses (name="custom",
    max_streams=0, locked=True, plus a default M3UAccountProfile), not to
-   treat the 500 as a probarr bug. If you are ever resetting a Dispatcharr
-   instance to a blank slate before using probarr against it, this is the
+   treat the 500 as a channeliq bug. If you are ever resetting a Dispatcharr
+   instance to a blank slate before using channeliq against it, this is the
    one row worth leaving alone -- or recreating first, before any export.
 """
 import re
@@ -131,7 +131,7 @@ class Dispatcharr:
         exactly the ones an operator does NOT want probed or matched into a
         wantlist; showing them anyway meant Curate filled up with channels
         from a provider that had been turned off on purpose. Custom streams
-        (probarr's own, and any created by hand) carry no m3u_account at all
+        (channeliq's own, and any created by hand) carry no m3u_account at all
         and are kept regardless -- they were never subject to an account
         toggle in the first place.
         """
@@ -178,7 +178,7 @@ class Dispatcharr:
         /proxy/ts/status is the TS proxy's own live view -- {"channels": [...],
         "count": N} -- and it is the only honest answer to "is the
         subscription's connection free?". A provider that permits one
-        concurrent connection gives probarr nothing at all while someone is
+        concurrent connection gives channeliq nothing at all while someone is
         watching: it serves a holding card, or refuses. Those come back as
         placeholder frames and dead streams, which look exactly like a
         genuinely bad stream and quietly poison a run's results.
@@ -268,7 +268,7 @@ class Dispatcharr:
 
         The bulk endpoint deliberately exists to answer "what is on now
         everywhere" without a request per channel; used here to check
-        Dispatcharr's own live EPG assignment against what probarr itself
+        Dispatcharr's own live EPG assignment against what channeliq itself
         resolves as correct, across a whole lineup at once, not one
         channel looked up on demand.
         """
@@ -484,7 +484,7 @@ class Dispatcharr:
         hiding it; this makes that happen automatically on every push
         instead of relying on someone noticing and fixing it by hand.
 
-        Deliberately only ever tightens. Every probarr provider that has
+        Deliberately only ever tightens. Every channeliq provider that has
         ever pushed a custom stream shares this ONE account -- there is no
         way to give per-provider limits within it -- so silently RAISING
         the limit because one run's provider allows more would let that
@@ -518,13 +518,13 @@ class Dispatcharr:
         """The real Dispatcharr M3U account whose server_url is `spec`, if
         Dispatcharr has one -- the account get_or_create_custom_stream()
         would already be finding native streams in, if this provider has
-        ever been set up (or corrected) to point at the same source probarr
+        ever been set up (or corrected) to point at the same source channeliq
         itself is configured with.
 
         Matched by EXACT string equality only, deliberately. A looser match
         (same host, ignoring the query string credentials) risks silently
         tightening the wrong account's limit -- Dispatcharr has no field
-        that says "this account is probarr's mybunny provider", only
+        that says "this account is channeliq's mybunny provider", only
         whatever server_url happens to be saved, so exact match is the only
         comparison that cannot produce a false positive. If nothing matches
         exactly, the honest answer is "no such account exists (yet)", not a
@@ -545,17 +545,17 @@ class Dispatcharr:
     def enforce_provider_stream_limit(self, spec, limit, log=None):
         """Tighten (never loosen) THIS provider's own real M3U account's
         max_streams to at most `limit`, if Dispatcharr has one matching
-        `spec` (probarr's own provider spec -- see find_account_for_source).
+        `spec` (channeliq's own provider spec -- see find_account_for_source).
 
         This is the actual point of docs/design/per-provider-m3u-accounts.md:
         unlike the shared "custom" account (enforce_custom_stream_limit,
         above), a provider's own real M3U/Xtream account's max_streams is
         enforced by Dispatcharr against EVERYTHING drawn from it -- Live TV
         channel playback and VOD (Movies/TV Shows) alike -- not just
-        whatever probarr happens to push. Ratcheting only, same as the
+        whatever channeliq happens to push. Ratcheting only, same as the
         shared account: this account is not shared between different
-        probarr providers the way "custom" is, but it may still have been
-        deliberately set more conservatively for reasons probarr doesn't
+        channeliq providers the way "custom" is, but it may still have been
+        deliberately set more conservatively for reasons channeliq doesn't
         know about (a paid tier change, a household policy), and silently
         raising it is never the safe default.
 
@@ -675,7 +675,7 @@ class Dispatcharr:
         its own channels to it (`has_channels`). For the Setup Wizard's
         "pull my Dispatcharr channels" path: someone whose lineup already
         lives in Dispatcharr almost certainly wants the SAME guide data
-        probarr uses, not a blank EPG step they have to fill in by hand
+        channeliq uses, not a blank EPG step they have to fill in by hand
         with a URL they may not even have to hand.
         """
         return [s for s in self.api("GET", "/api/epg/sources/")
@@ -685,7 +685,7 @@ class Dispatcharr:
         """Dispatcharr EPG source id for `name`, creating one if it doesn't
         exist yet, and kicking off an import for a freshly-created one.
 
-        A probarr-saved EPG source (the ones Curate's "Check EPG" compares
+        A channeliq-saved EPG source (the ones Curate's "Check EPG" compares
         against) is only useful to DISPATCHARR once Dispatcharr itself knows
         about it too -- a curator's per-channel EPG choice has nothing on the
         Dispatcharr side to link to otherwise. The explicit import call
@@ -749,13 +749,13 @@ def load(spec: str, prefer_proxy=False, **_):
     `prefer_proxy`: also add one candidate per already-assigned channel
     that routes through Dispatcharr's own live proxy instead of every
     candidate hitting the raw upstream URL directly. Real request: an
-    install where probarr itself doesn't have the network path (VPN,
+    install where channeliq itself doesn't have the network path (VPN,
     geo-IP) a provider needs, but Dispatcharr already does -- probing
     through Dispatcharr's proxy means DISPATCHARR makes the actual
     upstream connection, sidestepping that mismatch entirely, and is
     also the only way a probe ever shows up in Dispatcharr's own live
     Stats page. Off by default: the strongly preferred fix for that
-    mismatch is installing probarr behind the same VPN/proxy Dispatcharr
+    mismatch is installing channeliq behind the same VPN/proxy Dispatcharr
     already uses (see the README), which keeps every raw candidate
     probeable and comparable, not just the one Dispatcharr currently
     has assigned. See Dispatcharr.proxy_candidate_streams() for why this

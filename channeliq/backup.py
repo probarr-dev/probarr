@@ -10,7 +10,7 @@ Captured images (thumbs/frames/crops/clips) are left out by default: a run's
 own "Clear images" feature already treats them as disposable illustration
 rather than the record of truth (results.jsonl is that), and for a run with
 a long history they can dwarf everything else combined. Caches
-(epg_cache/, catalog_cache/) are left out too, on the same basis probarr
+(epg_cache/, catalog_cache/) are left out too, on the same basis channeliq
 already treats them everywhere else: they regenerate from their real source
 on next use, so backing them up just ships stale data forward.
 """
@@ -71,7 +71,7 @@ def export_tar(root, include_images=False):
 
 
 def export_filename():
-    return "probarr-backup-" + time.strftime("%Y%m%d-%H%M%S") + ".tar.gz"
+    return "channeliq-backup-" + time.strftime("%Y%m%d-%H%M%S") + ".tar.gz"
 
 
 def import_tar(root, data):

@@ -2,7 +2,7 @@
 
 The other half of Export M3U. A playlist gives a player the streams; without
 a guide it shows a wall of channel names and nothing else, and every
-consumer-side IPTV app expects the two to arrive together. probarr already
+consumer-side IPTV app expects the two to arrive together. channeliq already
 knows which guide each channel was matched to -- including a per-channel
 override made in Curate -- so it can emit a guide containing exactly the
 curated channels and nothing else, keyed by the same tvg-id the M3U writes.
@@ -36,7 +36,7 @@ def build(channels, resolve):
               EPG sources, per-channel overrides or caching.
     """
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
-           '<tv generator-info-name="probarr">']
+           '<tv generator-info-name="channeliq">']
     matched, programmes = 0, 0
     for ch in channels:
         out.append(f'  <channel id="{_esc(ch["id"])}">')

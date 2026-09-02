@@ -6,7 +6,7 @@ This view is built for the second job: pick a channel, look at its candidates,
 choose, move on -- driven from the keyboard so a long list does not become an
 afternoon of clicking.
 
-The EPG line above the frames is what makes the hardest check possible. probarr
+The EPG line above the frames is what makes the hardest check possible. channeliq
 records what the guide said should be playing at the exact moment each frame
 was captured, so the question "is this actually the channel it claims to be?"
 becomes a glance rather than an investigation.
@@ -15,6 +15,7 @@ import json
 import os
 
 from . import rank as rank_mod
+from . import watchdog as watchdog_mod
 from .theme import CSS, topbar
 
 EXTRA_CSS = """
@@ -391,7 +392,7 @@ main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
 
 HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr curate &middot; __RUN__</title><style>__CSS__
+<title>ChannelIQ curate &middot; __RUN__</title><style>__CSS__
 __EXTRA__</style></head><body>
 
 __TOPBAR__
@@ -475,7 +476,7 @@ __TOPBAR__
 
       <div class="mfield">
         <label>Group name</label>
-        <input type="text" id="dm-group" placeholder="probarr (__RUN__)">
+        <input type="text" id="dm-group" placeholder="channeliq (__RUN__)">
       </div>
 
       <div class="mfield">
@@ -856,7 +857,7 @@ function save(){
 function evidenceSig(ch){
   const cs = (ch.candidates||[]).map(c=>c.id+":"+c.status).join("|");
   const mm = ch.epg_mismatch
-    ? (ch.epg_mismatch.dispatcharr.guide_id+">"+ch.epg_mismatch.probarr.guide_id)
+    ? (ch.epg_mismatch.dispatcharr.guide_id+">"+ch.epg_mismatch.channeliq.guide_id)
     : "";
   return cs+"||"+mm;
 }
@@ -927,9 +928,9 @@ function reviewReasons(ch){
     out.push("a candidate is another country's feed (wrong frame rate)");
   if (ch.epg_mismatch)
     out.push("Dispatcharr's linked guide currently shows \u201c"+
-      ch.epg_mismatch.dispatcharr.title+"\u201d playing here, but probarr "+
+      ch.epg_mismatch.dispatcharr.title+"\u201d playing here, but channeliq "+
       "resolves this channel to a different guide entry (\u201c"+
-      ch.epg_mismatch.probarr.guide_name+"\u201d, "+ch.epg_mismatch.probarr.source+
+      ch.epg_mismatch.channeliq.guide_name+"\u201d, "+ch.epg_mismatch.channeliq.source+
       ") \u2014 push again to correct the link, or Check EPG to pick a different source first.");
   if (activeChanges(ch).length) out.push(...activeChanges(ch));
   return out;
@@ -1112,7 +1113,7 @@ function specHTML(c, expectedAspect){
   // where the OTHER candidates came from.
   if(c.dispatcharr_current)
     out.push(['<span class="spec" title="This is the exact stream that was '+
-      'already live in Dispatcharr before this run — not something probarr '+
+      'already live in Dispatcharr before this run — not something channeliq '+
       'found, your existing pick.">', 'already in Dispatcharr', '</span>']);
   if(c.dropped) out.push(['<span class="spec err" title="Dispatcharr\'s own '+
     'event log: this exact stream has genuinely failed over '+c.dropped+
@@ -1344,7 +1345,7 @@ function renderDetail(){
         'the matcher did not connect. <b>Find streams</b> searches the whole '+
         'catalogue by name and can attach anything it turns up to this channel, '+
         'no alias or re-run needed.<br>To fix it for every future run instead, '+
-        '<code>probarr explain "'+esc(ch.title)+'" --source &lt;src&gt;</code> '+
+        '<code>channeliq explain "'+esc(ch.title)+'" --source &lt;src&gt;</code> '+
         'shows what normalisation did to the name, and an alias makes the match '+
         'permanent.</div></div>'
       : '<div class="cands" id="cands">' + ((() => {
@@ -1417,7 +1418,7 @@ function renderDetail(){
 }
 
 // Reordering by dragging, on the chosen rows only. Plain HTML5 drag events
-// rather than a library: probarr ships no dependencies, and the whole
+// rather than a library: channeliq ships no dependencies, and the whole
 // interaction is "pick a row up, decide which row it lands above".
 let dragId = null;
 function wireDrag(){
@@ -2194,7 +2195,7 @@ document.getElementById("st-q").addEventListener("keydown", e=>{
 
 // -- import from Dispatcharr ------------------------------------------
 //
-// probarr could only ever push. A channel added by hand in Dispatcharr was
+// channeliq could only ever push. A channel added by hand in Dispatcharr was
 // invisible here, so the two drifted and neither side was the whole truth.
 // Reading them back makes the relationship two-way: the point is not to
 // mirror Dispatcharr, it is to put its current pick next to the provider's
@@ -2855,7 +2856,7 @@ document.getElementById("grp-save").addEventListener("click", ()=>{
 // promotion) rather than inventing a parallel mechanism. Each channel
 // still resolves its OWN matching entry within the forced source --
 // this picks WHICH source, never a specific guide channel, since a
-// single guide id can never be right for more than one probarr channel
+// single guide id can never be right for more than one channeliq channel
 // at once.
 let epgSrcKeys = [], epgSrcChoice = "";
 async function setEpgSource(){
@@ -2994,7 +2995,7 @@ async function openEpgModal(){
 // Every option rendered here is a link to someone else's hosting -- the
 // provider's own tvg-logo, a saved EPG source's <icon>, or a
 // raw.githubusercontent.com URL from tv-logo/tv-logos (CC BY-SA 4.0).
-// probarr never fetches or stores the image bytes itself; see logos.py's
+// channeliq never fetches or stores the image bytes itself; see logos.py's
 // module docstring for why that distinction is the whole point.
 let LOGO_COUNTRIES = null;
 async function ensureLogoCountries(){
@@ -3207,7 +3208,7 @@ function openWatermarkModal(){
   // candidate happened to be probed at a moment the watermark had faded
   // off (some channels do that periodically), and the picture needed to
   // draw the box on is a genuinely different candidate's, not "whichever
-  // one probarr already assumed."
+  // one channeliq already assumed."
   const withFrames = (ch.candidates||[]).filter(c => c.frame);
   if(!withFrames.length){
     img.removeAttribute("src"); wrap.style.display = "none";
@@ -3524,7 +3525,7 @@ async function refreshChannel(key){
 //
 // What you see IS what gets pushed, in that order. Dispatcharr stores a
 // channel as an ordered streams array and fails over down it, so the old
-// primary/fallback pair was a limit probarr imposed on itself: a third
+// primary/fallback pair was a limit channeliq imposed on itself: a third
 // good stream had nowhere to go, and deciding which of two was "the
 // fallback" was a different question from "what order should these be
 // tried in".
@@ -3689,7 +3690,7 @@ async function openDispatchModal(channelKey){
   unresolvedConflicts = 0;
   // Restored, not cleared. Clearing meant the dialog opened with Push
   // disabled and demanded the same three answers every single time -- and
-  // the answer never changes: it is a property of this probarr and its
+  // the answer never changes: it is a property of this channeliq and its
   // Dispatcharr, not a decision to be re-made per push.
   const cfg = await (await fetch("/api/settings", {cache:"no-store"})).json();
   const wantFb = cfg.push_fallback || "native";
@@ -3711,7 +3712,7 @@ async function openDispatchModal(channelKey){
   const groupEl = document.getElementById("dm-group");
   // Pre-fill with whatever group a push into the SELECTED PROVIDER last
   // actually used -- attached to the provider, not this run, because a
-  // later push from a DIFFERENT probarr run of what the operator considers
+  // later push from a DIFFERENT channeliq run of what the operator considers
   // the same conceptual lineup ("re-verify my channels") still needs to
   // land in the same place. Leaving this blank (the common case, especially
   // for a single-channel push) otherwise silently defaults to a brand new
@@ -3730,7 +3731,7 @@ async function openDispatchModal(channelKey){
     groupEl.value = "";
     groupEl.placeholder = last
       ? last+" (used for new channels; existing ones keep their own group)"
-      : "probarr ("+DATA.run_id+") -- new channels only";
+      : "channeliq ("+DATA.run_id+") -- new channels only";
   }
   if(!dispatchers.length){
     noprov.style.display = "block"; body.style.display = "none";
@@ -3869,7 +3870,7 @@ document.getElementById("dm-preview").addEventListener("click", async () => {
       // Dispatcharr indefinitely with the preview cheerfully reporting
       // "no change" for everything it DID carry.
       const gone = d.dropped || [];
-      // Number collisions with a Dispatcharr channel probarr has never
+      // Number collisions with a Dispatcharr channel channeliq has never
       // claimed (see claims.py) -- push() refuses to touch these, so they
       // need to be resolved right here, not discovered as a surprise
       // after the push already ran.
@@ -3939,7 +3940,7 @@ function updatePushGate(){
 function conflictRow(a, isRelink){
   const cur = a.dispatcharr_current || {};
   const warning = isRelink
-    ? 'This looks like the same channel, just not yet linked to probarr.'
+    ? 'This looks like the same channel, just not yet linked to channeliq.'
     : 'This will OVERWRITE channel '+a.number+' in Dispatcharr. It currently '+
       'contains \u201c'+esc(cur.name||"")+'\u201d ('+esc(cur.group||"no group")+', '+
       (cur.streams||0)+' stream(s)). It will be replaced with \u201c'+esc(a.name)+
@@ -4160,6 +4161,11 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
     # channel's OWN currently-confirmed pick, not a fixed grid, is what
     # keeps the "Changed" alert from flip-flopping between re-verifies.
     sel_now = {**(inherited or {}), **(store.read_selection() or {})}
+    # See watchdog.py: a channel Dispatcharr's own event log just reported
+    # real trouble on gets its current pick demoted in ranking immediately,
+    # not only once a re-probe confirms it -- restricted to THIS run, since
+    # a channel_key is only meaningful within the run that produced it.
+    watch = watchdog_mod.for_run(store.root, store.run_id)
 
     channels = []
     for key, records in by_channel.items():
@@ -4168,7 +4174,10 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
                           if (r.get("rec_key") or r.get("stream_id")) == pick_id
                           and r.get("status") in ("ok", "dirty")), None) \
                     if pick_id else None
-        ranked = rank_mod.rank(records, incumbent.get("measured_kbps") if incumbent else None)
+        demoted_id = (watch.get(key) or {}).get("demoted_stream_id")
+        ranked = rank_mod.rank(records,
+                               incumbent.get("measured_kbps") if incumbent else None,
+                               demoted_id)
         w = by_key.get(key, {})
         # A rename is a durable property of the CHANNEL, not of this run's
         # candidates, so a name carried on the lineup wins over whatever the
@@ -4317,7 +4326,7 @@ def _evidence_sig(ch):
     mm = ""
     if ch.get("epg_mismatch"):
         mm = (f"{ch['epg_mismatch']['dispatcharr']['guide_id']}>"
-              f"{ch['epg_mismatch']['probarr']['guide_id']}")
+              f"{ch['epg_mismatch']['channeliq']['guide_id']}")
     return f"{cs}||{mm}"
 
 
@@ -4484,7 +4493,7 @@ BULK_EXTRA_CSS = """
 
 BULK_HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; bulk edit</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; bulk edit</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 

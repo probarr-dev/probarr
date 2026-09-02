@@ -46,10 +46,10 @@ _CORRUPTION_RE = re.compile(
 
 # The provider actively refused the connection, as distinct from a network
 # fault or a genuinely broken stream. Found by comparing this project's own
-# credited reference tool (PiratesIRC's IPTVChecker) against probarr: that
+# credited reference tool (PiratesIRC's IPTVChecker) against channeliq: that
 # tool detects HTTP 429/403 in ffmpeg/ffprobe's stderr and backs off the
 # whole account, not just the one channel, before hitting the provider
-# again. probarr had no equivalent -- a soft rate-limit or per-channel
+# again. channeliq had no equivalent -- a soft rate-limit or per-channel
 # backend block came back indistinguishable from "responded, but no frame
 # could be decoded", got one fixed 1.5s retry (see retry_empty below), and
 # was reported no differently from a genuinely dead stream. That is exactly
@@ -122,7 +122,7 @@ class ProbeOptions:
     #   BBC Three off-air card  2.25   (animated gradient)
     #
     # Live content scored between two placeholder cards. No threshold
-    # separates them, so probarr does not pretend one does: it flags the low
+    # separates them, so channeliq does not pretend one does: it flags the low
     # end for review and lets a person read the words on the picture.
     still_mad: float = STILL_MAD
     ffmpeg: str = "ffmpeg"
@@ -190,9 +190,9 @@ class ProbeOptions:
             binary = getattr(self, attr)
             if not shutil.which(binary):
                 raise RuntimeError(
-                    f"{binary} not found on PATH. probarr needs ffmpeg and ffprobe. "
+                    f"{binary} not found on PATH. channeliq needs ffmpeg and ffprobe. "
                     f"The supported install is the Docker image, which bundles both; "
-                    f"otherwise install ffmpeg and/or set PROBARR_FFMPEG.")
+                    f"otherwise install ffmpeg and/or set CHANNELIQ_FFMPEG.")
         return self
 
 
@@ -367,7 +367,7 @@ def capture(url: str, opts: ProbeOptions, thumb_path: str,
     # Every image output and the perceptual hash share this one frame, so what
     # gets hashed is exactly what the operator is shown.
     sel_a = f"select=gte(t\\,{t_a}),thumbnail=n={opts.thumbnail_batch}"
-    workdir = tempfile.mkdtemp(prefix="probarr-")
+    workdir = tempfile.mkdtemp(prefix="channeliq-")
     raw_a = os.path.join(workdir, "a.gray")
     motion_path = os.path.join(workdir, "motion.gray")
     ts_path = os.path.join(workdir, "sample.ts")

@@ -66,7 +66,7 @@ input[type=text]{background:var(--bg);color:var(--text);border:1px solid var(--l
 
 WANTLIST_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; wantlists</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; wantlists</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 
@@ -75,7 +75,7 @@ __TOPBAR__
   <div class="card">
     <h2>What a wantlist is for</h2>
     <div class="lead">
-      The channels you actually want &mdash; probarr only probes these, and it's
+      The channels you actually want &mdash; channeliq only probes these, and it's
       what sets your exported numbers and names.
     </div>
 
@@ -101,7 +101,7 @@ __TOPBAR__
         <button id="pick">Import a file&hellip;</button>
       </label>
       <span class="muted" id="fileinfo"></span>
-      <a href="/wantlists/template.txt" download="probarr-wantlist.txt" style="font-size:12px">
+      <a href="/wantlists/template.txt" download="channeliq-wantlist.txt" style="font-size:12px">
         or just download it to edit by hand&hellip;</a>
     </div>
 
@@ -145,7 +145,7 @@ __TOPBAR__
           and builds the list straight from the lineup's own names, numbers
           and groups. Best when your EPG's names don't textually resemble
           the lineup's (e.g. Sky's abbreviated on-screen guide text) &mdash;
-          probarr's own stream matching handles the real-world naming
+          channeliq's own stream matching handles the real-world naming
           variance from here. <b>Replaces</b> whatever's in the editor.
         </div>
         <button class="primary" id="enrich-load">Load channels</button>
@@ -162,7 +162,7 @@ __TOPBAR__
       <h3>Import channels from an EPG source</h3>
       <div class="sub">Every DISTINCT channel one of your saved EPG sources
         declares &mdash; an SD/HD pair like "BBC One" / "BBC One HD" is
-        folded into one row (the plain name), the same way probarr already
+        folded into one row (the plain name), the same way channeliq already
         treats them as one channel everywhere else; a real regional variant
         like "BBC One London" keeps its own row. Tick what you want &mdash;
         ticked channels are appended to the editor as
@@ -195,7 +195,7 @@ __TOPBAR__
   <div class="card">
     <h2>Create or edit</h2>
     <div class="lead">Paste a list, import a file, or start from the template.
-      The preview updates as you type so you can see exactly what probarr
+      The preview updates as you type so you can see exactly what channeliq
       understood before saving.</div>
     <div class="row" style="margin-bottom:10px">
       <input type="text" id="name" placeholder="wantlist name, e.g. uk-lineup">
@@ -517,7 +517,7 @@ async function loadSaved(){
     '<button data-edit="'+esc(w.name)+'">Edit</button>'+
     '<button data-del="'+esc(w.name)+'">Delete</button></div>').join("") +
     '<div class="muted" style="margin-top:12px">Use one in a run:</div>'+
-    '<div class="cmd">docker exec probarr python3 -m probarr verify \\\n'+
+    '<div class="cmd">docker exec channeliq python3 -m channeliq verify \\\n'+
     '  --source &lt;your m3u or xtream url&gt; \\\n'+
     '  --wantlist <b>'+esc(d.wantlists[0].name)+'</b> \\\n'+
     '  --epg &lt;xmltv url, optional&gt;</div>';
@@ -587,7 +587,7 @@ SETTINGS_EXTRA = WANTLIST_EXTRA + """
 
 SETTINGS_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; settings</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; settings</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 
@@ -671,7 +671,7 @@ __TOPBAR__
 
   <div class="card">
     <h2>Manage tags</h2>
-    <div class="lead">Region ("UK:") and quality ("HD") markers probarr strips before
+    <div class="lead">Region ("UK:") and quality ("HD") markers channeliq strips before
       matching &mdash; add your provider's own labels here if they're not one of these already.</div>
     <div id="tagcards"></div>
   </div>
@@ -693,6 +693,48 @@ __TOPBAR__
         </select>
         <div class="help">More levels (weighting it into ranking) may land here later.</div>
       </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Watchdog</h2>
+    <div class="lead">Ongoing maintenance for channels Dispatcharr's own log reports real
+      trouble on &mdash; demotes the affected stream in ranking right away, re-checks it on
+      an escalating schedule, and pushes a better fallback to Dispatcharr automatically if
+      one exists.</div>
+    <div class="field">
+      <div class="lab">Enabled</div>
+      <div class="ctl">
+        <label class="miniline" style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="watchdog_enabled" style="width:auto">
+          Watch channels and auto-push a better fallback when Dispatcharr reports trouble
+        </label>
+        <div class="help">Off by default &mdash; unlike every other push in channeliq, this one
+          happens unattended, with nothing for a curator to confirm first.</div>
+      </div>
+    </div>
+    <div class="field">
+      <div class="lab">Events to flag</div>
+      <div class="ctl"><input type="number" id="watchdog_threshold" min="1" max="20">
+        <div class="help">How many channel_error/channel_reconnect events on one channel
+          before it's watched and its current stream demoted.</div></div>
+    </div>
+    <div class="field">
+      <div class="lab">Starting check interval</div>
+      <div class="ctl"><input type="number" id="watchdog_start_minutes" min="5" max="1440">
+        <div class="help">Minutes between re-checks right after a channel is flagged.</div></div>
+    </div>
+    <div class="field">
+      <div class="lab">Maximum check interval</div>
+      <div class="ctl"><input type="number" id="watchdog_max_hours" min="1" max="336">
+        <div class="help">The interval doubles every time a check comes back clean, up to
+          this cap.</div></div>
+    </div>
+    <div class="field">
+      <div class="lab">Stable before graduating</div>
+      <div class="ctl"><input type="number" id="watchdog_stable_hours" min="1" max="720">
+        <div class="help">Hours a channel must stay clean before it comes off the watchlist
+          for good.</div></div>
     </div>
   </div>
 
@@ -740,7 +782,12 @@ __TOPBAR__
 const $ = id => document.getElementById(id);
 const KEYS = ["concurrency","gap_seconds","sample_seconds","frame_height",
               "thumb_height","source","epg","wantlist","failover_display",
-              "freshness_hours","match_sensitivity"];
+              "freshness_hours","match_sensitivity","watchdog_threshold",
+              "watchdog_start_minutes","watchdog_max_hours","watchdog_stable_hours"];
+// Checkboxes need .checked, not .value -- everything else on this page is a
+// plain input/select, so this is its own tiny list rather than teaching
+// KEYS' generic load/save two different element shapes.
+const BOOL_KEYS = ["watchdog_enabled"];
 // source/epg come back from GET masked (they may hold live provider
 // credentials) -- track the as-loaded value so an unedited field is left
 // out of the POST body instead of overwriting the real saved secret with
@@ -762,6 +809,7 @@ function estimate(){
 async function load(){
   const d = await (await fetch("/api/settings")).json();
   KEYS.forEach(k => { if($(k)) $(k).value = d[k]; });
+  BOOL_KEYS.forEach(k => { if($(k)) $(k).checked = !!d[k]; });
   SECRET_KEYS.forEach(k => { loadedSecret[k] = d[k]; });
   estimate();
 }
@@ -777,11 +825,13 @@ $("save").addEventListener("click", async ()=>{
     if(SECRET_KEYS.includes(k) && $(k).value === loadedSecret[k]) return;
     body[k] = $(k).value;
   });
+  BOOL_KEYS.forEach(k => { if($(k)) body[k] = $(k).checked; });
   $("msg").textContent="saving\u2026";
   const r = await fetch("/api/settings", {method:"POST",
     headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
   const d = await r.json();
   KEYS.forEach(k => { if($(k)) $(k).value = d[k]; });
+  BOOL_KEYS.forEach(k => { if($(k)) $(k).checked = !!d[k]; });
   SECRET_KEYS.forEach(k => { loadedSecret[k] = d[k]; });
   estimate();
   $("msg").textContent="saved";
@@ -822,7 +872,7 @@ function tagCard(kind, label, list, customised){
     '<div class="tagcard-head"><b>'+label+'</b>'+
     (customised ? '<button class="restoretags" data-kind="'+kind+
       '" title="Un-does your own changes to this list only, reverting to '+
-      'whatever probarr\'s built-in list currently is.">Restore defaults</button>'
+      'whatever channeliq\'s built-in list currently is.">Restore defaults</button>'
       : '<span class="muted" style="font-size:11.5px">using built-in defaults</span>')+
     '</div>'+
     '<div class="tagchips">'+list.map(t =>
@@ -851,7 +901,7 @@ document.getElementById("tagcards").addEventListener("click", async e => {
       body: JSON.stringify({kind: rm.dataset.kind, action: "remove", tag: rm.dataset.tag})});
     loadTags();
   } else if(restore){
-    if(!confirm("Restore "+restore.dataset.kind+" markers to probarr's built-in "+
+    if(!confirm("Restore "+restore.dataset.kind+" markers to channeliq's built-in "+
                 "list? Your own additions/removals to this list are discarded."))
       return;
     await fetch("/api/tags", {method:"POST", headers:{"Content-Type":"application/json"},
@@ -1047,7 +1097,7 @@ PROVIDERS_EXTRA = WANTLIST_EXTRA + """
 
 PROVIDERS_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; providers</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; providers</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 
@@ -1055,7 +1105,7 @@ __TOPBAR__
 
   <div class="card">
     <h2>Connect Dispatcharr</h2>
-    <div class="lead">Optional &mdash; lets probarr push channels to Dispatcharr,
+    <div class="lead">Optional &mdash; lets channeliq push channels to Dispatcharr,
       and optionally probe through it too.</div>
     <div class="row" style="margin-bottom:10px">
       <input type="text" id="disp-name" placeholder="Name, e.g. My Dispatcharr">
@@ -1526,7 +1576,7 @@ select{background:var(--bg);color:var(--text);border:1px solid var(--line);
 
 NEWRUN_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; new run</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; new run</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 
@@ -1572,7 +1622,7 @@ __TOPBAR__
           <label class="miniline"><input type="checkbox" id="prefer_dispatcharr_proxy">
             Also probe each already-assigned channel <b>through Dispatcharr's own proxy</b>,
             alongside every raw candidate.</label>
-          <div class="miniline">Only tick this if probarr can't reach your provider directly but Dispatcharr can.</div>
+          <div class="miniline">Only tick this if channeliq can't reach your provider directly but Dispatcharr can.</div>
           <div class="warn" style="margin-top:8px">Heads up: a clean result here means
             Dispatcharr delivered it clean, not necessarily that the source is.</div>
         </div>
@@ -1957,7 +2007,7 @@ BROWSE_EXTRA = WANTLIST_EXTRA + NEWRUN_EXTRA + """
 
 BROWSE_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; browse channels</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; browse channels</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 
@@ -2205,7 +2255,7 @@ LINEUPS_EXTRA = NEWRUN_EXTRA + r"""
 
 LINEUPS_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; lineups</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; lineups</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 
@@ -2586,14 +2636,14 @@ button.danger:hover{background:rgba(240,80,80,.12)}
 
 UNCLAIMED_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>probarr &middot; unclaimed</title><style>__CSS____EXTRA__</style></head><body>
+<title>ChannelIQ &middot; unclaimed</title><style>__CSS____EXTRA__</style></head><body>
 
 __TOPBAR__
 
 <div class="page">
   <div class="card">
     <h2>Unclaimed channels</h2>
-    <div class="lead">Channels in Dispatcharr no probarr run has ever claimed &mdash;
+    <div class="lead">Channels in Dispatcharr no channeliq run has ever claimed &mdash;
       pushes never touch these until you assign one somewhere.</div>
     <div class="field">
       <div class="lab">Dispatcharr connection</div>

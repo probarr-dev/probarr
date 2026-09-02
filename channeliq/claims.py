@@ -1,11 +1,11 @@
-"""Which Dispatcharr channels probarr already considers its own.
+"""Which Dispatcharr channels channeliq already considers its own.
 
 A wantlist entry's `number` decides WHERE a push writes; this decides
 WHETHER it is allowed to. Before this existed, push() matched purely by
 `channel_number` (see dispatcharr_export.py) -- so a curated channel
 pushed at number 101 would silently update whatever Dispatcharr channel
 already happened to sit at 101, even if that channel had nothing to do
-with probarr at all (added by hand, imported from somewhere else, or
+with channeliq at all (added by hand, imported from somewhere else, or
 just numbered the same by coincidence). Confirmed live: an established
 Dispatcharr instance already has its own numbering, and a first push
 against it can and does collide with real, unrelated channels.
@@ -87,7 +87,7 @@ def is_claimed(root, dispatcharr_id):
 
 def claim(root, dispatcharr_id, channel_key=None, name=None, source=None,
          number=None):
-    """Record that Dispatcharr channel `dispatcharr_id` is probarr's.
+    """Record that Dispatcharr channel `dispatcharr_id` is channeliq's.
 
     Idempotent and cheap to call on every successful push -- see
     dispatcharr_export.push()'s `touched` return value, which is exactly

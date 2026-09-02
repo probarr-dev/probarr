@@ -95,7 +95,7 @@ def parse(text: str, source_name: str = "m3u"):
 @register("m3u")
 def load(spec: str, timeout: int = 60, **_):
     if re.match(r"^https?://", spec, re.I):
-        req = urllib.request.Request(spec, headers={"User-Agent": "probarr/0.1"})
+        req = urllib.request.Request(spec, headers={"User-Agent": "channeliq/0.1"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             text = r.read().decode("utf-8", "replace")
         label = spec.split("?")[0]
@@ -108,7 +108,7 @@ def load(spec: str, timeout: int = 60, **_):
             # A bare FileNotFoundError/PermissionError ("[Errno 2] No such
             # file or directory: '/config/x.m3u'") means nothing to someone
             # looking at it in the UI -- it doesn't say the one thing that
-            # actually explains it: probarr runs in a container, so a local
+            # actually explains it: channeliq runs in a container, so a local
             # M3U provider has to be a path INSIDE that container's own
             # mounted config volume, not just anywhere on the host. Losing
             # track of that (the file sitting one directory up on the host,
@@ -148,7 +148,7 @@ def write(streams_with_numbers, path, name_key="name"):
             attrs.append(f'tvg-chno="{num}"')
         if logo:
             attrs.append(f'tvg-logo="{logo}"')
-        attrs.append(f'group-title="{group or "probarr"}"')
+        attrs.append(f'group-title="{group or "channeliq"}"')
         lines.append(f'#EXTINF:-1 {" ".join(attrs)},{name}')
         lines.append(url)
     with open(path, "w", encoding="utf-8") as f:

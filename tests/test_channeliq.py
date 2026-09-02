@@ -1,4 +1,4 @@
-"""probarr's test suite. Standard library only, no network, no ffmpeg.
+"""channeliq's test suite. Standard library only, no network, no ffmpeg.
 
 Deliberately covers the pure functions and the file formats rather than the
 probing: the parts that decide what a channel IS, what gets exported, and
@@ -26,19 +26,19 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from probarr import aliases as aliases_mod
-from probarr import curate, epg, lineups, pages, providers, settings, wantlist as wl
-from probarr.normalize import (Normalizer, group_candidates,
+from channeliq import aliases as aliases_mod
+from channeliq import curate, epg, lineups, pages, providers, settings, wantlist as wl
+from channeliq.normalize import (Normalizer, group_candidates,
                                declared_quality_rank, split_group_title)
-from probarr.rank import rank
-from probarr.sources import m3u
-from probarr.sources.base import Stream
-from probarr.store import RunStore
+from channeliq.rank import rank
+from channeliq.sources import m3u
+from channeliq.sources.base import Stream
+from channeliq.store import RunStore
 
 
 class Temp(unittest.TestCase):
     def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="probarr-test-")
+        self.root = tempfile.mkdtemp(prefix="channeliq-test-")
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
 
 
@@ -168,7 +168,7 @@ class TestBrowseCountryCategory(Temp):
     """
 
     def _handler(self, streams):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -388,7 +388,7 @@ class TestProbeQueueGate(unittest.TestCase):
         # its own higher concurrency. The queue must pass the lane of
         # whichever job would launch next.
         import time as time_mod
-        from probarr.probequeue import ProbeQueue
+        from channeliq.probequeue import ProbeQueue
 
         seen_lanes = []
         def gate(lane=None):
@@ -423,7 +423,7 @@ class TestProbeQueueGate(unittest.TestCase):
         # happens to raise. This asserts that decision directly: a
         # 1-parameter gate is always called WITH the lane, a 0-parameter
         # gate always WITHOUT it -- never a silent fallback between them.
-        from probarr.probequeue import ProbeQueue
+        from channeliq.probequeue import ProbeQueue
 
         def one_param_gate(lane):
             return None
@@ -439,7 +439,7 @@ class TestProbeQueueGate(unittest.TestCase):
         # Backward compatibility: a gate written before the lane argument
         # existed (just `lambda: None`) must not break the queue.
         import time as time_mod
-        from probarr.probequeue import ProbeQueue
+        from channeliq.probequeue import ProbeQueue
 
         results = []
         q = ProbeQueue(lambda payload: results.append(payload["lane"]) or {"status": "ok"},
@@ -463,8 +463,8 @@ class TestProbeQueueGate(unittest.TestCase):
         # leaves a free slot, and a third probe should start immediately.
         import time as time_mod
         import threading as threading_mod
-        from probarr import probequeue as pq_mod
-        from probarr.probequeue import ProbeQueue
+        from channeliq import probequeue as pq_mod
+        from channeliq.probequeue import ProbeQueue
 
         orig_settle = pq_mod.LANE_SETTLE_SECONDS
         pq_mod.LANE_SETTLE_SECONDS = 0.3
@@ -503,8 +503,8 @@ class TestProbeQueueGate(unittest.TestCase):
 
     def test_settle_gap_does_not_apply_when_the_lane_has_spare_capacity(self):
         import time as time_mod
-        from probarr import probequeue as pq_mod
-        from probarr.probequeue import ProbeQueue
+        from channeliq import probequeue as pq_mod
+        from channeliq.probequeue import ProbeQueue
 
         orig_settle = pq_mod.LANE_SETTLE_SECONDS
         pq_mod.LANE_SETTLE_SECONDS = 5   # deliberately large -- must not be waited for
@@ -541,7 +541,7 @@ class TestProbeQueueGate(unittest.TestCase):
         # behind each other even when the lane itself has room.
         import time as time_mod
         import threading as threading_mod
-        from probarr.probequeue import ProbeQueue
+        from channeliq.probequeue import ProbeQueue
 
         release = threading_mod.Event()
         running_together = []
@@ -591,7 +591,7 @@ class TestProbeQueueSnapshotNeverLeaksSeedUrls(unittest.TestCase):
 
     def test_snapshot_omits_seed_and_url_entirely(self):
         import time as time_mod
-        from probarr.probequeue import ProbeQueue
+        from channeliq.probequeue import ProbeQueue
         release = __import__("threading").Event()
 
         def runner(payload):
@@ -633,10 +633,10 @@ class TestVerifyStop(Temp):
         # slow, mocked probe() and a should_stop that flips after the first
         # completion -- far fewer than all 40 candidates must run.
         import time as time_mod
-        from probarr import verify as verify_mod
-        from probarr.sources.base import Stream
-        from probarr.probe import ProbeOptions
-        from probarr.store import RunStore
+        from channeliq import verify as verify_mod
+        from channeliq.sources.base import Stream
+        from channeliq.probe import ProbeOptions
+        from channeliq.store import RunStore
 
         store = RunStore(self.root, "run1")
         store.write_wantlist_raw(
@@ -654,7 +654,7 @@ class TestVerifyStop(Temp):
         def should_stop():
             return stop_after_first[0]
 
-        with unittest.mock.patch("probarr.verify.probe", fake_probe):
+        with unittest.mock.patch("channeliq.verify.probe", fake_probe):
             def progress_cb(*a, **k):
                 if call_count[0] >= 1:
                     stop_after_first[0] = True
@@ -678,10 +678,10 @@ class TestVerifyStop(Temp):
         # Same shape as the should_stop test above: a slow mocked probe()
         # and a budget that expires well before all 40 candidates finish.
         import time as time_mod
-        from probarr import verify as verify_mod
-        from probarr.sources.base import Stream
-        from probarr.probe import ProbeOptions
-        from probarr.store import RunStore
+        from channeliq import verify as verify_mod
+        from channeliq.sources.base import Stream
+        from channeliq.probe import ProbeOptions
+        from channeliq.store import RunStore
 
         store = RunStore(self.root, "run1")
         store.write_wantlist_raw(
@@ -695,7 +695,7 @@ class TestVerifyStop(Temp):
             time_mod.sleep(0.1)
             return {"status": "ok"}
 
-        with unittest.mock.patch("probarr.verify.probe", fake_probe):
+        with unittest.mock.patch("channeliq.verify.probe", fake_probe):
             verify_mod.verify(pools, store, ProbeOptions(), concurrency=4,
                               gap_seconds=0, budget_seconds=0.15)
 
@@ -713,11 +713,11 @@ class TestRateLimitGuard(Temp):
     genuinely dead/corrupted stream, and verify.py's RateLimitGuard pauses
     ALL probing (not just the one channel) when the provider is actively
     refusing connections -- ported from PiratesIRC's IPTVChecker, which had
-    this and probarr previously did not.
+    this and channeliq previously did not.
     """
 
     def test_probe_detects_429_in_stderr_and_labels_it_distinctly(self):
-        from probarr import probe as probe_mod
+        from channeliq import probe as probe_mod
 
         self.assertTrue(probe_mod._RATE_LIMIT_RE.search(
             "Server returned 429 Too Many Requests"))
@@ -735,8 +735,8 @@ class TestRateLimitGuard(Temp):
         # stream is dead. The reason string must say so, distinctly from
         # the generic "no frame could be decoded".
         import unittest.mock
-        from probarr import probe as probe_mod
-        from probarr.sources.base import Stream
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
 
         opts = probe_mod.ProbeOptions(retry_empty=False)
         stream = Stream(id="s1", name="Comedy Central", url="http://x/429")
@@ -768,7 +768,7 @@ class TestRateLimitGuard(Temp):
 
     def test_guard_trips_after_threshold_hits_and_pauses_the_caller(self):
         import time as time_mod
-        from probarr.verify import RateLimitGuard
+        from channeliq.verify import RateLimitGuard
 
         guard = RateLimitGuard()
         guard.BASE_COOLDOWN_SECONDS = 0.3   # keep the test fast
@@ -789,7 +789,7 @@ class TestRateLimitGuard(Temp):
         self.assertGreaterEqual(elapsed, 0.3 * 0.7)
 
     def test_guard_does_not_trip_below_threshold(self):
-        from probarr.verify import RateLimitGuard
+        from channeliq.verify import RateLimitGuard
         guard = RateLimitGuard()
         guard.record_hit()
         guard.record_hit()
@@ -808,10 +808,10 @@ class TestRateLimitGuard(Temp):
         # 4th probe, proving the pause is account-wide, not per-channel.
         import time as time_mod
         import unittest.mock
-        from probarr import verify as verify_mod
-        from probarr.probe import ProbeOptions, STATUS_NO_FRAME
-        from probarr.sources.base import Stream
-        from probarr.store import RunStore
+        from channeliq import verify as verify_mod
+        from channeliq.probe import ProbeOptions, STATUS_NO_FRAME
+        from channeliq.sources.base import Stream
+        from channeliq.store import RunStore
 
         store = RunStore(self.root, "run1")
         store.write_wantlist_raw(
@@ -828,7 +828,7 @@ class TestRateLimitGuard(Temp):
                        "reason": "provider refused the connection (429/403)"}
             return {"status": "ok", "rate_limited": False}
 
-        with unittest.mock.patch("probarr.verify.probe", fake_probe), \
+        with unittest.mock.patch("channeliq.verify.probe", fake_probe), \
              unittest.mock.patch.object(verify_mod.RateLimitGuard,
                                         "BASE_COOLDOWN_SECONDS", 0.4), \
              unittest.mock.patch.object(verify_mod.RateLimitGuard,
@@ -855,10 +855,10 @@ class TestRateLimitGuard(Temp):
         import threading
         import time as time_mod
         import unittest.mock
-        from probarr import verify as verify_mod
-        from probarr.probe import ProbeOptions
-        from probarr.sources.base import Stream
-        from probarr.store import RunStore
+        from channeliq import verify as verify_mod
+        from channeliq.probe import ProbeOptions
+        from channeliq.sources.base import Stream
+        from channeliq.store import RunStore
 
         store = RunStore(self.root, "run1")
         store.write_wantlist_raw(
@@ -884,7 +884,7 @@ class TestRateLimitGuard(Temp):
                 active.discard(stream.id)
             return {"status": "ok"}
 
-        with unittest.mock.patch("probarr.verify.probe", fake_probe):
+        with unittest.mock.patch("channeliq.verify.probe", fake_probe):
             verify_mod.verify(pools, store, ProbeOptions(), concurrency=3,
                               gap_seconds=0, clean_target=None)
 
@@ -917,11 +917,11 @@ class TestProviderDeclined(Temp):
         return cap
 
     def test_recognises_the_measured_signature(self):
-        from probarr.probe import served_nothing
+        from channeliq.probe import served_nothing
         self.assertTrue(served_nothing(self._cap()))
 
     def test_does_not_fire_on_ambiguous_lookalikes(self):
-        from probarr.probe import served_nothing
+        from channeliq.probe import served_nothing
         # Decoded real video but the thumbnail selection missed -- a
         # different fault, must keep the cheap single retry.
         self.assertFalse(served_nothing(self._cap(decoded_seconds=10.9,
@@ -939,8 +939,8 @@ class TestProviderDeclined(Temp):
         # same-channel burst causing it was still in flight. The retry must
         # now escalate and span long enough for that burst to drain.
         import unittest.mock
-        from probarr import probe as probe_mod
-        from probarr.sources.base import Stream
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
 
         opts = probe_mod.ProbeOptions(empty_backoff=(0.05, 0.1, 0.2))
         stream = Stream(id="s1", name="Comedy Central", url="http://x/cc")
@@ -973,8 +973,8 @@ class TestProviderDeclined(Temp):
         # that succeeds must not keep burning provider connections, and the
         # result must be a normal verdict, not no_frame.
         import unittest.mock
-        from probarr import probe as probe_mod
-        from probarr.sources.base import Stream
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
 
         opts = probe_mod.ProbeOptions(empty_backoff=(0.05, 0.1, 0.2))
         stream = Stream(id="s1", name="Comedy Central", url="http://x/cc")
@@ -1006,8 +1006,8 @@ class TestProviderDeclined(Temp):
         # Not every empty capture is a provider refusal -- one that decoded
         # real video but produced no picture must not pay the long backoff.
         import unittest.mock
-        from probarr import probe as probe_mod
-        from probarr.sources.base import Stream
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
 
         opts = probe_mod.ProbeOptions(empty_backoff=(3.0, 8.0, 20.0))
         stream = Stream(id="s1", name="X", url="http://x/1")
@@ -1049,7 +1049,7 @@ class TestClipNeverCostsThePicture(Temp):
         # packets parsed" and kills every other output. Video must still be
         # a copy; that is where the cost would be.
         import unittest.mock
-        from probarr import probe as probe_mod
+        from channeliq import probe as probe_mod
 
         seen = []
 
@@ -1081,8 +1081,8 @@ class TestClipNeverCostsThePicture(Temp):
         # clip produced no picture, try again without it before concluding
         # anything about the stream.
         import unittest.mock
-        from probarr import probe as probe_mod
-        from probarr.sources.base import Stream
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
 
         meta = {"has_video": True, "width": 1920, "height": 1080, "fps": 50.0,
                "video_codec": "hevc", "video_profile": "Main",
@@ -1131,8 +1131,8 @@ class TestClipNeverCostsThePicture(Temp):
         # attempts over ~31s, all failing the same way). The clipless retry
         # must happen FIRST and immediately, with no sleep.
         import unittest.mock
-        from probarr import probe as probe_mod
-        from probarr.sources.base import Stream
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
 
         meta = {"has_video": True, "width": 1920, "height": 1080, "fps": 50.0,
                "video_codec": "hevc", "video_profile": "", "pix_fmt": "yuv420p",
@@ -1180,11 +1180,11 @@ class TestFiniteFilePlaceholder(unittest.TestCase):
     """
 
     def test_parses_a_genuine_finite_duration(self):
-        from probarr.probe import _parse_container_duration
+        from channeliq.probe import _parse_container_duration
         self.assertEqual(_parse_container_duration({"duration": "42.5"}), 42.5)
 
     def test_a_real_live_stream_reports_none_of_the_forms_ffprobe_uses(self):
-        from probarr.probe import _parse_container_duration
+        from channeliq.probe import _parse_container_duration
         for fmt in ({}, {"duration": None}, {"duration": ""},
                    {"duration": "N/A"}, {"duration": "0"}, {"duration": "-1"},
                    {"duration": "not a number"}):
@@ -1195,8 +1195,8 @@ class TestFiniteFilePlaceholder(unittest.TestCase):
         # capture(): it must never spend the second, expensive decode
         # connection on a candidate already proven to be a finite loop.
         import unittest.mock
-        from probarr import probe as probe_mod
-        from probarr.sources.base import Stream
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
 
         fake_meta = {"has_video": True, "width": 1920, "height": 1080,
                     "fps": 50.0, "video_codec": "h264", "video_profile": "",
@@ -1217,8 +1217,8 @@ class TestFiniteFilePlaceholder(unittest.TestCase):
 
     def test_probe_does_not_flag_a_stream_with_no_declared_duration(self):
         import unittest.mock
-        from probarr import probe as probe_mod
-        from probarr.sources.base import Stream
+        from channeliq import probe as probe_mod
+        from channeliq.sources.base import Stream
 
         fake_meta = {"has_video": True, "width": 1920, "height": 1080,
                     "fps": 50.0, "video_codec": "h264", "video_profile": "",
@@ -1259,8 +1259,8 @@ class TestReprobeSampleLength(Temp):
 
     def test_plain_reprobe_uses_the_short_window_not_the_bulk_default(self):
         import unittest.mock
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
 
         store = RunStore(self.root, "run1")
         store.append({"rec_key": "C1|s1", "channel_key": "C1", "stream_id": "s1",
@@ -1294,8 +1294,8 @@ class TestReprobeSampleLength(Temp):
 
     def test_diagnose_still_uses_its_own_longer_window(self):
         import unittest.mock
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
 
         store = RunStore(self.root, "run1")
         store.append({"rec_key": "C1|s1", "channel_key": "C1", "stream_id": "s1",
@@ -1335,7 +1335,7 @@ class TestStreamUrlMapPrefersNative(unittest.TestCase):
     """
 
     def _client(self, streams):
-        from probarr.sources.dispatcharr import Dispatcharr
+        from channeliq.sources.dispatcharr import Dispatcharr
         c = Dispatcharr("http://x", "u", "p")
         c.api = lambda method, path, body=None: None
         c.paged = lambda path, page_size=1000: streams
@@ -1378,7 +1378,7 @@ class TestPerProviderStreamLimit(unittest.TestCase):
     """
 
     def _client(self, accounts, patches=None):
-        from probarr.sources.dispatcharr import Dispatcharr
+        from channeliq.sources.dispatcharr import Dispatcharr
         c = Dispatcharr("http://x", "u", "p")
         calls = []
 
@@ -1400,18 +1400,18 @@ class TestPerProviderStreamLimit(unittest.TestCase):
         accounts = [
             {"id": 1, "name": "custom", "server_url": None, "max_streams": 0},
             {"id": 10, "name": "BunnyCustom",
-             "server_url": "https://mybunny.tv/client/download.php?u=phgegfxn&p=BmUXAWZPUaQF",  # probarr:allow-secret
+             "server_url": "https://mybunny.tv/client/download.php?u=phgegfxn&p=BmUXAWZPUaQF",  # channeliq:allow-secret
              "max_streams": 4},
         ]
         client, _ = self._client(accounts)
         found = client.find_account_for_source(
-            "https://mybunny.tv/client/download.php?u=phgegfxn&p=BmUXAWZPUaQF")  # probarr:allow-secret
+            "https://mybunny.tv/client/download.php?u=phgegfxn&p=BmUXAWZPUaQF")  # channeliq:allow-secret
         self.assertEqual(found["id"], 10)
 
         # A near-miss (different credentials) must NOT match -- exact
         # equality only, never a same-host guess.
         self.assertIsNone(client.find_account_for_source(
-            "https://mybunny.tv/client/download.php?u=someoneelse&p=x"))  # probarr:allow-secret
+            "https://mybunny.tv/client/download.php?u=someoneelse&p=x"))  # channeliq:allow-secret
 
     def test_enforce_provider_stream_limit_tightens_the_real_account(self):
         accounts = [{"id": 10, "name": "BunnyCustom",
@@ -1481,7 +1481,7 @@ class TestGetOrCreateAccountForSource(unittest.TestCase):
     """
 
     def _client(self, accounts):
-        from probarr.sources.dispatcharr import Dispatcharr
+        from channeliq.sources.dispatcharr import Dispatcharr
         c = Dispatcharr("http://x", "u", "p")
         calls = []
         created = []
@@ -1535,7 +1535,7 @@ class TestGetOrCreateAccountForSource(unittest.TestCase):
         self.assertFalse(calls)
 
     def test_a_create_failure_is_logged_not_raised(self):
-        from probarr import http
+        from channeliq import http
         client, _, _ = self._client([])
 
         def failing_api(method, path, body=None):
@@ -1563,8 +1563,8 @@ class TestRunExportUsesTheSourceProviderSpec(Temp):
     """
 
     def _run(self, create_account):
-        from probarr import web as web_mod, providers as providers_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod, providers as providers_mod
+        from channeliq.store import RunStore
 
         providers_mod.save(self.root, "mybunny", "https://p.tv/m3u?u=x&p=y")
         providers_mod.save(self.root, "mydispatch", "dispatcharr://u:p@host:9191")
@@ -1590,7 +1590,7 @@ class TestRunExportUsesTheSourceProviderSpec(Temp):
              unittest.mock.patch.object(web_mod, "dispatcharr_export") as fake_export:
             fake_export.push.return_value = {}
             handler._run_export(store, prov, "mydispatch", [], "native",
-                               None, "probarr", prune_empty=True,
+                               None, "channeliq", prune_empty=True,
                                apply_removals=False, create_account=create_account)
 
         return fake_client
@@ -1615,7 +1615,7 @@ class TestDispatcharrEpgSources(Temp):
     """
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -1661,7 +1661,7 @@ class TestDispatcharrEpgSources(Temp):
 
 
 class TestBrowseDispatcharrActiveLineup(Temp):
-    """probarr-oz2: Browse Channels for a dispatcharr:// provider used to
+    """channeliq-oz2: Browse Channels for a dispatcharr:// provider used to
     always show every raw stream Dispatcharr has ever ingested from any M3U
     account (tens of thousands on a real instance) instead of the operator's
     actual curated lineup. `active_only` opts into the curated view -- one
@@ -1670,7 +1670,7 @@ class TestBrowseDispatcharrActiveLineup(Temp):
     """
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         return h, web_mod
@@ -1731,7 +1731,7 @@ class TestBrowseDispatcharrActiveLineup(Temp):
         providers.save(self.root, "mybunny", "https://p.tv/m3u?u=x&p=y")
         handler, web_mod = self._handler()
 
-        from probarr.sources.base import Stream
+        from channeliq.sources.base import Stream
         streams = [Stream(id="1", name="BBC One", url="http://x/1", group="",
                           logo="", tvg_id="", source="mybunny", attrs={})]
 
@@ -1769,7 +1769,7 @@ class TestReferenceLineups(Temp):
 
     def test_discovers_and_caches_the_repo_listing(self):
         listing = [{"name": "UK_SkyTV_lineup.json"}, {"name": "plugin.json"}]
-        with unittest.mock.patch("probarr.wantlist.urllib.request.urlopen",
+        with unittest.mock.patch("channeliq.wantlist.urllib.request.urlopen",
                                   return_value=self._fake_response(listing)) as m:
             items = wl.known_reference_lineups(self.root)
             self.assertEqual(len(items), 1)   # plugin.json excluded
@@ -1780,7 +1780,7 @@ class TestReferenceLineups(Temp):
             m.assert_called_once()
 
     def test_refresh_forces_a_new_fetch(self):
-        with unittest.mock.patch("probarr.wantlist.urllib.request.urlopen",
+        with unittest.mock.patch("channeliq.wantlist.urllib.request.urlopen",
                                   return_value=self._fake_response([])) as m:
             wl.known_reference_lineups(self.root)
             wl.known_reference_lineups(self.root, force=True)
@@ -1934,12 +1934,12 @@ class TestM3UExport(unittest.TestCase, ):
         """Real reported case: a run's local M3U source pointed at
         '/config/uk-fta-snapshot.m3u', which existed on the host but
         outside either container's own mounted config directory (test
-        and production use separate ./probarr/config and
-        ./probarr-vpn/config mounts) -- so it 404'd inside the container.
+        and production use separate ./channeliq/config and
+        ./channeliq-vpn/config mounts) -- so it 404'd inside the container.
         The error that reached the UI was a bare "[Errno 2] No such file
         or directory: '/config/uk-fta-snapshot.m3u'", which explains
         nothing about WHY a file the operator can see on the host isn't
-        visible to probarr. The message must at least point at the real,
+        visible to channeliq. The message must at least point at the real,
         actual cause (a container-local path, not a host path).
         """
         with self.assertRaises(ValueError) as ctx:
@@ -1950,14 +1950,14 @@ class TestM3UExport(unittest.TestCase, ):
 
 
 class TestDispatcharrProxyCandidates(unittest.TestCase):
-    """Real request: an install where probarr itself doesn't have the
+    """Real request: an install where channeliq itself doesn't have the
     network path (VPN, geo-IP) a provider needs, but Dispatcharr already
     does. proxy_candidate_streams() adds one candidate per already-
     assigned channel that routes through Dispatcharr's OWN proxy instead
     of the raw upstream URL -- see sources/dispatcharr.py's load()."""
 
     def _client(self, channels):
-        from probarr.sources.dispatcharr import Dispatcharr
+        from channeliq.sources.dispatcharr import Dispatcharr
         client = Dispatcharr("http://fake:9191", "u", "p")
         client.channels = lambda: channels
         return client
@@ -1983,7 +1983,7 @@ class TestDispatcharrProxyCandidates(unittest.TestCase):
         key as the plain channel name -- Normalizer's bracket-stripping
         does this automatically, but it's exactly the kind of thing that
         silently breaks if the format string ever loses its parentheses."""
-        from probarr.normalize import Normalizer
+        from channeliq.normalize import Normalizer
         client = self._client([
             {"id": 1, "uuid": "aaa", "name": "BBC One", "streams": [10],
              "tvg_id": "", "logo_url": ""},
@@ -1993,7 +1993,7 @@ class TestDispatcharrProxyCandidates(unittest.TestCase):
         self.assertEqual(n.key(proxy_candidate.name), n.key("BBC One"))
 
     def test_load_with_prefer_proxy_merges_raw_and_proxy_candidates(self):
-        from probarr.sources import dispatcharr as dispatcharr_mod
+        from channeliq.sources import dispatcharr as dispatcharr_mod
         fake_raw = [object()]
         fake_proxy = [object(), object()]
 
@@ -2007,7 +2007,7 @@ class TestDispatcharrProxyCandidates(unittest.TestCase):
         self.assertEqual(out, fake_raw + fake_proxy)
 
     def test_load_without_prefer_proxy_is_unchanged(self):
-        from probarr.sources import dispatcharr as dispatcharr_mod
+        from channeliq.sources import dispatcharr as dispatcharr_mod
         fake_raw = [object()]
 
         class FakeClient:
@@ -2025,7 +2025,7 @@ class TestExpand(unittest.TestCase):
     """_expand() -- the ordered-streams shape a push actually writes."""
 
     def test_native_mode_sends_the_whole_ordered_list(self):
-        from probarr.dispatcharr_export import _expand
+        from channeliq.dispatcharr_export import _expand
         ch = {"number": 101, "name": "Ch", "primary": {"stream_id": 1},
               "fallback": {"stream_id": 2},
               "streams": [{"stream_id": 1}, {"stream_id": 2}, {"stream_id": 3}]}
@@ -2034,14 +2034,14 @@ class TestExpand(unittest.TestCase):
         self.assertEqual(rows[0][3], [1, 2, 3])
 
     def test_native_mode_falls_back_to_primary_fallback_with_no_list(self):
-        from probarr.dispatcharr_export import _expand
+        from channeliq.dispatcharr_export import _expand
         ch = {"number": 101, "name": "Ch", "primary": {"stream_id": 1},
               "fallback": {"stream_id": 2}}
         rows = _expand([ch], "native")
         self.assertEqual(rows[0][3], [1, 2])
 
     def test_separate_mode_ignores_a_third_stream(self):
-        from probarr.dispatcharr_export import _expand
+        from channeliq.dispatcharr_export import _expand
         ch = {"number": 101, "name": "Ch", "primary": {"stream_id": 1},
               "fallback": {"stream_id": 2},
               "streams": [{"stream_id": 1}, {"stream_id": 2}, {"stream_id": 3}]}
@@ -2121,11 +2121,11 @@ class TestDispatcharrStreamsSkipsDisabledAccounts(unittest.TestCase):
     Dispatcharr's existing CHANNELS and matches them against the run's own
     separately-configured provider pool -- this bug was specific to
     streams(), the raw-catalogue path used when Dispatcharr itself is
-    configured as a probarr provider.
+    configured as a channeliq provider.
     """
 
     def _client(self, accounts, streams):
-        from probarr.sources.dispatcharr import Dispatcharr
+        from channeliq.sources.dispatcharr import Dispatcharr
         client = Dispatcharr("http://fake", "u", "p")
 
         def fake_api(method, path, body=None):
@@ -2176,9 +2176,9 @@ class TestDispatcharrLogoPush(unittest.TestCase):
                 "logo_url": url}
 
     def test_push_creates_a_missing_logo_row_and_links_it(self):
-        from probarr.dispatcharr_export import push
+        from channeliq.dispatcharr_export import push
         client = FakeDispatcharrClient()
-        result = push(client, [self._channel()], default_group_name="probarr")
+        result = push(client, [self._channel()], default_group_name="channeliq")
         self.assertEqual(result["created"], 1)
         self.assertEqual(len(client.created_logos), 1)
         self.assertEqual(client.created_logos[0][1],
@@ -2191,23 +2191,23 @@ class TestDispatcharrLogoPush(unittest.TestCase):
         self.assertEqual(linked_logo["url"], self._channel()["logo_url"])
 
     def test_push_does_not_recreate_a_logo_that_already_exists(self):
-        from probarr.dispatcharr_export import push
+        from channeliq.dispatcharr_export import push
         url = self._channel()["logo_url"]
         client = FakeDispatcharrClient(
             existing_logos=[{"id": 5, "name": "BBC One", "url": url}])
-        push(client, [self._channel()], default_group_name="probarr")
+        push(client, [self._channel()], default_group_name="channeliq")
         self.assertEqual(client.created_logos, [])
         self.assertEqual(client._channels[0]["logo_id"], 5)
 
     def test_plan_reports_a_pending_logo_change_for_an_unmatched_url_without_creating_it(self):
-        from probarr.dispatcharr_export import plan
+        from channeliq.dispatcharr_export import plan
         url = self._channel()["logo_url"]
         existing_ch = {"id": 7, "channel_number": 101, "name": "BBC One",
                       "streams": [1], "channel_group_id": 9, "logo_id": None}
         client = FakeDispatcharrClient(
             existing_channels=[existing_ch],
-            existing_groups=[{"id": 9, "name": "probarr"}])
-        result = plan(client, [self._channel(url)], default_group_name="probarr")
+            existing_groups=[{"id": 9, "name": "channeliq"}])
+        result = plan(client, [self._channel(url)], default_group_name="channeliq")
         # The whole point of plan(): describe what push WOULD do without
         # doing it -- so nothing on the fake client's Logo table should
         # have moved.
@@ -2218,15 +2218,15 @@ class TestDispatcharrLogoPush(unittest.TestCase):
         self.assertEqual(logo_change["to_name"], "(new logo)")
 
     def test_plan_reports_unchanged_when_the_logo_already_matches(self):
-        from probarr.dispatcharr_export import plan
+        from channeliq.dispatcharr_export import plan
         url = self._channel()["logo_url"]
         existing_ch = {"id": 7, "channel_number": 101, "name": "BBC One",
                       "streams": [1], "channel_group_id": 9, "logo_id": 5}
         client = FakeDispatcharrClient(
             existing_channels=[existing_ch],
             existing_logos=[{"id": 5, "name": "BBC One", "url": url}],
-            existing_groups=[{"id": 9, "name": "probarr"}])
-        result = plan(client, [self._channel(url)], default_group_name="probarr")
+            existing_groups=[{"id": 9, "name": "channeliq"}])
+        result = plan(client, [self._channel(url)], default_group_name="channeliq")
         action = next(a for a in result["actions"] if a["number"] == 101)
         self.assertEqual(action["kind"], "unchanged")
 
@@ -2238,7 +2238,7 @@ class TestProviderRename(Temp):
     name, rather than orphaning them (see _rename_provider's docstring)."""
 
     def test_rename_keeps_spec_and_concurrency(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "old-name", "http://example/x.m3u", concurrency=3)
         new = providers.rename(self.root, "old-name", "new-name")
         self.assertEqual(new, "new-name")
@@ -2249,7 +2249,7 @@ class TestProviderRename(Temp):
         self.assertEqual(p["concurrency"], 3)
 
     def test_rename_keeps_last_group_name(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "old-name", "http://example/x.m3u")
         providers.set_last_group_name(self.root, "old-name", "my group")
         providers.rename(self.root, "old-name", "new-name")
@@ -2257,7 +2257,7 @@ class TestProviderRename(Temp):
         self.assertEqual(p["last_group_name"], "my group")
 
     def test_rename_rejects_a_name_already_in_use(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "one", "http://example/1.m3u")
         providers.save(self.root, "two", "http://example/2.m3u")
         with self.assertRaises(ValueError):
@@ -2267,7 +2267,7 @@ class TestProviderRename(Temp):
         self.assertIsNotNone(providers.get(self.root, "two"))
 
     def test_rename_rejects_an_unknown_provider(self):
-        from probarr import providers
+        from channeliq import providers
         with self.assertRaises(ValueError):
             providers.rename(self.root, "does-not-exist", "whatever")
 
@@ -2275,7 +2275,7 @@ class TestProviderRename(Temp):
         """list_all() computes `scheme` fresh on every read (it is never
         written to disk) -- rename() must not accidentally freeze a stale
         copy of it into providers.json when it re-saves the list."""
-        from probarr import providers
+        from channeliq import providers
         import json
         providers.save(self.root, "old-name", "http://example/x.m3u")
         providers.rename(self.root, "old-name", "new-name")
@@ -2290,27 +2290,27 @@ class TestProviderAsSource(Temp):
     Dispatcharr connection kept purely as a push target."""
 
     def test_default_is_a_source_when_not_specified(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "plain", "http://example/x.m3u")
         p = providers.get(self.root, "plain")
         self.assertNotIn("as_source", p)  # absent means "treat as True"
 
     def test_can_be_saved_as_false(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "push-only", "dispatcharr://u:p@host:9191",
                         as_source=False)
         p = providers.get(self.root, "push-only")
         self.assertEqual(p["as_source"], False)
 
     def test_can_be_saved_as_true_explicitly(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "d1", "dispatcharr://u:p@host:9191",
                         as_source=True)
         p = providers.get(self.root, "d1")
         self.assertEqual(p["as_source"], True)
 
     def test_re_saving_with_none_leaves_existing_value_untouched(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "d1", "dispatcharr://u:p@host:9191",
                         as_source=False)
         providers.save(self.root, "d1", "dispatcharr://u:p@host:9191",
@@ -2321,7 +2321,7 @@ class TestProviderAsSource(Temp):
 
     def test_api_list_exposes_as_source(self):
         import json
-        from probarr import web as web_mod, providers
+        from channeliq import web as web_mod, providers
         providers.save(self.root, "push-only", "dispatcharr://u:p@host:9191",
                         as_source=False)
         web_mod.Handler.root = self.root
@@ -2345,7 +2345,7 @@ class TestPercentEncodedPathSegments(Temp):
     for that id silently misses (see _do_GET's unquote)."""
 
     def _handler(self, path):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         h.path = path
@@ -2356,7 +2356,7 @@ class TestPercentEncodedPathSegments(Temp):
 
     def test_progress_polling_finds_a_run_id_with_a_space_in_it(self):
         import json
-        from probarr import runs as runs_mod
+        from channeliq import runs as runs_mod
         run_id = "F1 only test"
         with runs_mod._LOCK:
             runs_mod._JOBS[run_id] = {"run_id": run_id, "log": [],
@@ -2372,7 +2372,7 @@ class TestPercentEncodedPathSegments(Temp):
 
     def test_progress_polling_falls_back_to_disk_for_a_run_id_with_a_space(self):
         import json
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         run_id = "F1 only test"
         RunStore(self.root, run_id, create=True).write_meta({"run_state": "done"})
         h, sent = self._handler("/api/run/" + run_id.replace(" ", "%20") + "/progress")
@@ -2388,7 +2388,7 @@ class TestProviderRenameCascades(Temp):
     already points at the provider by its old name."""
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -2398,7 +2398,7 @@ class TestProviderRenameCascades(Temp):
 
     def test_renaming_updates_a_lineup_that_used_the_old_name(self):
         import json
-        from probarr import providers, lineups
+        from channeliq import providers, lineups
         providers.save(self.root, "old-name", "http://example/x.m3u")
         lineups.save(self.root, "my-lineup", provider="old-name")
         h, sent = self._handler()
@@ -2412,8 +2412,8 @@ class TestProviderRenameCascades(Temp):
 
     def test_renaming_updates_a_runs_provider_name(self):
         import json
-        from probarr import providers
-        from probarr.store import RunStore
+        from channeliq import providers
+        from channeliq.store import RunStore
         providers.save(self.root, "old-name", "http://example/x.m3u")
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({"provider_name": "old-name", "source": "http://example/x.m3u"})
@@ -2428,8 +2428,8 @@ class TestProviderRenameCascades(Temp):
 
     def test_a_lineup_or_run_on_a_different_provider_is_left_alone(self):
         import json
-        from probarr import providers, lineups
-        from probarr.store import RunStore
+        from channeliq import providers, lineups
+        from channeliq.store import RunStore
         providers.save(self.root, "old-name", "http://example/x.m3u")
         providers.save(self.root, "other", "http://example/y.m3u")
         lineups.save(self.root, "other-lineup", provider="other")
@@ -2445,7 +2445,7 @@ class TestProviderRenameCascades(Temp):
 
     def test_rejects_a_collision_and_reports_the_error(self):
         import json
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "one", "http://example/1.m3u")
         providers.save(self.root, "two", "http://example/2.m3u")
         h, sent = self._handler()
@@ -2456,12 +2456,12 @@ class TestProviderRenameCascades(Temp):
 
 
 class TestClaimsRegistry(Temp):
-    """claims.py: which Dispatcharr channel ids probarr already owns. Kept
+    """claims.py: which Dispatcharr channel ids channeliq already owns. Kept
     as its own tiny persistence module -- see claims.py's docstring for why
     this is checked before push() knows anything about numbers at all."""
 
     def test_claim_then_read_all_round_trips(self):
-        from probarr import claims
+        from channeliq import claims
         claims.claim(self.root, 42, "BBCONE", "BBC One", source="run:r1")
         all_claims = claims.read_all(self.root)
         self.assertIn(42, all_claims)
@@ -2475,13 +2475,13 @@ class TestClaimsRegistry(Temp):
         Curate shows it as "linked · Dispatcharr live channel N" because
         showing the internal dispatcharr_id there read as a second,
         conflicting channel number sitting right next to the real one."""
-        from probarr import claims
+        from channeliq import claims
         claims.claim(self.root, 42, "BBCONE", "BBC One", number=105)
         self.assertEqual(claims.read_all(self.root)[42]["number"], 105)
         self.assertEqual(claims.claimed_by_key(self.root)["BBCONE"]["number"], 105)
 
     def test_unclaim_removes_it(self):
-        from probarr import claims
+        from channeliq import claims
         claims.claim(self.root, 7, "X", "X")
         self.assertTrue(claims.unclaim(self.root, 7))
         self.assertFalse(claims.is_claimed(self.root, 7))
@@ -2489,7 +2489,7 @@ class TestClaimsRegistry(Temp):
                          "unclaiming something already gone should say so, not error")
 
     def test_claimed_by_key_is_the_reverse_index(self):
-        from probarr import claims
+        from channeliq import claims
         claims.claim(self.root, 42, "BBCONE", "BBC One", source="run:r1")
         by_key = claims.claimed_by_key(self.root)
         self.assertEqual(by_key["BBCONE"]["dispatcharr_id"], 42)
@@ -2512,12 +2512,12 @@ class TestChangedAlertOnlyFiresForTopTwoNegativeChanges(Temp):
                 "measured_kbps": kbps, "probed_at": probed_at}
 
     def _payload_for(self, store):
-        from probarr.verify import annotate_placeholders
+        from channeliq.verify import annotate_placeholders
         by_channel = annotate_placeholders(store)
         return curate.build_payload(by_channel, store, False, None, None, None, None)
 
     def test_a_regression_on_the_top_ranked_candidate_is_reported(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         # s1 is clearly the best (1080p) -- rank #1.
@@ -2531,7 +2531,7 @@ class TestChangedAlertOnlyFiresForTopTwoNegativeChanges(Temp):
                         ch["changes"])
 
     def test_a_regression_buried_below_the_top_two_is_not_reported(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         # s1/s2 rank above s3 on resolution -- s3 is rank #3.
@@ -2548,7 +2548,7 @@ class TestChangedAlertOnlyFiresForTopTwoNegativeChanges(Temp):
                          "not trigger a Changed alert")
 
     def test_an_improvement_on_the_top_ranked_candidate_is_not_reported(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         store.append(self._probe("A", "s1", 1000, 1280, 720))
@@ -2577,12 +2577,12 @@ class TestBuildPayloadRanksAgainstTheConfirmedPick(Temp):
                 "fps": fps, "measured_kbps": kbps, "probed_at": 1000}
 
     def _payload_for(self, store):
-        from probarr.verify import annotate_placeholders
+        from channeliq.verify import annotate_placeholders
         by_channel = annotate_placeholders(store)
         return curate.build_payload(by_channel, store, False, None, None, None, None)
 
     def test_a_rival_within_tolerance_does_not_outrank_the_confirmed_pick(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         # s1 (the confirmed pick) is slightly lower bitrate but smoother;
@@ -2598,7 +2598,7 @@ class TestBuildPayloadRanksAgainstTheConfirmedPick(Temp):
                          "confirmed pick must not raise a mismatch")
 
     def test_a_rival_genuinely_beating_the_confirmed_pick_still_overtakes_it(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         store.append(self._probe("A", "s1", 1920, 1080, 25, 2000))
@@ -2624,12 +2624,12 @@ class TestCurateSummarize(Temp):
                 "fps": fps, "measured_kbps": kbps, "probed_at": 1000}
 
     def _payload_for(self, store):
-        from probarr.verify import annotate_placeholders
+        from channeliq.verify import annotate_placeholders
         by_channel = annotate_placeholders(store)
         return curate.build_payload(by_channel, store, False, None)
 
     def test_a_channel_with_no_clean_stream_counts_as_needs_you(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         store.append(self._probe("A", "s1", status="dead"))
@@ -2637,13 +2637,13 @@ class TestCurateSummarize(Temp):
         self.assertEqual(s, {"needs_you": 1, "changed": 0, "total": 1})
 
     def test_a_settled_channel_with_unchanged_evidence_does_not_count(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         store.append(self._probe("A", "s1", status="dead"))
         # Settle it exactly as the "This is fine" button does: confirmed +
         # settled_on = the evidence signature at settle time.
-        from probarr.verify import annotate_placeholders
+        from channeliq.verify import annotate_placeholders
         payload = curate.build_payload(annotate_placeholders(store), store, False, None)
         ch = payload["channels"][0]
         sig = curate._evidence_sig(ch)
@@ -2652,7 +2652,7 @@ class TestCurateSummarize(Temp):
         self.assertEqual(s["needs_you"], 0)
 
     def test_a_dismissed_change_does_not_count(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         store.append(dict(self._probe("A", "s1"), probed_at=1000))
@@ -2678,8 +2678,8 @@ class TestDispatcharrCurrentCandidateFlag(Temp):
     """
 
     def test_only_the_explicitly_flagged_record_is_marked(self):
-        from probarr.store import RunStore
-        from probarr.verify import annotate_placeholders
+        from channeliq.store import RunStore
+        from channeliq.verify import annotate_placeholders
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         store.append({"rec_key": "A|dispatcharr:1", "channel_key": "A",
@@ -2701,15 +2701,15 @@ class TestCurateShowsClaimStatus(Temp):
     a channel as blocked/relink."""
 
     def test_build_payload_carries_the_claim_for_a_matched_channel(self):
-        from probarr import claims
-        from probarr.store import RunStore
+        from channeliq import claims
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
         store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
                      "stream_id": "s1", "status": "ok"})
         claims.claim(self.root, 42, "BBCONE", "BBC One")
-        from probarr.verify import annotate_placeholders
+        from channeliq.verify import annotate_placeholders
         by_channel = annotate_placeholders(store)
         payload = curate.build_payload(by_channel, store, False, None, None, None,
                                        claims.claimed_by_key(self.root))
@@ -2717,14 +2717,14 @@ class TestCurateShowsClaimStatus(Temp):
         self.assertEqual(ch["claim"]["dispatcharr_id"], 42)
 
     def test_build_payload_reports_none_for_an_unclaimed_channel(self):
-        from probarr import claims
-        from probarr.store import RunStore
+        from channeliq import claims
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
         store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
                      "stream_id": "s1", "status": "ok"})
-        from probarr.verify import annotate_placeholders
+        from channeliq.verify import annotate_placeholders
         by_channel = annotate_placeholders(store)
         payload = curate.build_payload(by_channel, store, False, None, None, None,
                                        claims.claimed_by_key(self.root))
@@ -2749,12 +2749,12 @@ class TestDispatcharrPushRefusesUnclaimedNumberCollisions(unittest.TestCase):
                 "logo_url": ""}
 
     def test_plan_blocks_a_number_collision_with_no_name_or_stream_match(self):
-        from probarr.dispatcharr_export import plan
+        from channeliq.dispatcharr_export import plan
         existing_ch = {"id": 7, "channel_number": 101, "name": "YoMamaTV",
                       "streams": [999], "channel_group_id": 9}
         client = FakeDispatcharrClient(existing_channels=[existing_ch],
-                                      existing_groups=[{"id": 9, "name": "probarr"}])
-        result = plan(client, [self._channel()], default_group_name="probarr",
+                                      existing_groups=[{"id": 9, "name": "channeliq"}])
+        result = plan(client, [self._channel()], default_group_name="channeliq",
                      claimed_ids=set())
         action = next(a for a in result["actions"] if a["number"] == 101)
         self.assertEqual(action["kind"], "blocked")
@@ -2766,35 +2766,35 @@ class TestDispatcharrPushRefusesUnclaimedNumberCollisions(unittest.TestCase):
         channel that is, to a human, obviously the same one as before.
         Matching name is enough to treat it as a soft conflict, not a
         scary unknown one."""
-        from probarr.dispatcharr_export import plan
+        from channeliq.dispatcharr_export import plan
         existing_ch = {"id": 7, "channel_number": 101, "name": "BBC One",
                       "streams": [999], "channel_group_id": 9}
         client = FakeDispatcharrClient(existing_channels=[existing_ch],
-                                      existing_groups=[{"id": 9, "name": "probarr"}])
-        result = plan(client, [self._channel()], default_group_name="probarr",
+                                      existing_groups=[{"id": 9, "name": "channeliq"}])
+        result = plan(client, [self._channel()], default_group_name="channeliq",
                      claimed_ids=set())
         action = next(a for a in result["actions"] if a["number"] == 101)
         self.assertEqual(action["kind"], "relink")
         self.assertEqual(result["counts"]["relink"], 1)
 
     def test_plan_offers_a_relink_when_a_stream_already_overlaps(self):
-        from probarr.dispatcharr_export import plan
+        from channeliq.dispatcharr_export import plan
         existing_ch = {"id": 7, "channel_number": 101, "name": "Some Old Name",
                       "streams": [1], "channel_group_id": 9}
         client = FakeDispatcharrClient(existing_channels=[existing_ch],
-                                      existing_groups=[{"id": 9, "name": "probarr"}])
+                                      existing_groups=[{"id": 9, "name": "channeliq"}])
         result = plan(client, [self._channel(stream_id=1)],
-                     default_group_name="probarr", claimed_ids=set())
+                     default_group_name="channeliq", claimed_ids=set())
         action = next(a for a in result["actions"] if a["number"] == 101)
         self.assertEqual(action["kind"], "relink")
 
     def test_plan_treats_a_claimed_id_as_an_ordinary_update(self):
-        from probarr.dispatcharr_export import plan
+        from channeliq.dispatcharr_export import plan
         existing_ch = {"id": 7, "channel_number": 101, "name": "BBC One",
                       "streams": [1], "channel_group_id": 9}
         client = FakeDispatcharrClient(existing_channels=[existing_ch],
-                                      existing_groups=[{"id": 9, "name": "probarr"}])
-        result = plan(client, [self._channel()], default_group_name="probarr",
+                                      existing_groups=[{"id": 9, "name": "channeliq"}])
+        result = plan(client, [self._channel()], default_group_name="channeliq",
                      claimed_ids={7})
         action = next(a for a in result["actions"] if a["number"] == 101)
         self.assertEqual(action["kind"], "unchanged")
@@ -2803,22 +2803,22 @@ class TestDispatcharrPushRefusesUnclaimedNumberCollisions(unittest.TestCase):
         """None is the default -- every caller that hasn't been taught
         about claims yet (or a test not passing it) must see exactly the
         pre-existing behaviour, not suddenly start blocking things."""
-        from probarr.dispatcharr_export import plan
+        from channeliq.dispatcharr_export import plan
         existing_ch = {"id": 7, "channel_number": 101, "name": "YoMamaTV",
                       "streams": [999], "channel_group_id": 9}
         client = FakeDispatcharrClient(existing_channels=[existing_ch],
-                                      existing_groups=[{"id": 9, "name": "probarr"}])
-        result = plan(client, [self._channel()], default_group_name="probarr")
+                                      existing_groups=[{"id": 9, "name": "channeliq"}])
+        result = plan(client, [self._channel()], default_group_name="channeliq")
         action = next(a for a in result["actions"] if a["number"] == 101)
         self.assertEqual(action["kind"], "update")
 
     def test_push_refuses_to_touch_an_unclaimed_number_collision(self):
-        from probarr.dispatcharr_export import push
+        from channeliq.dispatcharr_export import push
         existing_ch = {"id": 7, "channel_number": 101, "name": "YoMamaTV",
                       "streams": [999], "channel_group_id": 9}
         client = FakeDispatcharrClient(existing_channels=[existing_ch],
-                                      existing_groups=[{"id": 9, "name": "probarr"}])
-        result = push(client, [self._channel()], default_group_name="probarr",
+                                      existing_groups=[{"id": 9, "name": "channeliq"}])
+        result = push(client, [self._channel()], default_group_name="channeliq",
                      claimed_ids=set())
         self.assertEqual(result["updated"], 0,
                          "an unclaimed collision must never be updated")
@@ -2829,12 +2829,12 @@ class TestDispatcharrPushRefusesUnclaimedNumberCollisions(unittest.TestCase):
         self.assertEqual(result["touched"], [])
 
     def test_push_updates_and_records_a_touch_once_claimed(self):
-        from probarr.dispatcharr_export import push
+        from channeliq.dispatcharr_export import push
         existing_ch = {"id": 7, "channel_number": 101, "name": "BBC One",
                       "streams": [999], "channel_group_id": 9}
         client = FakeDispatcharrClient(existing_channels=[existing_ch],
-                                      existing_groups=[{"id": 9, "name": "probarr"}])
-        result = push(client, [self._channel()], default_group_name="probarr",
+                                      existing_groups=[{"id": 9, "name": "channeliq"}])
+        result = push(client, [self._channel()], default_group_name="channeliq",
                      claimed_ids={7})
         self.assertEqual(result["updated"], 1)
         self.assertEqual(result["blocked"], [])
@@ -2843,9 +2843,9 @@ class TestDispatcharrPushRefusesUnclaimedNumberCollisions(unittest.TestCase):
                          {"key": "BBCONE", "id": 7, "name": "BBC One", "number": 101})
 
     def test_push_records_a_touch_for_a_brand_new_channel_it_creates(self):
-        from probarr.dispatcharr_export import push
+        from channeliq.dispatcharr_export import push
         client = FakeDispatcharrClient()
-        result = push(client, [self._channel()], default_group_name="probarr",
+        result = push(client, [self._channel()], default_group_name="channeliq",
                      claimed_ids=set())
         self.assertEqual(result["created"], 1)
         self.assertEqual(len(result["touched"]), 1)
@@ -2889,7 +2889,7 @@ class TestSearchProgrammesAt(unittest.TestCase):
 
     def _guide(self, entries):
         """entries: [(channel_id, display_name, title, start_dt, stop_dt_or_None)]"""
-        from probarr.epg import Guide
+        from channeliq.epg import Guide
         g = Guide()
         for cid, name, title, start, stop in entries:
             g.display_names.setdefault(cid, []).append(name)
@@ -2939,7 +2939,7 @@ class TestMoveCandidate(Temp):
     has recognised as belonging elsewhere (wrong provider playlist entry)."""
 
     def test_moves_the_record_to_the_new_channel(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
@@ -2956,7 +2956,7 @@ class TestMoveCandidate(Temp):
         self.assertEqual([r for r in rows if r.get("channel_key") == "SKYCINEMAACTION"], [])
 
     def test_moves_the_captured_frame_file_too(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
@@ -2974,7 +2974,7 @@ class TestMoveCandidate(Temp):
                          "frames/" + RunStore.safe_name("SKYCINEMADRAMA|s1") + ".jpg")
 
     def test_clears_a_selection_that_pointed_at_the_old_rec_key(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
@@ -2987,7 +2987,7 @@ class TestMoveCandidate(Temp):
         self.assertEqual(sel["SKYCINEMAACTION"]["streams"], [])
 
     def test_unknown_rec_key_returns_none(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         self.assertIsNone(store.move_candidate("NOPE|s1", "ELSEWHERE"))
@@ -2996,7 +2996,7 @@ class TestMoveCandidate(Temp):
 class TestCandidateMoveEndpoint(Temp):
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -3006,7 +3006,7 @@ class TestCandidateMoveEndpoint(Temp):
 
     def test_move_via_endpoint(self):
         import json, io
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         store.append({"rec_key": "SKYCINEMAACTION|s1", "channel_key": "SKYCINEMAACTION",
@@ -3027,7 +3027,7 @@ class TestCandidateMoveEndpoint(Temp):
 
     def test_unknown_candidate_is_a_404(self):
         import json, io
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         h, sent = self._handler()
@@ -3058,11 +3058,11 @@ class TestEpgProgrammeSearchEndpoint(Temp):
             for cid, cname, title, start, stop in entries)
         with open(xml, "w", encoding="utf-8") as f:
             f.write(f'<?xml version="1.0"?><tv>{body}</tv>')
-        from probarr import epgsources
+        from channeliq import epgsources
         epgsources.save(self.root, name, pathlib.Path(xml).as_uri())
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -3072,7 +3072,7 @@ class TestEpgProgrammeSearchEndpoint(Temp):
 
     def test_finds_the_right_channel_from_the_candidates_own_probe_time(self):
         import json, datetime, time
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         # Relative to "now", not a fixed timestamp -- the guide loader's
         # own retention window is centred on real "now" at load time, not
         # on this candidate's probed_at, so a hardcoded absolute value
@@ -3101,7 +3101,7 @@ class TestEpgProgrammeSearchEndpoint(Temp):
 
     def test_unknown_candidate_is_a_404(self):
         import json
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
@@ -3113,7 +3113,7 @@ class TestEpgProgrammeSearchEndpoint(Temp):
 
     def test_blank_query_returns_no_hits_without_erroring(self):
         import json
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
@@ -3132,21 +3132,21 @@ class TestEpgList(Temp):
                        for cid, name in channels)
         with open(xml, "w", encoding="utf-8") as f:
             f.write(f'<?xml version="1.0"?><tv>{body}</tv>')
-        from probarr import epgsources
-        # KNM fix (probarr-9wl): pathlib.as_uri(), not string concat --
+        from channeliq import epgsources
+        # KNM fix (channeliq-9wl): pathlib.as_uri(), not string concat --
         # "file://" + xml is malformed on Windows (file://B:\...) and
         # fails in urlopen; as_uri() produces a real file:///B:/... URL.
         epgsources.save(self.root, "test-guide", pathlib.Path(xml).as_uri())
 
     def test_collapses_sd_hd_pairs_to_one_row(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self._guide([("1", "BBC One"), ("2", "BBC One HD")])
         out = epgcheck.list_channels(self.root, "test-guide", Normalizer())
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["guide_name"], "BBC One")
 
     def test_groups_real_regional_variants_under_one_row_with_alts(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self._guide([("1", "BBC One London"), ("2", "BBC One North West"),
                      ("3", "BBC One Scotland")])
         out = epgcheck.list_channels(self.root, "test-guide", Normalizer())
@@ -3162,7 +3162,7 @@ class TestEpgList(Temp):
         # Real data seen from open-epg.com's UK feed: <display-name> is
         # literally "4Seven.uk", not a real display name -- shown verbatim
         # and written into a wantlist as-is otherwise ("4Seven.uk | 4Seven.uk").
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self._guide([("1", "4Seven.uk"), ("2", "5Star.uk")])
         out = epgcheck.list_channels(self.root, "test-guide", Normalizer())
         names = sorted(c["guide_name"] for c in out)
@@ -3170,7 +3170,7 @@ class TestEpgList(Temp):
 
 
 class TestEpgCacheStampede(Temp):
-    """KNM fix (probarr-vz7): concurrent callers for the same EPG source URL
+    """KNM fix (channeliq-vz7): concurrent callers for the same EPG source URL
     used to each independently re-download/re-parse the guide -- confirmed
     live via py-spy as six threads simultaneously inside ElementTree
     parsing, pegging the container at 100%+ CPU. load_cached() and
@@ -3193,7 +3193,7 @@ class TestEpgCacheStampede(Temp):
 
     def test_concurrent_load_cached_calls_parse_the_guide_only_once(self):
         import threading
-        from probarr import epgcheck
+        from channeliq import epgcheck
 
         epgcheck._cache.clear()
         epgcheck._locks.clear()
@@ -3243,8 +3243,8 @@ class TestEpgCacheStampede(Temp):
 
     def test_concurrent_indexed_guide_calls_build_the_index_only_once(self):
         import threading
-        from probarr import epgcheck
-        from probarr.normalize import Normalizer
+        from channeliq import epgcheck
+        from channeliq.normalize import Normalizer
 
         epgcheck._cache.clear()
         epgcheck._locks.clear()
@@ -3309,8 +3309,8 @@ class TestExpectedNowHonoursExplicitEpgSource(Temp):
                f'<title>{programme_title}</title></programme>')
         with open(xml, "w", encoding="utf-8") as f:
             f.write(f'<?xml version="1.0"?><tv>{body}</tv>')
-        from probarr import epgsources
-        # KNM fix (probarr-9wl): pathlib.as_uri(), not string concat --
+        from channeliq import epgsources
+        # KNM fix (channeliq-9wl): pathlib.as_uri(), not string concat --
         # "file://" + xml is malformed on Windows (file://B:\...) and
         # fails in urlopen; as_uri() produces a real file:///B:/... URL.
         epgsources.save(self.root, name, pathlib.Path(xml).as_uri())
@@ -3320,8 +3320,8 @@ class TestExpectedNowHonoursExplicitEpgSource(Temp):
                 "tvg_id": ""}
 
     def test_falls_back_to_the_first_saved_source_with_no_explicit_pick(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         web_mod.Handler.root = self.root
         self._guide("aaa-old", "National Geographic", "Old Programme")
         self._guide("zzz-new", "National Geographic", "New Programme")
@@ -3330,8 +3330,8 @@ class TestExpectedNowHonoursExplicitEpgSource(Temp):
         self.assertEqual(got["title"], "Old Programme")
 
     def test_an_explicitly_picked_source_wins_even_when_listed_second(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         web_mod.Handler.root = self.root
         self._guide("aaa-old", "National Geographic", "Old Programme")
         self._guide("zzz-new", "National Geographic", "New Programme")
@@ -3341,8 +3341,8 @@ class TestExpectedNowHonoursExplicitEpgSource(Temp):
         self.assertEqual(got["title"], "New Programme")
 
     def test_falls_back_when_the_picked_source_does_not_match_this_channel(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         web_mod.Handler.root = self.root
         self._guide("aaa-old", "National Geographic", "Old Programme")
         self._guide("zzz-new", "Some Other Channel", "New Programme")
@@ -3360,7 +3360,7 @@ class TestWatermarkCrop(Temp):
     """
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -3370,12 +3370,12 @@ class TestWatermarkCrop(Temp):
         return h, sent
 
     def test_no_watermark_box_is_a_404_and_never_touches_the_frame(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         import unittest.mock
         store = RunStore(self.root, "run1")
         store.write_selection({"BBCONE": {"group": "News"}})  # no watermark_box
         h, sent = self._handler()
-        with unittest.mock.patch("probarr.web.subprocess") as fake_subprocess:
+        with unittest.mock.patch("channeliq.web.subprocess") as fake_subprocess:
             h._watermark_crop("run1", "BBCONE|s1")
             fake_subprocess.run.assert_not_called()
         self.assertEqual(sent[0][0], 404)
@@ -3387,8 +3387,8 @@ class TestWatermarkCrop(Temp):
         to read ONLY the run's own selection.json, so the crop 404'd on
         every fresh run of an existing lineup regardless of what the button
         said."""
-        from probarr.store import RunStore
-        from probarr import lineups as lineups_mod
+        from channeliq.store import RunStore
+        from channeliq import lineups as lineups_mod
         import unittest.mock
         lineups_mod.save(self.root, "my-lineup")
         lineups_mod.set_preference(self.root, "my-lineup", "BBCONE",
@@ -3401,7 +3401,7 @@ class TestWatermarkCrop(Temp):
         with open(frame_path, "wb") as f:
             f.write(b"not a real jpeg, ffmpeg is mocked")
         h, sent = self._handler()
-        with unittest.mock.patch("probarr.web.subprocess") as fake_subprocess:
+        with unittest.mock.patch("channeliq.web.subprocess") as fake_subprocess:
             fake_subprocess.CalledProcessError = Exception
             fake_subprocess.TimeoutExpired = Exception
 
@@ -3413,8 +3413,8 @@ class TestWatermarkCrop(Temp):
         self.assertEqual(sent[0][0], "FILE")
 
     def test_this_runs_own_box_wins_over_an_inherited_one(self):
-        from probarr.store import RunStore
-        from probarr import lineups as lineups_mod
+        from channeliq.store import RunStore
+        from channeliq import lineups as lineups_mod
         import unittest.mock
         lineups_mod.save(self.root, "my-lineup")
         lineups_mod.set_preference(self.root, "my-lineup", "BBCONE",
@@ -3428,7 +3428,7 @@ class TestWatermarkCrop(Temp):
         with open(frame_path, "wb") as f:
             f.write(b"not a real jpeg, ffmpeg is mocked")
         h, sent = self._handler()
-        with unittest.mock.patch("probarr.web.subprocess") as fake_subprocess:
+        with unittest.mock.patch("channeliq.web.subprocess") as fake_subprocess:
             fake_subprocess.CalledProcessError = Exception
             fake_subprocess.TimeoutExpired = Exception
             captured_cmd = []
@@ -3449,7 +3449,7 @@ class TestWatermarkCrop(Temp):
         self.assertIn(own_hash, sent[0][1][1])
 
     def test_missing_frame_file_is_a_404(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1")
         store.write_selection({"BBCONE": {"watermark_box":
                                {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.1}}})
@@ -3459,7 +3459,7 @@ class TestWatermarkCrop(Temp):
         self.assertEqual(sent[0][0], 404)
 
     def test_crops_the_existing_frame_and_serves_the_result(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         import unittest.mock
         store = RunStore(self.root, "run1")
         store.write_selection({"BBCONE": {"watermark_box":
@@ -3469,7 +3469,7 @@ class TestWatermarkCrop(Temp):
         with open(frame_path, "wb") as f:
             f.write(b"not a real jpeg, ffmpeg is mocked")
         h, sent = self._handler()
-        with unittest.mock.patch("probarr.web.subprocess") as fake_subprocess:
+        with unittest.mock.patch("channeliq.web.subprocess") as fake_subprocess:
             fake_subprocess.CalledProcessError = Exception
             fake_subprocess.TimeoutExpired = Exception
 
@@ -3487,7 +3487,7 @@ class TestWatermarkCrop(Temp):
             RunStore.safe_name("BBCONE|s1")))
 
     def test_redrawing_the_box_produces_a_different_cached_filename(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         import unittest.mock
         store = RunStore(self.root, "run1")
         frame_path = store.frame_path("BBCONE|s1")
@@ -3498,7 +3498,7 @@ class TestWatermarkCrop(Temp):
         def crop_with(box):
             store.write_selection({"BBCONE": {"watermark_box": box}})
             h, sent = self._handler()
-            with unittest.mock.patch("probarr.web.subprocess") as fake_subprocess:
+            with unittest.mock.patch("channeliq.web.subprocess") as fake_subprocess:
                 fake_subprocess.CalledProcessError = Exception
                 fake_subprocess.TimeoutExpired = Exception
                 def fake_run(cmd, **kw):
@@ -3521,7 +3521,7 @@ class TestWatermarkCrop(Temp):
         # AREA changes; a re-probe changes the PICTURE, not the area.
         import time
         import unittest.mock
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
 
         store = RunStore(self.root, "run1")
         store.write_selection({"BBCONE": {"watermark_box":
@@ -3533,7 +3533,7 @@ class TestWatermarkCrop(Temp):
             with open(frame_path, "wb") as f:
                 f.write(marker)
             h, sent = self._handler()
-            with unittest.mock.patch("probarr.web.subprocess") as fake_subprocess:
+            with unittest.mock.patch("channeliq.web.subprocess") as fake_subprocess:
                 fake_subprocess.CalledProcessError = Exception
                 fake_subprocess.TimeoutExpired = Exception
                 def fake_run(cmd, **kw):
@@ -3563,7 +3563,7 @@ class TestWatermarkCrop(Temp):
 
 
 class TestEpgSourceConsensus(Temp):
-    """probarr never scored EPG matches against each other or read a
+    """channeliq never scored EPG matches against each other or read a
     guide's own <icon> at all -- both real gaps, not different approaches
     to something already covered. Word-overlap scoring lets a household
     running more than one EPG source prefer whichever source's own name
@@ -3580,18 +3580,18 @@ class TestEpgSourceConsensus(Temp):
             for cid, dname, icon in channels)
         with open(xml, "w", encoding="utf-8") as f:
             f.write(f'<?xml version="1.0"?><tv>{body}</tv>')
-        from probarr import epgsources
-        # KNM fix (probarr-9wl): pathlib.as_uri(), not string concat --
+        from channeliq import epgsources
+        # KNM fix (channeliq-9wl): pathlib.as_uri(), not string concat --
         # "file://" + xml is malformed on Windows (file://B:\...) and
         # fails in urlopen; as_uri() produces a real file:///B:/... URL.
         epgsources.save(self.root, name, pathlib.Path(xml).as_uri())
 
     def test_word_set_ignores_punctuation_and_case(self):
-        from probarr.epgcheck import _word_set
+        from channeliq.epgcheck import _word_set
         self.assertEqual(_word_set("UK: BBC Two!"), {"UK", "BBC", "TWO"})
 
     def test_check_all_scores_by_shared_words_not_just_match_or_not(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self._guide("good-guide", [("1", "BBC Two Lon", None)])
         self._guide("vague-guide", [("2", "BBC Two Lon", None)])
         out = epgcheck.check_all(self.root, "UK: BBC Two", "", Normalizer())
@@ -3603,7 +3603,7 @@ class TestEpgSourceConsensus(Temp):
             self.assertGreaterEqual(entry["score"], 2)   # "BBC" and "TWO"
 
     def test_consensus_requires_at_least_two_sources_to_actually_agree(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         # One source matches well, the other doesn't carry this channel at
         # all -- a single opinion, however good, is not a consensus.
         self._guide("has-it", [("1", "BBC Two Lon", None)])
@@ -3615,7 +3615,7 @@ class TestEpgSourceConsensus(Temp):
         self.assertFalse(winner["consensus"])
 
     def test_consensus_true_when_two_sources_independently_agree(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self._guide("src-a", [("1", "BBC Two Lon", None)])
         self._guide("src-b", [("2", "BBC Two North", None)])
         out = epgcheck.check_all(self.root, "UK: BBC Two", "", Normalizer())
@@ -3623,14 +3623,14 @@ class TestEpgSourceConsensus(Temp):
         self.assertTrue(winner["consensus"])
 
     def test_logo_is_read_from_the_winning_sources_icon(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self._guide("with-icon", [("1", "BBC Two Lon", "https://x/bbctwo.png")])
         out = epgcheck.check_all(self.root, "UK: BBC Two", "", Normalizer())
         winner = epgcheck.consensus_winner(out)
         self.assertEqual(winner["logo"], "https://x/bbctwo.png")
 
     def test_trust_tiebreaks_equally_scored_sources(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         # Two sources score identically for this channel -- give one of
         # them a real track record of winning past consensus checks and
         # confirm it's preferred over the other, not just whichever comes
@@ -3645,7 +3645,7 @@ class TestEpgSourceConsensus(Temp):
         self.assertEqual(winner["source"], "zzz-veteran")
 
     def test_bump_trust_is_best_effort_and_never_raises(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         # A root that cannot be written to (nonexistent parent) must not
         # bring down whatever real request triggered this as a side effect.
         epgcheck._bump_trust("/no/such/directory", "x", ["x"])  # must not raise
@@ -3655,7 +3655,7 @@ class TestEpgSourceConsensus(Temp):
         # when present -- _epg_fallback_logo() is only ever CALLED for a
         # channel whose primary candidate's logo is falsy in the first
         # place, so this exercises the fallback resolver itself.
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         self._guide("only-guide", [("1", "BBC Two Lon", "https://x/bbctwo.png")])
         web_mod.Handler.root = self.root
         handler = web_mod.Handler.__new__(web_mod.Handler)
@@ -3664,7 +3664,7 @@ class TestEpgSourceConsensus(Temp):
             "https://x/bbctwo.png")
 
     def test_epg_fallback_logo_is_empty_string_not_none_or_error_when_nothing_matches(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         handler = web_mod.Handler.__new__(web_mod.Handler)
         self.assertEqual(handler._epg_fallback_logo("Totally Unmatched Channel", ""), "")
@@ -3676,7 +3676,7 @@ class TestEpgSourceConsensus(Temp):
         # routinely outlasts its TTL) or a restart (cold by definition).
         # prewarm_all_sources() is meant to pay that cost ahead of time,
         # in the background, at exactly those two moments.
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self._guide("src-a", [("1", "BBC Two Lon", None)])
         self._guide("src-b", [("2", "BBC Two North", None)])
         epgcheck._cache.clear()
@@ -3686,8 +3686,8 @@ class TestEpgSourceConsensus(Temp):
         self.assertEqual(len(epgcheck._indexed), 2)
 
     def test_prewarm_is_best_effort_and_never_raises_on_a_bad_source(self):
-        from probarr import epgcheck
-        from probarr import epgsources
+        from channeliq import epgcheck
+        from channeliq import epgsources
         epgsources.save(self.root, "broken", "file:///no/such/file.xml")
         epgcheck.prewarm_all_sources(self.root, Normalizer())  # must not raise
 
@@ -3699,14 +3699,14 @@ class TestEpgConsensus(Temp):
                        for cid, name in channels)
         with open(xml, "w", encoding="utf-8") as f:
             f.write(f'<?xml version="1.0"?><tv>{body}</tv>')
-        from probarr import epgsources
-        # KNM fix (probarr-9wl): pathlib.as_uri(), not string concat --
+        from channeliq import epgsources
+        # KNM fix (channeliq-9wl): pathlib.as_uri(), not string concat --
         # "file://" + xml is malformed on Windows (file://B:\...) and
         # fails in urlopen; as_uri() produces a real file:///B:/... URL.
         epgsources.save(self.root, "test-guide", pathlib.Path(xml).as_uri())
 
     def test_display_clean_leaves_ordinary_names_alone(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self.assertEqual(epgcheck._display_clean("BBC One"), "BBC One")
         self.assertEqual(epgcheck._display_clean("Sky Sports F1"), "Sky Sports F1")
 
@@ -3717,12 +3717,12 @@ class TestEpgConsensus(Temp):
         # to strip with no space, so the fix can't just require a plain
         # word boundary -- it has to tell "glued-on tag" apart from
         # "coincidentally ends in the same letters".
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self.assertEqual(epgcheck._strip_region("Sky One"), "Sky One")
         self.assertEqual(epgcheck._strip_region("BBC One EastHD"), "BBC One")
 
     def test_unrelated_channels_are_never_grouped_together(self):
-        from probarr import epgcheck
+        from channeliq import epgcheck
         self._guide([("1", "BBC One London"), ("2", "ITV1 London")])
         out = epgcheck.list_channels(self.root, "test-guide", Normalizer())
         self.assertEqual(len(out), 2)
@@ -3732,7 +3732,7 @@ class TestEpgConsensus(Temp):
 
 class TestBackup(Temp):
     def test_round_trips_config_and_run_state(self):
-        from probarr import backup as backup_mod
+        from channeliq import backup as backup_mod
         providers.save(self.root, "myprov", "http://example.com/list.m3u")
         s = RunStore(self.root, "run1")
         s.write_meta({"run_id": "run1"})  # list_runs() only sees a run via run.json
@@ -3742,7 +3742,7 @@ class TestBackup(Temp):
 
         data = backup_mod.export_tar(self.root)
 
-        fresh = tempfile.mkdtemp(prefix="probarr-test-restore-")
+        fresh = tempfile.mkdtemp(prefix="channeliq-test-restore-")
         self.addCleanup(shutil.rmtree, fresh, ignore_errors=True)
         backup_mod.import_tar(fresh, data)
 
@@ -3755,7 +3755,7 @@ class TestBackup(Temp):
         import io
         import tarfile
         import uuid
-        from probarr import backup as backup_mod
+        from channeliq import backup as backup_mod
         # A marker name unique to this run, NOT a real system path. The
         # original version escaped to "../../etc/passwd" and then asserted
         # that path did not exist -- which on Linux resolves to the real
@@ -3764,7 +3764,7 @@ class TestBackup(Temp):
         # two levels down (/tmp/xxx), and "passed" on macOS only because
         # its temp dirs are nested deeper. It never tested the property it
         # claimed. Caught by CI the first time the suite was made blocking.
-        marker = f"probarr-traversal-{uuid.uuid4().hex}.txt"
+        marker = f"channeliq-traversal-{uuid.uuid4().hex}.txt"
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w:gz") as tar:
             info = tarfile.TarInfo(name=f"../../{marker}")
@@ -3829,17 +3829,17 @@ class TestLineups(Temp):
 class TestCredentials(Temp):
     def test_redaction_hides_every_secret_form(self):
         for spec, secret in [
-                ("https://p.tv/get.php?u=bob&p=hunter2", "hunter2"),  # probarr:allow-secret
-                ("dispatcharr://admin:s3cret@10.0.0.1:9191", "s3cret"),  # probarr:allow-secret
-                ("xtream://user:pw123@panel.tv", "pw123")]:  # probarr:allow-secret
+                ("https://p.tv/get.php?u=bob&p=hunter2", "hunter2"),  # channeliq:allow-secret
+                ("dispatcharr://admin:s3cret@10.0.0.1:9191", "s3cret"),  # channeliq:allow-secret
+                ("xtream://user:pw123@panel.tv", "pw123")]:  # channeliq:allow-secret
             self.assertNotIn(secret, providers.redact(spec))
 
     def test_settings_redact_hides_source_and_epg_credentials(self):
         # GET /api/settings must never hand back what write() actually
         # stored -- source/epg may be an xtream://user:pass@host spec.
-        secret = "hunter2"  # probarr:allow-secret
+        secret = "hunter2"  # channeliq:allow-secret
         values = settings.write(self.root, {
-            "source": "xtream://bob:" + secret + "@panel.tv"})  # probarr:allow-secret
+            "source": "xtream://bob:" + secret + "@panel.tv"})  # channeliq:allow-secret
         redacted = settings.redact(values)
         self.assertNotIn(secret, json.dumps(redacted))
         # And the real value must still be recoverable server-side --
@@ -3853,7 +3853,7 @@ class TestCredentials(Temp):
 
 
 class TestSameOriginWriteGuard(Temp):
-    """probarr-tj0: /api/settings and /api/backup/import had no auth at all
+    """channeliq-tj0: /api/settings and /api/backup/import had no auth at all
     -- any device on the LAN could blind-POST and overwrite provider
     credentials with a bare curl, no session or browser required.
     _same_origin() closes that without needing a login system: a real
@@ -3862,39 +3862,39 @@ class TestSameOriginWriteGuard(Temp):
     """
 
     def _handler(self, headers):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         h.headers = headers
         return h
 
     def test_rejects_request_with_no_origin_or_referer(self):
-        h = self._handler({"Host": "192.168.1.243:7799"})  # probarr:allow-secret (test fixture IP, not real)
+        h = self._handler({"Host": "192.168.1.243:7799"})  # channeliq:allow-secret (test fixture IP, not real)
         self.assertFalse(h._same_origin())
 
     def test_rejects_mismatched_origin(self):
-        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
+        h = self._handler({"Host": "192.168.1.243:7799",  # channeliq:allow-secret (test fixture IP, not real)
                             "Origin": "http://evil.example:1234"})
         self.assertFalse(h._same_origin())
 
     def test_accepts_matching_origin(self):
-        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
-                            "Origin": "http://192.168.1.243:7799"})  # probarr:allow-secret (test fixture IP, not real)
+        h = self._handler({"Host": "192.168.1.243:7799",  # channeliq:allow-secret (test fixture IP, not real)
+                            "Origin": "http://192.168.1.243:7799"})  # channeliq:allow-secret (test fixture IP, not real)
         self.assertTrue(h._same_origin())
 
     def test_accepts_matching_referer_when_origin_absent(self):
-        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
-                            "Referer": "http://192.168.1.243:7799/settings"})  # probarr:allow-secret (test fixture IP, not real)
+        h = self._handler({"Host": "192.168.1.243:7799",  # channeliq:allow-secret (test fixture IP, not real)
+                            "Referer": "http://192.168.1.243:7799/settings"})  # channeliq:allow-secret (test fixture IP, not real)
         self.assertTrue(h._same_origin())
 
     def test_rejects_with_no_host_header_at_all(self):
-        h = self._handler({"Origin": "http://192.168.1.243:7799"})  # probarr:allow-secret (test fixture IP, not real)
+        h = self._handler({"Origin": "http://192.168.1.243:7799"})  # channeliq:allow-secret (test fixture IP, not real)
         self.assertFalse(h._same_origin())
 
     def test_settings_post_rejects_cross_origin_write(self):
-        from probarr import web as web_mod
-        from probarr import settings as settings_mod
-        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
+        from channeliq import web as web_mod
+        from channeliq import settings as settings_mod
+        h = self._handler({"Host": "192.168.1.243:7799",  # channeliq:allow-secret (test fixture IP, not real)
                             "Origin": "http://evil.example"})
         h.path = "/api/settings"
         h.command = "POST"
@@ -3910,10 +3910,10 @@ class TestSameOriginWriteGuard(Temp):
         self.assertNotEqual(settings_mod.read(self.root).get("concurrency"), 99)
 
     def test_settings_post_accepts_same_origin_write(self):
-        from probarr import web as web_mod
-        from probarr import settings as settings_mod
-        h = self._handler({"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
-                            "Origin": "http://192.168.1.243:7799"})  # probarr:allow-secret (test fixture IP, not real)
+        from channeliq import web as web_mod
+        from channeliq import settings as settings_mod
+        h = self._handler({"Host": "192.168.1.243:7799",  # channeliq:allow-secret (test fixture IP, not real)
+                            "Origin": "http://192.168.1.243:7799"})  # channeliq:allow-secret (test fixture IP, not real)
         h.path = "/api/settings"
         h.command = "POST"
         payload = json.dumps({"concurrency": 5}).encode("utf-8")
@@ -3939,7 +3939,7 @@ class TestKeydownGuardsEveryModal(unittest.TestCase):
     """
 
     def test_the_generic_any_modal_open_guard_is_present(self):
-        from probarr import curate
+        from channeliq import curate
         # Must appear BEFORE the j/k/arrow navigation branch, and must be
         # a generic "any .modal.on" check -- not a per-id list, which is
         # exactly the shape that missed every modal except two.
@@ -3962,16 +3962,16 @@ class TestCatalogCacheThreadSafety(Temp):
     """
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         web_mod.Handler._catalog_cache = {}
         h = web_mod.Handler.__new__(web_mod.Handler)
         h._norm = lambda: __import__(
-            "probarr.normalize", fromlist=["Normalizer"]).Normalizer()
+            "channeliq.normalize", fromlist=["Normalizer"]).Normalizer()
         return h
 
     def test_a_second_specs_build_does_not_evict_the_first(self):
-        from probarr.sources.base import Stream
+        from channeliq.sources.base import Stream
         h = self._handler()
         calls = []
         def fake_load(spec):
@@ -3999,7 +3999,7 @@ class TestCatalogCacheThreadSafety(Temp):
                          "changed -- B's miss must not evict A's entry")
 
     def test_concurrent_builds_for_two_specs_each_land_correctly(self):
-        from probarr.sources.base import Stream
+        from channeliq.sources.base import Stream
         h = self._handler()
         barrier = threading.Barrier(2)
         def fake_load(spec):
@@ -4042,7 +4042,7 @@ class TestCarryForwardScopedPerChannel(Temp):
 
     def _lineup_run(self, run_id, lineup, channel_key, stream_id, status,
                     age_hours=1):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, run_id, create=True)
         store.write_meta({"lineup": lineup, "run_state": "done"})
         store.append({"rec_key": f"{channel_key}|{stream_id}",
@@ -4052,9 +4052,9 @@ class TestCarryForwardScopedPerChannel(Temp):
         return store
 
     def test_a_shared_stream_id_does_not_carry_forward_an_out_of_scope_channel(self):
-        from probarr import runner
-        from probarr.settings import write as write_settings
-        from probarr.sources.base import Stream
+        from channeliq import runner
+        from channeliq.settings import write as write_settings
+        from channeliq.sources.base import Stream
         write_settings(self.root, {"freshness_hours": 24})
 
         # Prior run had BOTH channels, sharing one stream id (the same URL
@@ -4090,7 +4090,7 @@ class TestXtreamCategoryLookupSurvivesNumericIds(unittest.TestCase):
     """
 
     def test_a_numeric_category_id_still_resolves_a_group_name(self):
-        from probarr.sources.xtream import Xtream
+        from channeliq.sources.xtream import Xtream
         x = Xtream("http://fake", "u", "p")
         x._api = lambda action, **kw: (
             [{"category_id": 5, "category_name": "Sport"}]
@@ -4111,7 +4111,7 @@ class TestGuideKeepsAWindowSpanningProgramme(Temp):
 
     def test_a_programme_spanning_the_whole_window_is_kept(self):
         import datetime as _dt
-        from probarr.epg import Guide
+        from channeliq.epg import Guide
         at = _dt.datetime.now(_dt.timezone.utc)
         start = (at - _dt.timedelta(hours=100)).strftime("%Y%m%d%H%M%S +0000")
         stop = (at + _dt.timedelta(hours=100)).strftime("%Y%m%d%H%M%S +0000")
@@ -4150,14 +4150,14 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
 
     def _guide(self, entries):
         """entries: [(channel_id, display_name)]"""
-        from probarr.epg import Guide
+        from channeliq.epg import Guide
         g = Guide()
         for cid, name in entries:
             g.display_names.setdefault(cid, []).append(name)
         return g
 
     def test_an_sd_hd_pair_auto_resolves_to_the_hd_copy(self):
-        from probarr.normalize import Normalizer
+        from channeliq.normalize import Normalizer
         g = self._guide([("1412.sky.uk", "Sky Atlantic"),
                          ("4053.sky.uk", "Sky Atlantic HD")])
         g.build_name_index(Normalizer())
@@ -4168,7 +4168,7 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
         # -- NOT a quality-tier duplicate, and must keep refusing exactly
         # as before. Auto-resolving this would be the same wrong-guess
         # this was built to avoid, just for a different root cause.
-        from probarr.normalize import Normalizer
+        from channeliq.normalize import Normalizer
         g = self._guide([("uk.sky.uk", "UK: Sky News"),
                          ("us.sky.uk", "US: Sky News")])
         g.build_name_index(Normalizer())
@@ -4178,13 +4178,13 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
         # Not a clean SD/HD pair -- two separately-HD-tagged rows (a merged
         # feed's own duplicate, say). "Exactly one HD candidate" is the
         # actual rule, not "prefer whichever HD one comes first".
-        from probarr.normalize import Normalizer
+        from channeliq.normalize import Normalizer
         g = self._guide([("a", "Sky Atlantic HD"), ("b", "Sky Atlantic HD ")])
         g.build_name_index(Normalizer())
         self.assertIsNone(g.resolve(None, "Sky Atlantic", Normalizer()))
 
     def test_an_unambiguous_channel_still_resolves_fine(self):
-        from probarr.normalize import Normalizer
+        from channeliq.normalize import Normalizer
         g = self._guide([("1412.sky.uk", "Sky Atlantic"),
                          ("4053.sky.uk", "Sky Atlantic HD"),
                          ("2201.sky.uk", "Sky Witness")])
@@ -4196,7 +4196,7 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
         # index at all -- an explicit id must win even over the auto
         # HD-preference, e.g. an operator who deliberately wants the SD
         # feed linked (a slower connection, say).
-        from probarr.normalize import Normalizer
+        from channeliq.normalize import Normalizer
         g = self._guide([("1412.sky.uk", "Sky Atlantic"),
                          ("4053.sky.uk", "Sky Atlantic HD")])
         g.build_name_index(Normalizer())
@@ -4211,7 +4211,7 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
         # normalizer.key("Sky Atlantic+1") IS a prefix match for "Sky
         # Atlantic", even though a +1 channel is an hour-shifted,
         # genuinely different schedule, not a spelling variant.
-        from probarr.normalize import Normalizer
+        from channeliq.normalize import Normalizer
         g = self._guide([("uk.sky.uk", "UK: Sky Atlantic"),
                          ("us.sky.uk", "US: Sky Atlantic"),
                          ("1413.sky.uk", "Sky Atlantic+1")])
@@ -4221,7 +4221,7 @@ class TestGuideRefusesAnSdHdNameCollision(unittest.TestCase):
     def test_a_plus1_query_can_still_resolve_to_its_own_plus1_entry(self):
         # The timeshift guard must not be so broad it blocks a genuine
         # "+1" channel from ever resolving at all.
-        from probarr.normalize import Normalizer
+        from channeliq.normalize import Normalizer
         g = self._guide([("1412.sky.uk", "Sky Atlantic"),
                          ("1413.sky.uk", "Sky Atlantic+1")])
         g.build_name_index(Normalizer())
@@ -4238,8 +4238,8 @@ class TestDoublePushIsRejected(Temp):
     """
 
     def _setup_run(self):
-        from probarr.store import RunStore
-        from probarr import providers as providers_mod
+        from channeliq.store import RunStore
+        from channeliq import providers as providers_mod
         store = RunStore(self.root, "run1", create=True)
         store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
                      "stream_id": "s1", "status": "ok", "url": "http://x/1",
@@ -4248,11 +4248,11 @@ class TestDoublePushIsRejected(Temp):
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
         providers_mod.save(self.root, "dp1",
-                          "dispatcharr://u:p@192.168.1.1:9191")  # probarr:allow-secret (test fixture)
+                          "dispatcharr://u:p@192.168.1.1:9191")  # channeliq:allow-secret (test fixture)
         return store
 
     def test_two_near_simultaneous_pushes_only_one_is_accepted(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         web_mod.Handler._push_locks = {}
         self._setup_run()
@@ -4277,7 +4277,7 @@ class TestDoublePushIsRejected(Temp):
             time.sleep(0.05)
             return orig_read(store_self)
 
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         orig_read = RunStore.read_push_status
         results = []
         def go():
@@ -4326,8 +4326,8 @@ class TestWantlistWritesAreSerializedPerRun(Temp):
     """
 
     def test_two_concurrent_renames_do_not_clobber_each_other(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         web_mod.Handler.root = self.root
         web_mod.Handler._wantlist_locks = {}
 
@@ -4373,8 +4373,8 @@ class TestRenameChannelWithNoWantlistEntry(Temp):
     not just by numbering it."""
 
     def test_renaming_creates_the_missing_wantlist_entry(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         web_mod.Handler.root = self.root
         web_mod.Handler._wantlist_locks = {}
         store = RunStore(self.root, "run1", create=True)
@@ -4395,14 +4395,14 @@ class TestRenameChannelWithNoWantlistEntry(Temp):
 class TestClaimIntoRun(Temp):
     """Real user-reported bug: assigning an "Unclaimed" Dispatcharr channel
     to the run that already curates it -- the single most common case,
-    since Unclaimed's whole reason to exist is channels probarr pushed
+    since Unclaimed's whole reason to exist is channels channeliq pushed
     before the claims system existed -- failed with "a channel with this
     name is already in this run". That was true and useless: the fix is
     to claim the existing wantlist entry in place, not to require a
     brand new one."""
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         web_mod.Handler._wantlist_locks = {}
         h = web_mod.Handler.__new__(web_mod.Handler)
@@ -4412,8 +4412,8 @@ class TestClaimIntoRun(Temp):
         return h, sent
 
     def test_claiming_a_channel_already_in_the_run_relinks_instead_of_erroring(self):
-        from probarr import claims
-        from probarr.store import RunStore
+        from channeliq import claims
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
@@ -4430,7 +4430,7 @@ class TestClaimIntoRun(Temp):
         self.assertTrue(claims.is_claimed(self.root, 55))
 
     def test_relinking_backfills_a_missing_number_but_never_overwrites_one(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": None, "name": "BBC One"}], [])
@@ -4452,7 +4452,7 @@ class TestClaimIntoRun(Temp):
         self.assertEqual(wanted2[0]["number"], 101)
 
     def test_a_genuinely_new_channel_is_still_appended(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
@@ -4476,7 +4476,7 @@ class TestDeleteUnclaimedChannel(Temp):
     no run/selection to stage the deletion against in the first place."""
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -4494,7 +4494,7 @@ class TestDeleteUnclaimedChannel(Temp):
 
     def test_deletes_the_channel_and_clears_any_stale_claim(self):
         import json
-        from probarr import web as web_mod, providers, claims
+        from channeliq import web as web_mod, providers, claims
         providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
         claims.claim(self.root, 55, "OLDKEY", "Old Name")
         calls = []
@@ -4508,14 +4508,14 @@ class TestDeleteUnclaimedChannel(Temp):
         self.assertFalse(claims.is_claimed(self.root, 55))
 
     def test_rejects_a_provider_that_is_not_dispatcharr(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "iptv", "http://example/x.m3u")
         h, sent = self._handler()
         h._delete_unclaimed_channel({"provider": "iptv", "dispatcharr_id": 55})
         self.assertEqual(sent[-1][0], 404)
 
     def test_reports_a_dispatcharr_error_without_crashing(self):
-        from probarr import web as web_mod, providers
+        from channeliq import web as web_mod, providers
         providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
         client = unittest.mock.MagicMock()
         client.api.side_effect = RuntimeError("boom")
@@ -4528,7 +4528,7 @@ class TestDeleteUnclaimedChannel(Temp):
 class TestDeleteUnclaimedChannelsBulk(Temp):
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -4538,7 +4538,7 @@ class TestDeleteUnclaimedChannelsBulk(Temp):
 
     def test_deletes_several_and_reports_errors_separately(self):
         import json
-        from probarr import web as web_mod, providers, claims
+        from channeliq import web as web_mod, providers, claims
         providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
         claims.claim(self.root, 1, "A", "A")
         claims.claim(self.root, 2, "B", "B")
@@ -4563,7 +4563,7 @@ class TestDeleteUnclaimedChannelsBulk(Temp):
                         "a channel whose delete FAILED must keep its claim")
 
     def test_requires_a_non_empty_id_list(self):
-        from probarr import providers
+        from channeliq import providers
         providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
         h, sent = self._handler()
         h._delete_unclaimed_channels_bulk({"provider": "dp", "dispatcharr_ids": []})
@@ -4576,7 +4576,7 @@ class TestClaimIntoRunBulk(Temp):
     as the single-channel endpoint via _claim_one_into_wantlist."""
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         web_mod.Handler._wantlist_locks = {}
         h = web_mod.Handler.__new__(web_mod.Handler)
@@ -4587,8 +4587,8 @@ class TestClaimIntoRunBulk(Temp):
 
     def test_assigns_a_mix_of_relinked_and_new_channels_in_one_call(self):
         import json
-        from probarr import claims
-        from probarr.store import RunStore
+        from channeliq import claims
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
@@ -4616,7 +4616,7 @@ class TestClaimIntoRunBulk(Temp):
 
     def test_one_bad_entry_does_not_block_the_rest_of_the_batch(self):
         import json
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([], [])
         store.append({"rec_key": "X|s1", "channel_key": "X", "stream_id": "s1",
@@ -4635,7 +4635,7 @@ class TestClaimIntoRunBulk(Temp):
         self.assertEqual(wanted[0]["key"], "ITV")
 
     def test_requires_a_non_empty_channel_list(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.append({"rec_key": "X|s1", "channel_key": "X", "stream_id": "s1",
                      "status": "ok"})
@@ -4651,7 +4651,7 @@ class TestRenumberChannel(Temp):
     endpoint. _renumber_channel is the server half of that."""
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         web_mod.Handler._wantlist_locks = {}
         h = web_mod.Handler.__new__(web_mod.Handler)
@@ -4661,7 +4661,7 @@ class TestRenumberChannel(Temp):
         return h, sent
 
     def test_sets_a_missing_number(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "A", "number": None, "name": "A"}], [])
@@ -4676,7 +4676,7 @@ class TestRenumberChannel(Temp):
                          "the new number was not written back to the wantlist")
 
     def test_rejects_a_number_already_used_by_another_channel(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "A", "number": None, "name": "A"},
@@ -4695,7 +4695,7 @@ class TestRenumberChannel(Temp):
         self.assertIsNone(wanted["A"])
 
     def test_rejects_non_positive_numbers(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": None, "name": "A"}], [])
         store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
@@ -4714,7 +4714,7 @@ class TestRenumberChannel(Temp):
         not in this run's wantlist", which is true but useless: the curator
         is looking straight at it in the UI and has no other way to add it.
         """
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([], [])
         store.append({"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
@@ -4729,7 +4729,7 @@ class TestRenumberChannel(Temp):
         self.assertEqual(wanted[0]["key"], "A")
 
     def test_still_404s_for_a_channel_with_no_probe_results_either(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([], [])
         store.append({"rec_key": "X|s1", "channel_key": "X", "stream_id": "s1",
@@ -4746,8 +4746,8 @@ class TestRenumberChannel(Temp):
         3007 was already "TNT Sports 6" in Dispatcharr. Setting the number
         must surface that collision immediately, right where it's set.
         """
-        from probarr.store import RunStore
-        from probarr import web as web_mod, providers
+        from channeliq.store import RunStore
+        from channeliq import web as web_mod, providers
         providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": None, "name": "A"}], [])
@@ -4765,8 +4765,8 @@ class TestRenumberChannel(Temp):
         self.assertEqual(payload["dispatcharr_collision"], "TNT Sports 6")
 
     def test_no_warning_when_the_number_is_actually_free(self):
-        from probarr.store import RunStore
-        from probarr import web as web_mod, providers
+        from channeliq.store import RunStore
+        from channeliq import web as web_mod, providers
         providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": None, "name": "A"}], [])
@@ -4784,8 +4784,8 @@ class TestRenumberChannel(Temp):
     def test_no_warning_when_this_run_already_claimed_that_dispatcharr_channel(self):
         """A number claimed as an intentional relink (see claims.py) is not
         a collision -- it's the same channel, just not yet tagged."""
-        from probarr.store import RunStore
-        from probarr import web as web_mod, providers, claims
+        from channeliq.store import RunStore
+        from channeliq import web as web_mod, providers, claims
         providers.save(self.root, "dp", "dispatcharr://u:p@host:9191")
         claims.claim(self.root, 9, "A", "A")
         store = RunStore(self.root, "run1", create=True)
@@ -4805,8 +4805,8 @@ class TestRenumberChannel(Temp):
         """Without this, a number set by hand in Curate would revert to
         unset the next time the wantlist is rebuilt from the provider --
         the exact loss the rename endpoint already avoids for names."""
-        from probarr.store import RunStore
-        from probarr import lineups as lineups_mod
+        from channeliq.store import RunStore
+        from channeliq import lineups as lineups_mod
         lineups_mod.save(self.root, "my-lineup", provider="p1")
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({"lineup": "my-lineup"})
@@ -4833,7 +4833,7 @@ class TestMediaDurationUsesConfiguredTimeout(unittest.TestCase):
     """
 
     def test_probe_timeout_is_passed_to_the_duration_probe(self):
-        from probarr.probe import _media_duration, ProbeOptions
+        from channeliq.probe import _media_duration, ProbeOptions
         seen = {}
         def fake_run(cmd, timeout):
             seen["timeout"] = timeout
@@ -4842,7 +4842,7 @@ class TestMediaDurationUsesConfiguredTimeout(unittest.TestCase):
                 stdout = b"12.5"
             return R(), False
         opts = ProbeOptions(probe_timeout=99)
-        with unittest.mock.patch("probarr.probe._run", fake_run):
+        with unittest.mock.patch("channeliq.probe._run", fake_run):
             dur = _media_duration("/tmp/x.ts", opts)
         self.assertEqual(seen["timeout"], 99)
         self.assertEqual(dur, 12.5)
@@ -4853,13 +4853,13 @@ class TestRankPickExcludesPlaceholders(unittest.TestCase):
     filter included STATUS_PLACEHOLDER alongside ok/dirty, directly
     contradicting this module's own _STATUS_RANK comment ("Dead, frameless
     and placeholder streams are unusable and stay at the bottom"). Dead
-    code today (no caller anywhere in probarr/ or tests/), but a latent
+    code today (no caller anywhere in channeliq/ or tests/), but a latent
     trap for whoever wires it up next, given it looks like the ranking
     module's obvious public entry point.
     """
 
     def test_a_placeholder_candidate_is_never_returned_as_usable(self):
-        from probarr.rank import pick
+        from channeliq.rank import pick
         results = [
             {"rec_key": "a", "status": "placeholder", "width": 1920,
             "height": 1080, "corruption_errors": 0},
@@ -4932,7 +4932,7 @@ class TestWizardRoute(Temp):
     """/wizard: manually-launched setup wizard, never auto-triggered."""
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -4950,7 +4950,7 @@ class TestWizardRoute(Temp):
         self.assertIn("Connect Dispatcharr", body)
 
     def test_nav_links_to_it(self):
-        from probarr.theme import _NAV_SETUP
+        from channeliq.theme import _NAV_SETUP
         self.assertIn(("wizard", "/wizard", "Setup wizard"), _NAV_SETUP)
 
 
@@ -4959,8 +4959,8 @@ class TestPageTemplates(unittest.TestCase):
     inside a Python string, with escapes the interpreter silently ate."""
 
     def _pages(self):
-        from probarr import web as web_mod
-        from probarr import wizard as wizard_mod
+        from channeliq import web as web_mod
+        from channeliq import wizard as wizard_mod
         return {"curate": curate.HTML, "runs_index": web_mod.INDEX,
                 "wizard": wizard_mod.WIZARD_PAGE,
                 **{n: getattr(pages, n) for n in
@@ -4975,9 +4975,9 @@ class TestPageTemplates(unittest.TestCase):
         # that silently killed the whole script tag -- including the
         # unrelated Delete button's listener in the same block). Scanning
         # web.py here too is what would have caught it before it shipped.
-        for path in ("probarr/curate.py", "probarr/pages.py", "probarr/web.py",
-                    "probarr/wizard.py"):
-            # KNM fix (probarr-vyx): explicit encoding, not the platform
+        for path in ("channeliq/curate.py", "channeliq/pages.py", "channeliq/web.py",
+                    "channeliq/wizard.py"):
+            # KNM fix (channeliq-vyx): explicit encoding, not the platform
             # default -- on Windows that's cp1252, and web.py contains a
             # byte that isn't valid cp1252, erroring the test outright.
             with open(os.path.join(os.path.dirname(
@@ -4995,7 +4995,7 @@ class TestPageTemplates(unittest.TestCase):
             self.assertNotIn(r"\\u", html, f"{name} has a doubled escape")
 
     def test_every_placeholder_is_substituted_when_rendered(self):
-        from probarr import wizard as wizard_mod
+        from channeliq import wizard as wizard_mod
         rendered = [pages.wantlist_page(), pages.settings_page(),
                     pages.providers_page(), pages.new_run_page(),
                     pages.browse_page(), pages.lineups_page(),
@@ -5019,7 +5019,7 @@ class TestIndexRedirect(Temp):
     """
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -5029,7 +5029,7 @@ class TestIndexRedirect(Temp):
         return h, sent
 
     def test_redirects_to_the_newest_runs_curate_page(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         RunStore(self.root, "20260101-000000").write_meta({})
         RunStore(self.root, "20260825-000000").write_meta({})
         h, sent = self._handler()
@@ -5058,8 +5058,8 @@ class TestLogos(Temp):
     """
 
     def test_search_prefers_the_closer_normalized_match(self):
-        from probarr import logos as logos_mod
-        from probarr.normalize import Normalizer
+        from channeliq import logos as logos_mod
+        from channeliq.normalize import Normalizer
         with unittest.mock.patch.object(
                 logos_mod, "fetch_country_logos",
                 return_value=["bbc-one-uk.png", "bbc-news-uk.png",
@@ -5073,8 +5073,8 @@ class TestLogos(Temp):
             "countries/united-kingdom/"))
 
     def test_search_with_no_country_or_query_returns_nothing_and_fetches_nothing(self):
-        from probarr import logos as logos_mod
-        from probarr.normalize import Normalizer
+        from channeliq import logos as logos_mod
+        from channeliq.normalize import Normalizer
         with unittest.mock.patch.object(
                 logos_mod, "fetch_country_logos") as fake_fetch:
             self.assertEqual(logos_mod.search(self.root, "bbc one", "",
@@ -5084,7 +5084,7 @@ class TestLogos(Temp):
             fake_fetch.assert_not_called()
 
     def test_fetch_country_logos_is_cached_to_disk_not_refetched(self):
-        from probarr import logos as logos_mod
+        from channeliq import logos as logos_mod
         logos_mod._mem.clear()
         calls = []
 
@@ -5102,7 +5102,7 @@ class TestLogos(Temp):
         self.assertEqual(len(calls), 1, "second call should have hit the disk cache")
 
     def test_a_failed_fetch_yields_an_empty_list_not_an_exception(self):
-        from probarr import logos as logos_mod
+        from channeliq import logos as logos_mod
         logos_mod._mem.clear()
         with unittest.mock.patch.object(
                 logos_mod, "_get_json", side_effect=OSError("network down")):
@@ -5111,8 +5111,8 @@ class TestLogos(Temp):
                 logos_mod.fetch_country_logos(self.root, "united-kingdom"), [])
 
     def test_resolve_curated_prefers_an_explicit_logo_override(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1")
         store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
                       "stream_id": "s1", "stream_name": "BBC One",
@@ -5146,27 +5146,27 @@ class TestRunIdIsNotAPath(Temp):
     """
 
     def test_a_traversing_run_id_cannot_escape_the_root(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         for evil in ("../escape", "..", ".", "a/b", "..\\escape", "/etc"):
             with self.assertRaises(ValueError, msg=f"accepted {evil!r}"):
                 RunStore(self.root, evil)
 
     def test_an_unknown_run_id_creates_nothing_on_disk(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         before = sorted(os.listdir(self.root))
         RunStore(self.root, "never-seen-before")
         self.assertEqual(sorted(os.listdir(self.root)), before,
                          "reading an unknown run must not create directories")
 
     def test_an_existing_run_still_gets_its_subdirectories(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         RunStore(self.root, "real-run", create=True)
         again = RunStore(self.root, "real-run")
         self.assertTrue(os.path.isdir(again.thumbs))
         self.assertTrue(os.path.isdir(again.clips))
 
     def test_a_brand_new_run_with_no_id_still_creates_its_own_home(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         s = RunStore(self.root)
         self.assertTrue(os.path.isdir(s.frames))
 
@@ -5174,7 +5174,7 @@ class TestRunIdIsNotAPath(Temp):
         # Confirmed live: raising out of the handler dropped the connection
         # outright (curl reported HTTP 000), which is a worse failure than
         # the directory creation the validation exists to prevent.
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -5192,8 +5192,8 @@ class TestCatalogCacheIsNotPickle(Temp):
     """
 
     def test_round_trips_streams_through_the_disk_cache(self):
-        from probarr import web as web_mod
-        from probarr.sources.base import Stream
+        from channeliq import web as web_mod
+        from channeliq.sources.base import Stream
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         made = [Stream(id="m3u:abc", name="BBC One", url="http://x/1",
@@ -5210,8 +5210,8 @@ class TestCatalogCacheIsNotPickle(Temp):
         self.assertIsInstance(second[0], Stream)
 
     def test_the_cache_file_is_json_not_pickle(self):
-        from probarr import web as web_mod
-        from probarr.sources.base import Stream
+        from channeliq import web as web_mod
+        from channeliq.sources.base import Stream
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         with unittest.mock.patch.object(
@@ -5221,6 +5221,45 @@ class TestCatalogCacheIsNotPickle(Temp):
         path = h._catalog_disk_path("m3u://fake")
         with open(path, encoding="utf-8") as f:
             json.load(f)          # raises if this is a pickle
+
+
+class TestDroppedUrlsResolvesItsOwnProvider(Temp):
+    """Full-codebase-review find: _dropped_urls() referenced an undefined
+    `prov` (a leftover from a refactor), silently swallowed by its own
+    `except Exception: return {}` -- so the "dropped stream" failure
+    counts shown on Curate's candidate cards never actually worked, for
+    any run, ever. Fixed by resolving any saved Dispatcharr provider the
+    same way _epg_mismatches() does.
+    """
+
+    def test_returns_real_failure_data_for_a_dispatcharr_run(self):
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
+
+        # A unique host, not a spec string reused elsewhere in this suite --
+        # _cached_failed_streams()/_cached_stream_url() are keyed by spec/
+        # base in CLASS-level dicts that outlive any one test, so sharing a
+        # spec with another test risks reading ITS cached mock data instead
+        # of this test's.
+        providers.save(self.root, "mydispatch",
+                       "dispatcharr://u:p@dropped-urls-test-host:9191")
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw(
+            [{"key": "A", "number": 1, "name": "A",
+              "dispatcharr": {"channel_name": "BBC One"}}], [])
+
+        web_mod.Handler.root = self.root
+        handler = web_mod.Handler.__new__(web_mod.Handler)
+        fake_client = unittest.mock.MagicMock()
+        fake_client.base = "dispatcharr://u:p@dropped-urls-test-host:9191"
+        fake_client.failed_streams.return_value = {"BBC One": {"s1": 3}}
+        fake_client.stream.return_value = {"url": "http://real/stream1.ts"}
+
+        with unittest.mock.patch.object(web_mod, "client_from_spec",
+                                        return_value=fake_client):
+            out = handler._dropped_urls(store)
+
+        self.assertEqual(out, {"A": {"http://real/stream1.ts": 3}})
 
 
 class TestDroppedChannelsAreReported(Temp):
@@ -5233,7 +5272,7 @@ class TestDroppedChannelsAreReported(Temp):
     """
 
     def _run_with_a_dropped_channel(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         # BBCONE probed fine; BBCTWO is wanted but the provider carries
         # nothing for it any more, so it has no results at all.
@@ -5247,7 +5286,7 @@ class TestDroppedChannelsAreReported(Temp):
         return store
 
     def test_a_channel_with_no_candidates_is_reported_not_silently_skipped(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         store = self._run_with_a_dropped_channel()
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
@@ -5258,7 +5297,7 @@ class TestDroppedChannelsAreReported(Temp):
         self.assertEqual(dropped[0]["name"], "BBC Two")
 
     def test_resolve_curated_still_returns_a_plain_list_by_default(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         store = self._run_with_a_dropped_channel()
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
@@ -5266,7 +5305,7 @@ class TestDroppedChannelsAreReported(Temp):
         self.assertEqual([c["key"] for c in curated], ["BBCONE"])
 
     def test_an_excluded_channel_is_not_reported_as_dropped(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         store = self._run_with_a_dropped_channel()
         # Deliberately excluded is a decision, not a provider failure.
         store.write_selection({"BBCTWO": {"include": False}})
@@ -5310,7 +5349,7 @@ class TestGuideParsePeakMemory(Temp):
 
     def test_peak_memory_does_not_scale_with_the_discarded_bulk(self):
         import tracemalloc
-        from probarr.epg import Guide
+        from channeliq.epg import Guide
         path = self._guide_file(channels=200, programmes_each=150)
         on_disk = os.path.getsize(path)
         tracemalloc.start()
@@ -5327,7 +5366,7 @@ class TestGuideParsePeakMemory(Temp):
 
     def test_the_programmes_actually_in_the_window_still_load(self):
         import datetime
-        from probarr.epg import Guide
+        from channeliq.epg import Guide
         at = datetime.datetime.now(datetime.timezone.utc)
         path = self._guide_file(channels=3, programmes_each=8)
         g = Guide.load(path, window_hours=48, at=at - datetime.timedelta(days=3))
@@ -5358,7 +5397,7 @@ class TestWantlistWriteIsAtomic(Temp):
 
     def test_a_failed_write_leaves_the_previous_wantlist_intact(self):
         import json as _json
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
@@ -5378,14 +5417,14 @@ class TestWantlistWriteIsAtomic(Temp):
                          "a crashed write corrupted the previous wantlist")
 
     def test_a_successful_write_still_replaces_it(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         store.write_wantlist_raw([{"key": "B", "number": 2, "name": "B"}], [])
         self.assertEqual([w["key"] for w in store.read_wantlist()["wanted"]], ["B"])
 
     def test_no_temp_file_is_left_behind(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
         leftovers = [f for f in os.listdir(store.dir) if f.endswith(".tmp")]
@@ -5404,7 +5443,7 @@ class TestSavedWantlistNamesAreCaseInsensitive(Temp):
     """
 
     def test_saving_under_a_different_case_updates_the_same_file(self):
-        from probarr import wantlist as wl
+        from channeliq import wantlist as wl
         wl.write_saved(self.root, "top10-us-paytv", "ESPN\n")
         wl.write_saved(self.root, "Top10-Us-Paytv", "ESPN\nTNT\n")
         saved = wl.list_saved(self.root)
@@ -5414,7 +5453,7 @@ class TestSavedWantlistNamesAreCaseInsensitive(Temp):
         self.assertEqual(wl.read_saved(self.root, "top10-us-paytv"), "ESPN\nTNT\n")
 
     def test_reading_back_is_also_case_insensitive(self):
-        from probarr import wantlist as wl
+        from channeliq import wantlist as wl
         wl.write_saved(self.root, "UK-Lineup", "BBC One\n")
         self.assertEqual(wl.read_saved(self.root, "uk-lineup"), "BBC One\n")
 
@@ -5426,7 +5465,7 @@ class TestCodeReviewFixes(Temp):
     """
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -5448,8 +5487,8 @@ class TestCodeReviewFixes(Temp):
 
     # -- only an invalid run id is a 400 ----------------------------------
     def test_corrupt_run_json_is_not_reported_as_a_bad_request(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         with open(store.meta_path, "w") as f:
@@ -5469,7 +5508,7 @@ class TestCodeReviewFixes(Temp):
     # -- gzip sources must not leak the handle they wrap ------------------
     def test_closing_a_gzipped_guide_closes_the_underlying_file(self):
         import gzip as _gzip
-        from probarr import epg as epg_mod
+        from channeliq import epg as epg_mod
         path = os.path.join(self.root, "guide.xml.gz")
         with _gzip.open(path, "wb") as f:
             f.write(b'<?xml version="1.0"?><tv><channel id="c1">'
@@ -5483,7 +5522,7 @@ class TestCodeReviewFixes(Temp):
 
     def test_a_gzipped_guide_still_parses(self):
         import gzip as _gzip
-        from probarr.epg import Guide
+        from channeliq.epg import Guide
         path = os.path.join(self.root, "guide.xml.gz")
         with _gzip.open(path, "wb") as f:
             f.write(b'<?xml version="1.0"?><tv><channel id="c1">'
@@ -5505,15 +5544,15 @@ class TestCodeReviewFixes(Temp):
             f.write(f'<?xml version="1.0"?><tv><channel id="c1">'
                    f'<display-name>{channel_name}</display-name></channel>'
                    f'{prog}</tv>')
-        from probarr import epgsources
-        # KNM fix (probarr-9wl): pathlib.as_uri(), not string concat --
+        from channeliq import epgsources
+        # KNM fix (channeliq-9wl): pathlib.as_uri(), not string concat --
         # "file://" + xml is malformed on Windows (file://B:\...) and
         # fails in urlopen; as_uri() produces a real file:///B:/... URL.
         epgsources.save(self.root, name, pathlib.Path(xml).as_uri())
 
     def test_a_pinned_source_with_a_schedule_gap_does_not_fall_through(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         web_mod.Handler.root = self.root
         # The pinned source carries the channel but has nothing on air.
         self._guide("aaa-other", "National Geographic", "Wrong Programme")
@@ -5527,8 +5566,8 @@ class TestCodeReviewFixes(Temp):
                                "filled from a different source")
 
     def test_a_pinned_source_that_does_not_carry_the_channel_still_falls_back(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         web_mod.Handler.root = self.root
         self._guide("aaa-other", "National Geographic", "Real Programme")
         self._guide("zzz-pinned", "Some Other Channel", "Irrelevant")
@@ -5541,8 +5580,8 @@ class TestCodeReviewFixes(Temp):
 
     # -- a channel with no number is reported, not silently skipped -------
     def test_a_channel_with_no_number_is_reported_as_dropped(self):
-        from probarr import web as web_mod
-        from probarr.store import RunStore
+        from channeliq import web as web_mod
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.append({"rec_key": "ORPHAN|s1", "channel_key": "ORPHAN",
                       "stream_id": "s1", "stream_name": "Orphan",
@@ -5564,7 +5603,7 @@ class TestLogoCacheDoesNotPoison(Temp):
     """
 
     def test_a_failed_fetch_is_not_cached(self):
-        from probarr import logos as logos_mod
+        from channeliq import logos as logos_mod
         logos_mod._mem.clear()
         with unittest.mock.patch.object(
                 logos_mod, "_get_json", side_effect=OSError("network down")):
@@ -5583,7 +5622,7 @@ class TestLogoCacheDoesNotPoison(Temp):
                                         "a later successful fetch")
 
     def test_a_failure_falls_back_to_a_stale_cached_copy(self):
-        from probarr import logos as logos_mod
+        from channeliq import logos as logos_mod
         logos_mod._mem.clear()
         with unittest.mock.patch.object(
                 logos_mod, "_get_json",
@@ -5601,7 +5640,7 @@ class TestLogoCacheDoesNotPoison(Temp):
                              ["united-kingdom"])
 
     def test_a_genuinely_empty_result_is_still_cached(self):
-        from probarr import logos as logos_mod
+        from channeliq import logos as logos_mod
         logos_mod._mem.clear()
         with unittest.mock.patch.object(logos_mod, "_get_json",
                                         return_value=[]) as fake:
@@ -5619,7 +5658,7 @@ class TestGetOrCreateLogoDoesNotRescan(unittest.TestCase):
     """
 
     def _client(self, existing):
-        from probarr.sources.dispatcharr import Dispatcharr
+        from channeliq.sources.dispatcharr import Dispatcharr
         c = Dispatcharr("http://fake", "u", "p")
         c.calls = []
 
@@ -5648,7 +5687,7 @@ class TestGetOrCreateLogoDoesNotRescan(unittest.TestCase):
 
 
 class TestEpgMemory(unittest.TestCase):
-    """probarr-6qy: a large XMLTV feed should not blow up memory.
+    """channeliq-6qy: a large XMLTV feed should not blow up memory.
 
     _open() must stream the source into iterparse rather than reading the
     whole payload into a bytes object first, and Guide.load()'s iterparse
@@ -5728,7 +5767,7 @@ class TestEpgMemory(unittest.TestCase):
 
 
 class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
-    """probarr-oz2: the Regions box on the New Run page never actually
+    """channeliq-oz2: the Regions box on the New Run page never actually
     restricted anything, because the web UI had no way to set
     strict_region and group_candidates() defaults to including unmarked
     candidates. A channel with no recognisable country marker in its name
@@ -5739,7 +5778,7 @@ class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
     """
 
     def _streams(self):
-        from probarr.sources.base import Stream
+        from channeliq.sources.base import Stream
         return [
             Stream(id="1", name="US: CNN", url="http://x/1"),
             Stream(id="2", name="UK: CNN", url="http://x/2"),
@@ -5747,7 +5786,7 @@ class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
         ]
 
     def test_unmarked_channel_passes_a_region_filter_by_default(self):
-        from probarr.normalize import Normalizer, group_candidates
+        from channeliq.normalize import Normalizer, group_candidates
         pools = group_candidates(self._streams(), Normalizer(), regions=["US"])
         ids = {s.id for pool in pools.values() for s in pool}
         self.assertIn("1", ids, "the US-marked channel must pass")
@@ -5757,7 +5796,7 @@ class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
                       "passes a Regions filter it was never shown to match")
 
     def test_strict_mode_drops_the_unmarked_channel_too(self):
-        from probarr.normalize import Normalizer, group_candidates
+        from channeliq.normalize import Normalizer, group_candidates
         pools = group_candidates(self._streams(), Normalizer(), regions=["US"],
                                  include_unmarked=False)
         ids = {s.id for pool in pools.values() for s in pool}
@@ -5777,7 +5816,7 @@ class TestRegionFilterTreatsUsAndUsaAsTheSameCountry(unittest.TestCase):
     """
 
     def _streams(self):
-        from probarr.sources.base import Stream
+        from channeliq.sources.base import Stream
         return [
             Stream(id="1", name="US: ESPN", url="http://x/1"),
             Stream(id="2", name="USA: ESPN", url="http://x/2"),
@@ -5785,14 +5824,14 @@ class TestRegionFilterTreatsUsAndUsaAsTheSameCountry(unittest.TestCase):
         ]
 
     def test_a_us_filter_also_matches_usa_marked_channels(self):
-        from probarr.normalize import Normalizer, group_candidates
+        from channeliq.normalize import Normalizer, group_candidates
         pools = group_candidates(self._streams(), Normalizer(), regions=["US"],
                                  include_unmarked=False)
         ids = {s.id for pool in pools.values() for s in pool}
         self.assertEqual(ids, {"1", "2"})
 
     def test_a_usa_filter_also_matches_us_marked_channels(self):
-        from probarr.normalize import Normalizer, group_candidates
+        from channeliq.normalize import Normalizer, group_candidates
         pools = group_candidates(self._streams(), Normalizer(), regions=["USA"],
                                  include_unmarked=False)
         ids = {s.id for pool in pools.values() for s in pool}
@@ -5808,7 +5847,7 @@ class TestRunKwargsWiresStrictRegion(Temp):
     """
 
     def test_strict_region_true_is_passed_through(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
@@ -5816,7 +5855,7 @@ class TestRunKwargsWiresStrictRegion(Temp):
         self.assertTrue(kwargs["strict_region"])
 
     def test_strict_region_defaults_to_false(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
@@ -5831,27 +5870,27 @@ class TestTagSettings(Temp):
     never remembered. See tagsettings.py's own module docstring."""
 
     def test_uncustomised_category_tracks_the_live_code_constant(self):
-        from probarr import tagsettings
-        from probarr.normalize import DEFAULT_REGION_TAGS
+        from channeliq import tagsettings
+        from channeliq.normalize import DEFAULT_REGION_TAGS
         self.assertEqual(tagsettings.tags(self.root, "region"),
                          list(DEFAULT_REGION_TAGS))
         self.assertFalse(tagsettings.is_customised(self.root, "region"))
 
     def test_add_then_read_round_trips(self):
-        from probarr import tagsettings
+        from channeliq import tagsettings
         tagsettings.add(self.root, "region", "od")
         self.assertIn("OD", tagsettings.tags(self.root, "region"))
         self.assertTrue(tagsettings.is_customised(self.root, "region"))
 
     def test_add_is_idempotent(self):
-        from probarr import tagsettings
+        from channeliq import tagsettings
         tagsettings.add(self.root, "region", "OD")
         tagsettings.add(self.root, "region", "OD")
         self.assertEqual(tagsettings.tags(self.root, "region").count("OD"), 1)
 
     def test_remove_only_touches_the_named_tag(self):
-        from probarr import tagsettings
-        from probarr.normalize import DEFAULT_REGION_TAGS
+        from channeliq import tagsettings
+        from channeliq.normalize import DEFAULT_REGION_TAGS
         tagsettings.remove(self.root, "region", "NL")
         tags = tagsettings.tags(self.root, "region")
         self.assertNotIn("NL", tags)
@@ -5859,8 +5898,8 @@ class TestTagSettings(Temp):
         self.assertEqual(len(tags), len(DEFAULT_REGION_TAGS) - 1)
 
     def test_restore_defaults_undoes_customisation(self):
-        from probarr import tagsettings
-        from probarr.normalize import DEFAULT_REGION_TAGS
+        from channeliq import tagsettings
+        from channeliq.normalize import DEFAULT_REGION_TAGS
         tagsettings.add(self.root, "region", "OD")
         tagsettings.restore_defaults(self.root, "region")
         self.assertEqual(tagsettings.tags(self.root, "region"),
@@ -5868,7 +5907,7 @@ class TestTagSettings(Temp):
         self.assertFalse(tagsettings.is_customised(self.root, "region"))
 
     def test_restoring_region_does_not_touch_quality(self):
-        from probarr import tagsettings
+        from channeliq import tagsettings
         tagsettings.add(self.root, "region", "OD")
         tagsettings.add(self.root, "quality", "GOLD")
         tagsettings.restore_defaults(self.root, "region")
@@ -5876,12 +5915,12 @@ class TestTagSettings(Temp):
         self.assertTrue(tagsettings.is_customised(self.root, "quality"))
 
     def test_rejects_an_unknown_category(self):
-        from probarr import tagsettings
+        from channeliq import tagsettings
         with self.assertRaises(ValueError):
             tagsettings.tags(self.root, "bogus")
 
     def test_rejects_a_blank_tag(self):
-        from probarr import tagsettings
+        from channeliq import tagsettings
         with self.assertRaises(ValueError):
             tagsettings.add(self.root, "region", "   ")
 
@@ -5891,38 +5930,38 @@ class TestDeleteReasons(Temp):
     stream dialog -- see reasons.py's own module docstring."""
 
     def test_uncustomised_tracks_the_built_in_defaults(self):
-        from probarr import reasons
+        from channeliq import reasons
         self.assertEqual(reasons.list_all(self.root), reasons.DEFAULT_REASONS)
         self.assertFalse(reasons.is_customised(self.root))
 
     def test_add_then_read_round_trips_and_keeps_casing(self):
-        from probarr import reasons
+        from channeliq import reasons
         reasons.add(self.root, "Buffers constantly")
         self.assertIn("Buffers constantly", reasons.list_all(self.root))
         self.assertTrue(reasons.is_customised(self.root))
 
     def test_add_is_idempotent(self):
-        from probarr import reasons
+        from channeliq import reasons
         reasons.add(self.root, "Buffers constantly")
         reasons.add(self.root, "Buffers constantly")
         self.assertEqual(reasons.list_all(self.root).count("Buffers constantly"), 1)
 
     def test_remove_only_touches_the_named_reason(self):
-        from probarr import reasons
+        from channeliq import reasons
         reasons.remove(self.root, "Wrong channel")
         current = reasons.list_all(self.root)
         self.assertNotIn("Wrong channel", current)
         self.assertIn("Wrong aspect ratio", current)
 
     def test_restore_defaults_undoes_customisation(self):
-        from probarr import reasons
+        from channeliq import reasons
         reasons.add(self.root, "Buffers constantly")
         reasons.restore_defaults(self.root)
         self.assertEqual(reasons.list_all(self.root), reasons.DEFAULT_REASONS)
         self.assertFalse(reasons.is_customised(self.root))
 
     def test_rejects_a_blank_reason(self):
-        from probarr import reasons
+        from channeliq import reasons
         with self.assertRaises(ValueError):
             reasons.add(self.root, "   ")
 
@@ -5937,7 +5976,7 @@ class TestDiagnosingSnapshot(Temp):
     channel-key-only count the badge started with."""
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -5948,9 +5987,9 @@ class TestDiagnosingSnapshot(Temp):
     def test_resolves_stream_name_and_reports_state(self):
         import json, time as time_mod
         import threading
-        from probarr.store import RunStore
-        from probarr.probequeue import ProbeQueue
-        from probarr import web as web_mod
+        from channeliq.store import RunStore
+        from channeliq.probequeue import ProbeQueue
+        from channeliq import web as web_mod
 
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
@@ -5991,9 +6030,9 @@ class TestDiagnosingSnapshot(Temp):
         point raised when this was widened), just flagged diagnose:False
         so the popover can still say which kind of probe it is."""
         import json, threading
-        from probarr.store import RunStore
-        from probarr.probequeue import ProbeQueue
-        from probarr import web as web_mod
+        from channeliq.store import RunStore
+        from channeliq.probequeue import ProbeQueue
+        from channeliq import web as web_mod
 
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
@@ -6023,7 +6062,7 @@ class TestDiagnosingSnapshot(Temp):
 class TestDeleteReasonsApiEndpoint(Temp):
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -6066,7 +6105,7 @@ class TestDeletingAStreamRemembersItsReason(Temp):
     preset list, so it's a one-click pick on the NEXT delete too."""
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -6076,8 +6115,8 @@ class TestDeletingAStreamRemembersItsReason(Temp):
 
     def test_a_freshly_typed_reason_is_added_to_the_saved_list(self):
         import json, io
-        from probarr.store import RunStore
-        from probarr import reasons
+        from channeliq.store import RunStore
+        from channeliq import reasons
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
@@ -6098,8 +6137,8 @@ class TestDeletingAStreamRemembersItsReason(Temp):
 
     def test_an_already_known_reason_is_not_duplicated(self):
         import json, io
-        from probarr.store import RunStore
-        from probarr import reasons
+        from channeliq.store import RunStore
+        from channeliq import reasons
         store = RunStore(self.root, "run1", create=True)
         store.write_meta({})
         store.append({"rec_key": "BBCONE|s1", "channel_key": "BBCONE",
@@ -6120,7 +6159,7 @@ class TestDeletingAStreamRemembersItsReason(Temp):
 class TestTagsApiEndpoint(Temp):
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -6167,9 +6206,9 @@ class TestRunnerMergesSavedTagsWithRunSpecificOnes(Temp):
     the footgun this merge exists to avoid (see runner.py's own comment)."""
 
     def test_saved_tags_and_run_specific_ones_are_both_present(self):
-        from probarr import tagsettings
-        from probarr.store import RunStore
-        from probarr import runner as runner_mod
+        from channeliq import tagsettings
+        from channeliq.store import RunStore
+        from channeliq import runner as runner_mod
         tagsettings.add(self.root, "region", "OD")
         store = RunStore(self.root, "run1", create=True)
 
@@ -6202,7 +6241,7 @@ class TestRunKwargsWiresDispatcharrProxy(Temp):
     caller/run keeps behaving exactly as before."""
 
     def _kwargs(self, body):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         return h._run_kwargs(body)
@@ -6235,7 +6274,7 @@ class TestRunKwargsWiresRegionTags(Temp):
     """
 
     def _kwargs(self, body):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         return h._run_kwargs(body)
@@ -6253,8 +6292,8 @@ class TestRunKwargsWiresRegionTags(Temp):
         """End to end: the exact reported failure, fixed -- using the
         SAME merge runner._run() actually performs (saved list + this
         run's extras), not just the raw field."""
-        from probarr import tagsettings
-        from probarr.normalize import Normalizer
+        from channeliq import tagsettings
+        from channeliq.normalize import Normalizer
         kwargs = self._kwargs({"source": "http://x/playlist.m3u",
                                "region_tags": "OD, PLAY+, ZG, BE-VIP"})
         merged = list(dict.fromkeys(
@@ -6275,7 +6314,7 @@ class TestSettingsPostIsAlsoRedacted(Temp):
     """
 
     def _handler(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         sent = []
@@ -6283,7 +6322,7 @@ class TestSettingsPostIsAlsoRedacted(Temp):
         h._json_body = lambda: (
             {"source": "xtream://user:sup3rs3cret@host:8080"}, False)
         h.path = "/api/settings"
-        # Same-origin write guard (probarr-tj0) now runs ahead of every
+        # Same-origin write guard (channeliq-tj0) now runs ahead of every
         # settings write; a same-origin Referer is what a real browser save
         # sends, and is what this redaction test needs to get past it.
         h.headers = {"Host": "127.0.0.1", "Referer": "http://127.0.0.1/settings"}
@@ -6298,7 +6337,7 @@ class TestSettingsPostIsAlsoRedacted(Temp):
         self.assertEqual(body["source"], "xtream://***:***@host:8080")
 
     def test_the_real_credential_is_still_what_gets_stored(self):
-        from probarr import settings as settings_mod
+        from channeliq import settings as settings_mod
         h, _ = self._handler()
         h.do_POST()
         # Redaction is a display concern only -- the stored value must
@@ -6319,7 +6358,7 @@ class TestSettingsPostIsAlsoRedacted(Temp):
 
 
 class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
-    """probarr-oz2: the Regions box on the New Run page never actually
+    """channeliq-oz2: the Regions box on the New Run page never actually
     restricted anything, because the web UI had no way to set
     strict_region and group_candidates() defaults to including unmarked
     candidates. A channel with no recognisable country marker in its name
@@ -6330,7 +6369,7 @@ class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
     """
 
     def _streams(self):
-        from probarr.sources.base import Stream
+        from channeliq.sources.base import Stream
         return [
             Stream(id="1", name="US: CNN", url="http://x/1"),
             Stream(id="2", name="UK: CNN", url="http://x/2"),
@@ -6338,7 +6377,7 @@ class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
         ]
 
     def test_unmarked_channel_passes_a_region_filter_by_default(self):
-        from probarr.normalize import Normalizer, group_candidates
+        from channeliq.normalize import Normalizer, group_candidates
         pools = group_candidates(self._streams(), Normalizer(), regions=["US"])
         ids = {s.id for pool in pools.values() for s in pool}
         self.assertIn("1", ids, "the US-marked channel must pass")
@@ -6348,7 +6387,7 @@ class TestStrictRegionFiltersUnmarkedChannels(unittest.TestCase):
                       "passes a Regions filter it was never shown to match")
 
     def test_strict_mode_drops_the_unmarked_channel_too(self):
-        from probarr.normalize import Normalizer, group_candidates
+        from channeliq.normalize import Normalizer, group_candidates
         pools = group_candidates(self._streams(), Normalizer(), regions=["US"],
                                  include_unmarked=False)
         ids = {s.id for pool in pools.values() for s in pool}
@@ -6366,7 +6405,7 @@ class TestRunKwargsWiresStrictRegion(Temp):
     """
 
     def test_strict_region_true_is_passed_through(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
@@ -6374,7 +6413,7 @@ class TestRunKwargsWiresStrictRegion(Temp):
         self.assertTrue(kwargs["strict_region"])
 
     def test_strict_region_defaults_to_false(self):
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         kwargs = h._run_kwargs({"source": "http://x/playlist.m3u",
@@ -6394,7 +6433,7 @@ class TestSameOriginGuardCoversEveryWrite(Temp):
 
     def _post(self, path, headers, payload):
         import io
-        from probarr import web as web_mod
+        from channeliq import web as web_mod
         web_mod.Handler.root = self.root
         h = web_mod.Handler.__new__(web_mod.Handler)
         h.path = path
@@ -6409,7 +6448,7 @@ class TestSameOriginGuardCoversEveryWrite(Temp):
         return sent[0]
 
     def _seeded_run(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         store = RunStore(self.root, "run1", create=True)
         store.write_wantlist_raw(
             [{"key": "BBCONE", "number": 101, "name": "BBC One"}], [])
@@ -6418,24 +6457,24 @@ class TestSameOriginGuardCoversEveryWrite(Temp):
         return store
 
     def test_a_forged_origin_cannot_write_a_curated_selection(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         self._seeded_run()
         _, code = self._post(
             "/api/run/run1/selection",
-            {"Host": "192.168.1.243:7799", "Origin": "http://evil.example"},  # probarr:allow-secret (test fixture IP, not real)
+            {"Host": "192.168.1.243:7799", "Origin": "http://evil.example"},  # channeliq:allow-secret (test fixture IP, not real)
             {"BBCONE": {"group": "HIJACKED"}})
         self.assertEqual(code, 403)
-        from probarr.store import RunStore as RS
+        from channeliq.store import RunStore as RS
         self.assertNotEqual(RS(self.root, "run1").read_selection()
                             .get("BBCONE", {}).get("group"), "HIJACKED")
 
     def test_a_genuine_same_origin_write_still_reaches_a_run_endpoint(self):
-        from probarr.store import RunStore
+        from channeliq.store import RunStore
         self._seeded_run()
         _, code = self._post(
             "/api/run/run1/selection",
-            {"Host": "192.168.1.243:7799",  # probarr:allow-secret (test fixture IP, not real)
-             "Referer": "http://192.168.1.243:7799/run/run1/curate"},  # probarr:allow-secret (test fixture IP, not real)
+            {"Host": "192.168.1.243:7799",  # channeliq:allow-secret (test fixture IP, not real)
+             "Referer": "http://192.168.1.243:7799/run/run1/curate"},  # channeliq:allow-secret (test fixture IP, not real)
             {"BBCONE": {"group": "News"}})
         self.assertEqual(code, 200)
         self.assertEqual(RunStore(self.root, "run1").read_selection()
@@ -6449,7 +6488,7 @@ class TestDeletingARunReleasesItsClaims(Temp):
     marked "ours" forever, even though nothing refers to it any more."""
 
     def test_unclaim_by_source_only_releases_that_runs_claims(self):
-        from probarr import claims as claims_mod
+        from channeliq import claims as claims_mod
         claims_mod.claim(self.root, 1, "ch1", "Channel 1", source="run:run1")
         claims_mod.claim(self.root, 2, "ch2", "Channel 2", source="run:run2")
         released = claims_mod.unclaim_by_source(self.root, "run:run1")
@@ -6459,7 +6498,7 @@ class TestDeletingARunReleasesItsClaims(Temp):
         self.assertIn(2, remaining)
 
     def test_unclaim_by_source_is_a_noop_when_nothing_matches(self):
-        from probarr import claims as claims_mod
+        from channeliq import claims as claims_mod
         claims_mod.claim(self.root, 2, "ch2", "Channel 2", source="run:run2")
         released = claims_mod.unclaim_by_source(self.root, "run:run1")
         self.assertEqual(released, 0)

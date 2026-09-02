@@ -2,7 +2,7 @@
 
 This is the single most important input for a large provider. Without it,
 verification means probing every candidate for all 55,000 listed streams,
-which is not a long job -- it is an impossible one. With it, probarr probes
+which is not a long job -- it is an impossible one. With it, channeliq probes
 only candidates for the couple of hundred channels you care about.
 
 Format is deliberately the plainest thing that works, so it can be written by
@@ -38,9 +38,9 @@ import os
 import re
 import urllib.request
 
-TEMPLATE = """# probarr wantlist
+TEMPLATE = """# channeliq wantlist
 #
-# One channel per line. These are the channels you WANT -- probarr only probes
+# One channel per line. These are the channels you WANT -- channeliq only probes
 # candidate streams for these, which is the difference between a run that takes
 # twenty minutes and one that never finishes.
 #
@@ -98,7 +98,7 @@ TEMPLATE = """# probarr wantlist
 _STARTER_DISCLAIMER = """\
 # This is a NUMBERING TEMPLATE, not a stream source -- it names channels and
 # suggests channel numbers, nothing else. It carries no stream URLs, no
-# logos, no EPG data and no provider details of any kind; probarr still
+# logos, no EPG data and no provider details of any kind; channeliq still
 # matches every line here against whatever source you point it at
 # separately.
 #
@@ -420,7 +420,7 @@ def known_reference_lineups(root, force=False):
 
     Discovered live from the repo's own directory listing rather than kept
     as a hand-maintained list here, so a lineup Lineuparr adds tomorrow
-    shows up without a probarr release -- and one it removes doesn't leave
+    shows up without a channeliq release -- and one it removes doesn't leave
     a dead entry in the dropdown. Cached to disk and only re-fetched when
     asked (force=True), both to be a polite, low-frequency GitHub API
     caller and so the operator sees a stable list rather than it silently
@@ -431,7 +431,7 @@ def known_reference_lineups(root, force=False):
         with open(cache_path, encoding="utf-8") as f:
             return json.load(f)
     req = urllib.request.Request(_REFERENCE_INDEX_URL,
-                                  headers={"User-Agent": "probarr/0.1",
+                                  headers={"User-Agent": "channeliq/0.1",
                                            "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         entries = json.loads(resp.read())
@@ -462,7 +462,7 @@ def _walk_reference_categories(data, normalizer):
     Format is the one used by the Lineuparr Dispatcharr plugin's published
     lineups (e.g. UK_SkyTV_lineup.json) -- real broadcaster channel numbers
     and genre groupings, something no XMLTV EPG carries. We only read this
-    shape; nothing about it is probarr-specific or bundled into this repo,
+    shape; nothing about it is channeliq-specific or bundled into this repo,
     the operator supplies whichever lineup URL is relevant to them.
     """
     categories = data.get("categories") if isinstance(data, dict) else None
@@ -507,7 +507,7 @@ def channels_from_reference(data, normalizer):
 
     Skipping the EPG step entirely and using the lineup's own names as the
     channel list sidesteps that mismatch -- every name/number/group is
-    already exactly what the lineup says, and probarr's own stream
+    already exactly what the lineup says, and channeliq's own stream
     matching (which already tolerates real-world provider naming
     variance via Normalizer, unlike a rigid EPG-name-to-lineup-name
     lookup) is what finds the actual streams later, the same as any

@@ -152,7 +152,7 @@ _NAV_SETUP = [("wizard", "/wizard", "Setup wizard"),
               ("wantlists", "/wantlists", "Wantlists"),
               ("lineups", "/lineups", "Lineups"),
               # What a push refuses to touch (a number collision with a
-              # Dispatcharr channel probarr has never claimed) has to have
+              # Dispatcharr channel channeliq has never claimed) has to have
               # a place to send you -- otherwise "blocked" in a push
               # preview is a dead end with no next step.
               ("unclaimed", "/unclaimed", "Unclaimed"),
@@ -180,8 +180,8 @@ def topbar(label="", active="", right="", home=True, newrun_primary=True):
     run, not act on this one.
     """
     ver = f'<span class="brand-version">v{__version__}</span>'
-    brand = ((f'<a class="brand" href="/">prob<span>arr</span></a>{ver}') if home
-             else f'<div class="brand">prob<span>arr</span></div>{ver}')
+    brand = ((f'<a class="brand" href="/">Channel<span>IQ</span></a>{ver}') if home
+             else f'<div class="brand">Channel<span>IQ</span></div>{ver}')
     nav = ""
     newrun = nav = ""
     if home:

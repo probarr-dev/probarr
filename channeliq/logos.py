@@ -1,9 +1,9 @@
 """Channel logo search against the tv-logo/tv-logos catalogue.
 
-probarr never downloads or redistributes a single logo image. Every result
+channeliq never downloads or redistributes a single logo image. Every result
 this module returns is a `raw.githubusercontent.com` URL pointing straight
 at that repository's own hosting -- the browser (or Dispatcharr, once a
-choice is pushed) fetches the bytes directly from GitHub, and probarr's own
+choice is pushed) fetches the bytes directly from GitHub, and channeliq's own
 disk cache only ever holds the two small JSON directory listings (country
 names and per-country filenames), never image data. tv-logo/tv-logos is
 CC BY-SA 4.0 -- linking to the maintainers' own hosting, rather than
@@ -13,9 +13,9 @@ safe side of that license instead of becoming a redistribution.
 Fetch approach (country listing -> per-country filename listing -> raw URL)
 follows the same shape used by PiratesIRC's Lineuparr plugin
 (Lineuparr/logo_matcher.py) for the same repository. The matching itself is
-reimplemented on probarr's own Normalizer (normalize.py) plus stdlib
+reimplemented on channeliq's own Normalizer (normalize.py) plus stdlib
 difflib, rather than reusing that code or adding a fuzzy-matching
-dependency -- probarr ships with no pip dependencies at all (see the
+dependency -- channeliq ships with no pip dependencies at all (see the
 Dockerfile and dhash.py) and that stays true here too.
 """
 import difflib
@@ -116,7 +116,7 @@ def _cached_json(root, key, ttl, fetch):
 def _get_json(url):
     req = urllib.request.Request(
         url, headers={"Accept": "application/vnd.github.v3+json",
-                      "User-Agent": "probarr/0.1"})
+                      "User-Agent": "channeliq/0.1"})
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode())
 
@@ -172,7 +172,7 @@ def search(root, query, country_dir, normalizer, limit=25):
     """Fuzzy-match `query` against one country's logo filenames.
 
     Returns a list of {filename, url, score} sorted best-first, score in
-    [0, 1]. Matching runs entirely on probarr's own Normalizer.key() (folds
+    [0, 1]. Matching runs entirely on channeliq's own Normalizer.key() (folds
     case/accents/punctuation away, the same treatment a stream title gets)
     plus stdlib difflib -- no fuzzy-matching dependency, no network beyond
     the (cached) filename listing itself.

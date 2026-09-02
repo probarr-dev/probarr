@@ -14,7 +14,7 @@ own the way they can providers, wantlists, or lineups.
 This module is that durable list. Deliberately NOT a copy of the
 built-in lists baked in at first use: as long as an operator has never
 customised a category, reading it returns the CURRENT code constant, so
-a future probarr release that adds new built-in tags reaches every
+a future channeliq release that adds new built-in tags reaches every
 installation automatically. Customising a category (add/remove) freezes
 it to an explicit saved list from that point on; "restore defaults"
 un-freezes it by simply deleting the saved override, reverting to
