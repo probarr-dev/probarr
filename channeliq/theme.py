@@ -6,6 +6,39 @@ that stack should not have to learn a new visual grammar to read this.
 """
 from . import __version__
 
+# A retro-icon-styled favicon -- flat colours, hard black outlines, no
+# gradients or anti-aliasing (shape-rendering:crispEdges), in the spirit of
+# a Windows 95-era diagnostic-tool icon (the genre "Dr. Watson" belongs to)
+# without reproducing that actual artwork: an original CRT set showing a
+# channel's colour bars, under a magnifying glass -- literally what this
+# app does to a stream, drawn the way that whole icon generation drew
+# "something is being inspected."
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"
+  shape-rendering="crispEdges">
+  <line x1="9" y1="8" x2="6" y2="2" stroke="#000" stroke-width="1"/>
+  <line x1="13" y1="8" x2="16" y2="2" stroke="#000" stroke-width="1"/>
+  <rect x="3" y="8" width="20" height="16" fill="#c8c2b6" stroke="#000" stroke-width="1"/>
+  <rect x="4" y="9" width="18" height="1" fill="#eae6dc"/>
+  <rect x="5" y="11" width="14" height="10" fill="#111" stroke="#000" stroke-width="1"/>
+  <rect x="6" y="12" width="2.4" height="8" fill="#e0e0e0"/>
+  <rect x="8.4" y="12" width="2.4" height="8" fill="#e0c000"/>
+  <rect x="10.8" y="12" width="2.4" height="8" fill="#00b0d8"/>
+  <rect x="13.2" y="12" width="2.4" height="8" fill="#20a040"/>
+  <rect x="15.6" y="12" width="2.4" height="8" fill="#d02050"/>
+  <circle cx="20.5" cy="14" r="1.1" fill="#8a8474" stroke="#000" stroke-width="0.6"/>
+  <circle cx="20.5" cy="18" r="1.1" fill="#8a8474" stroke="#000" stroke-width="0.6"/>
+  <rect x="5" y="24" width="2" height="2" fill="#000"/>
+  <rect x="19" y="24" width="2" height="2" fill="#000"/>
+  <line x1="24.3" y1="16.3" x2="29.3" y2="23.3" stroke="#000" stroke-width="3.6"
+    stroke-linecap="square"/>
+  <line x1="24.3" y1="16.3" x2="29.3" y2="23.3" stroke="#8a5a2b" stroke-width="2.2"
+    stroke-linecap="square"/>
+  <circle cx="20" cy="12" r="6.4" fill="#bfe8f5" stroke="#000" stroke-width="1.4"/>
+  <circle cx="20" cy="12" r="4.6" fill="#eaf7fc" stroke="#5aa9c4" stroke-width="0.6"/>
+  <circle cx="18" cy="10" r="1.4" fill="#ffffff" opacity="0.85"/>
+</svg>
+"""
+
 CSS = """
 :root{
   --bg:#1f2224; --bg2:#262b2e; --panel:#2a2f33; --panel2:#31373b;

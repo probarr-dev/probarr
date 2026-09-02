@@ -49,7 +49,7 @@ from .normalize import (Normalizer, group_candidates, declared_quality_rank,
 from . import tagsettings as tagsettings_mod
 from . import reasons as reasons_mod
 from .probe import ProbeOptions, probe
-from .theme import CSS, topbar
+from .theme import CSS, FAVICON_SVG, topbar
 from .verify import annotate_placeholders
 
 
@@ -227,6 +227,13 @@ class Handler(BaseHTTPRequestHandler):
         # miss and read back as "unknown run" even while the run itself
         # is progressing fine in the background.
         path = urllib.parse.unquote(urllib.parse.urlparse(self.path).path)
+        if path == "/favicon.ico" or path == "/favicon.svg":
+            # Served at the browser's own default request path -- an SVG
+            # here needs no <link rel="icon"> anywhere, since every page's
+            # <head> is otherwise built independently with no shared
+            # include point for one. Modern browsers accept SVG content at
+            # /favicon.ico as long as the type is declared correctly.
+            return self._send(FAVICON_SVG, "image/svg+xml")
         if path == "/":
             # The runs list used to live here; it moved to /runs (still on
             # the Runs nav tab) so "/" itself can go straight to the thing
