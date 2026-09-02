@@ -34,6 +34,7 @@ Any M3U or Xtream source in; M3U, XMLTV or Dispatcharr out.
 - [Curating a run](#curating-a-run)
 - [Checking a stream is really the right channel](#checking-a-stream-is-really-the-right-channel)
 - [What the statuses mean](#what-the-statuses-mean)
+- [When it doesn't do what you expected](#when-it-doesnt-do-what-you-expected) — read this one
 - [Exporting](#exporting)
 - [Lineups: keeping a channel list current](#lineups-keeping-a-channel-list-current)
 - [Settings worth knowing about](#settings-worth-knowing-about)
@@ -372,6 +373,193 @@ Advisory flags, computed on every probe, never a verdict on their own:
 - **dropped Nx** — this exact stream has genuinely failed over N times in real
   use, read from Dispatcharr's own event log. Real playback evidence, not a
   probe guess.
+
+---
+
+## When it doesn't do what you expected
+
+Every question below has actually been asked. Each one is a real behaviour
+with a real reason — none of them are bugs you need to work around, and
+where one *was* a bug it says so and says which version fixed it.
+
+**The short version:** if a channel didn't match, it's a naming/tag problem
+([here](#my-channels-didnt-match-anything)). If the counts look wrong, it's
+almost always the depth-of-4 rule ([here](#it-only-probed-some-of-my-streams)).
+If everything failed at once, check concurrency first
+([here](#everything-came-back-dead)).
+
+### My channels didn't match anything
+
+The single most common problem, and it's almost never a missing channel —
+it's packaging on the front of the name.
+
+channeliq strips country markers (`UK:`, `US:`) and quality words (`HD`,
+`RAW`, `4K`) before matching. It does **not** know your provider's own
+prefixes. So `OD: NPO 1` normalises to `ODNPO1`, and a wantlist entry for
+`NPO 1` will never match it, however you spell the rest.
+
+**Fix:** Settings → **Manage tags** → add `OD`, `PLAY+`, `ZG`, `BE-VIP`, or
+whatever yours uses. With or without the trailing colon both work. This is
+durable — it applies to every future run and to Browse Channels.
+
+There's also a **Custom prefixes** box on the New Run form. That one is
+one-off, for a prefix you don't want to save. If you're going to type the
+same thing twice, put it in Manage tags instead.
+
+Still not matching after that? In order:
+
+1. **Browse Channels** (`/browse`) — find the channel and see what the
+   matcher actually grouped. Forty spellings collapse into one row, so you
+   can watch it work rather than guess.
+2. **Settings → Aliases** — for a channel genuinely filed under a name no
+   amount of tag-stripping would reach (`Sky Sports Main Event` vs `SSME`).
+3. **Find streams** on the channel in Curate — attach anything from the
+   catalogue by hand. Always works, needs no configuration, doesn't scale.
+
+### It only probed some of my streams
+
+Expected. The run log says so explicitly:
+
+```
+skipped ZIGGOTV / ZIGGO TV (via Dispatcharr): already has 4 clean candidate(s)
+```
+
+Once a channel has **4** streams that came back clean, the rest are skipped.
+Candidates are probed best-declared-first, so the ones skipped are the ones
+already ranked below four known-good streams. Probing them costs a provider
+connection to learn nothing.
+
+So "86 of 106 probed" is the feature working, not a failure.
+
+Two things worth knowing:
+
+- **This only applies at concurrency 1.** At 2 or more there is no early
+  stop at all — cancelling probes already in flight isn't worth the
+  complexity — so a run at higher concurrency probes *everything*. If your
+  runs feel enormous, this is usually why.
+- **It was 2 until recently**, which capped how many streams a push could
+  ever pick from. If you're on an older run, re-verify to pick up the
+  extra two.
+
+To probe everything deliberately: `--clean-target 0` on the CLI.
+
+### It only pushed one stream / is it limited to 2?
+
+No. The number is **4**, and it's a default rather than a ceiling.
+
+| What you did | What gets pushed |
+|---|---|
+| Nothing — never opened the channel | top **4** playable candidates, best first |
+| Curated an order in Curate | **all of them**, in your order, no cap |
+| Chose **Separate channel** mode | **2** — one channel plus one `FALLBACK:` channel |
+
+"Separate" is genuinely capped at two, by design: it creates a second real
+channel in your lineup, and turning one curated channel into five is not
+something to do quietly. Use **Native** if you want a deeper chain — that's
+Dispatcharr's own `streams: [...]` failover list, and it takes as many as
+you give it.
+
+> **If you saw exactly one stream pushed**, that was a real bug, fixed in
+> the release that renamed probarr → ChannelIQ. A channel that had only ever
+> had a *group* set on it showed one candidate instead of four, and touching
+> it saved that. Re-pulling fixes new channels, but any channel already
+> narrowed on disk needs **+ Add to channel** clicking once per channel —
+> no re-run or re-probe needed.
+
+### Everything says "placeholder"
+
+A placeholder verdict means the stream reported a fixed total length. Live
+TV has no total length, so normally this means the provider is serving a
+looped "channel unavailable" card.
+
+The card now names the container that reported it:
+
+```
+reports a fixed 600.0s duration (mpegts); a live channel has none
+reports a fixed 600.0s duration (hls);    a live channel has none
+```
+
+That word in brackets is the whole diagnosis:
+
+- **`(mpegts)`** — trust it. A live MPEG-TS relay has no length to report,
+  so a number really does mean a finite file on a loop. Your provider is
+  serving cards; nothing on this end will change that.
+- **`(hls)` or `(dash)`** — treat with suspicion. A healthy live playlist
+  can legitimately report the length of the segment window it currently
+  publishes. If a whole lineup says placeholder and they're all HLS with
+  the same suspiciously round duration (600s = 60 × 10s segments), that's
+  the shape of a false positive — please open an issue with that line.
+
+### Everything came back "dead"
+
+Check concurrency before anything else. It's the one setting channeliq
+cannot work out for itself, and getting it wrong doesn't fail cleanly: an
+over-limit provider returns plausible-looking garbage that reads as a dead
+stream. A run that's 90% dead against a provider you know works is this,
+nearly every time.
+
+Set it to the number of simultaneous connections your subscription actually
+allows — 1 if you don't know. Per-provider overrides live on the provider
+itself, so a generous provider isn't held back by a strict one.
+
+### It says a candidate is "another country's feed"
+
+The frame rate gave it away: UK and European broadcast is 25 or 50fps, and
+a candidate at 29.97/59.94 is very often a US feed filed under a European
+name.
+
+It's a **flag, not a verdict** — it never blocks a stream on its own, and a
+provider that simply transcodes everything to 30fps will trip it
+legitimately. Look at the picture; that's what the thumbnails are for.
+
+### I re-ran it and it barely did anything
+
+Lineup re-verifies carry forward still-fresh results instead of re-probing
+them: if a stream's provider-side id hasn't changed and it was probed
+within **`freshness_hours`** (default 6 days), the previous verdict stands.
+
+That's the point — a routine weekly run spends its connections only on what
+might actually have changed. Set `freshness_hours` to 0 in Settings to
+disable it and always probe everything. Ad-hoc runs (no lineup) never carry
+anything forward, because there's no previous run to compare against.
+
+### Channels arrived in Dispatcharr with no number, or the wrong one
+
+Numbers come from your **wantlist**, not from the streams. A channel with
+probe results but no wantlist entry has no number to push, so it's reported
+in the preview and skipped rather than being given whatever number happens
+to be free.
+
+Always use **Preview changes** before a push. It shows creations, updates,
+"already correct", and everything being skipped and why.
+
+### "Needs you" — what does it actually want?
+
+Open the channel; the box at the top lists the specific reasons in plain
+words. It means one of: nothing clean to pick from, a candidate that's the
+provider's holding card, an EPG mismatch, or the ranking changed since you
+last looked.
+
+If you've looked and it's fine, click **This is fine — stop asking**. That
+sticks until the *evidence* changes — new candidates, a different status,
+a new EPG mismatch — so it isn't permanent blindness, and it isn't nagging
+you about something you've already judged.
+
+### What should I do next?
+
+Roughly in order of how much they pay back:
+
+1. **Save your channel list as a Lineup.** Re-verifying a lineup carries
+   forward fresh results and keeps your curation decisions across runs.
+   Without one, every run starts from scratch.
+2. **Give that lineup a schedule** (every N days, at an hour you pick) so
+   re-verifying happens without you remembering to.
+3. **Consider Watchdog** (Settings, off by default). It reads Dispatcharr's
+   own event log and reacts to channels genuinely failing in real playback
+   — demoting the broken stream, re-checking on a backoff, promoting a
+   clean fallback, and marking a channel `⚠ DOWN:` when nothing works. It
+   pushes to Dispatcharr **unattended**, which is why it's opt-in: every
+   other push in channeliq is confirmed by a person first.
 
 ---
 

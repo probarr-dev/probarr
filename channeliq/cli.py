@@ -6,6 +6,7 @@ import sys
 import time
 
 from . import __version__
+from . import rank as rank_mod
 from . import runner as runner_mod
 from .contactsheet import render as render_sheet
 from . import wantlist as wantlist_mod
@@ -187,7 +188,7 @@ def build_parser():
     v.add_argument("--budget-minutes", type=float, default=None,
                    help="stop cleanly after roughly this long; re-running "
                         "resumes where it left off")
-    v.add_argument("--clean-target", type=int, default=2,
+    v.add_argument("--clean-target", type=int, default=rank_mod.FALLBACK_DEPTH,
                    help="stop probing a channel's remaining (lower-declared-"
                         "quality) candidates once this many come back clean; "
                         "0 disables early stopping and probes everything "

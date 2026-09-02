@@ -915,6 +915,14 @@ class TestProbeDepthMatchesPushDepth(unittest.TestCase):
                 rank_mod.FALLBACK_DEPTH,
                 f"{fn.__name__} probes to a different depth than the push uses")
 
+    def test_the_cli_flag_defaults_to_the_same_depth(self):
+        """argparse carries its OWN default, which overrides the library
+        one entirely -- so fixing the function signatures left `channeliq
+        verify` still stopping at 2."""
+        from channeliq import cli as cli_mod, rank as rank_mod
+        args = cli_mod.build_parser().parse_args(["verify", "--source", "x"])
+        self.assertEqual(args.clean_target, rank_mod.FALLBACK_DEPTH)
+
     def test_every_spec_badge_is_a_three_part_tuple(self):
         """specHTML() builds [open, text, close] triples and renders them
         as x[0]+esc(x[1])+x[2]. The off-cadence badge was pushed as a
