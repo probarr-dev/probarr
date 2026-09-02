@@ -366,8 +366,9 @@ main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
 .offbox button{margin-left:10px;font-size:12px;padding:3px 9px}
 .chbox{background:rgba(240,173,78,.08);border:1px solid var(--warn);
   border-radius:var(--radius);padding:8px 11px;margin-bottom:10px;font-size:12.5px}
-.chbox ul{margin:0;padding-left:17px}
+.chbox ul{margin:0 0 7px;padding-left:17px}
 .chbox li{margin:1px 0;color:var(--dim)}
+.chbox button{font-size:12px;padding:4px 9px}
 .dpip{margin-left:5px;font-size:9.5px;font-weight:700;color:var(--bg);
   background:var(--dim);border-radius:3px;padding:0 3px;vertical-align:1px}
 .grp-list{display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow:auto}
@@ -849,6 +850,23 @@ function evidenceSig(ch){
     : "";
   return cs+"||"+mm;
 }
+// Same idea as evidenceSig/settled_on, for the "Changed" box specifically:
+// a curator can dismiss the CURRENT list of changes without having to also
+// change their pick (see build_payload()'s two independent change sources).
+// Dismissing again re-shows automatically the moment the list is genuinely
+// different from what was dismissed -- e.g. a bitrate difference so small
+// it sits right on the ranking's bucket boundary can flip the "now ranks
+// above your pick" message every re-verify even though nothing meaningful
+// is actually different; dismissing that exact text stops the nagging
+// without silencing a REAL future change, which would produce different
+// text and show again.
+function changesSig(ch){ return (ch.changes||[]).join("␟"); }
+function activeChanges(ch){
+  const sig = changesSig(ch);
+  if (!sig) return [];
+  const s = SEL[ch.key]||{};
+  return s.changes_dismissed_on === sig ? [] : (ch.changes||[]);
+}
 function state(ch){
   if (ch.missing) return "bad";
   const s = SEL[ch.key]||{};
@@ -903,7 +921,7 @@ function reviewReasons(ch){
       "resolves this channel to a different guide entry (\u201c"+
       ch.epg_mismatch.probarr.guide_name+"\u201d, "+ch.epg_mismatch.probarr.source+
       ") \u2014 push again to correct the link, or Check EPG to pick a different source first.");
-  if ((ch.changes||[]).length) out.push(...ch.changes);
+  if (activeChanges(ch).length) out.push(...activeChanges(ch));
   return out;
 }
 function needsReview(ch){
@@ -939,7 +957,7 @@ function visible(){
     if (q && !(ch.title.toLowerCase().includes(q) ||
                String(ch.number||"").includes(q))) return false;
     const st=state(ch);
-    if (filter==="changed") return (ch.changes||[]).length > 0;
+    if (filter==="changed") return activeChanges(ch).length > 0;
     if (filter==="triage") return needsHuman(ch);
     if (filter==="off") return st==="off";
     return true;
@@ -952,7 +970,7 @@ function renderChips(){
     const st=state(ch); if(counts[st]!==undefined) counts[st]++;
     if(needsHuman(ch)) counts.triage++;
   });
-  counts.changed = DATA.channels.filter(ch => (ch.changes||[]).length).length;
+  counts.changed = DATA.channels.filter(ch => activeChanges(ch).length).length;
   // A chip for zero channels is a dead end, not a filter -- "All" stays
   // (it's the baseline view, and hiding it would be strange even at zero),
   // and so does whichever chip is currently selected, so switching to it
@@ -991,8 +1009,8 @@ function renderList(){
                : '<span class="chlogo chlogo-empty"></span>')+
       '<span class="nm">'+esc(ch.title)+
         (ch.dispatcharr?'<span class="dpip" title="imported from Dispatcharr">D</span>':'')+
-        ((ch.changes||[]).length ? '<span class="chpip" title="'+
-          esc(ch.changes.join(" \u00b7 "))+'">changed</span>' : '')+
+        (activeChanges(ch).length ? '<span class="chpip" title="'+
+          esc(activeChanges(ch).join(" \u00b7 "))+'">changed</span>' : '')+
         '</span>'+
       '<span class="cnt">'+(ch.missing?"\u2014":(ch.candidates||[]).length)+'</span>'+
     '</div>';
@@ -1114,18 +1132,17 @@ function renderDetail(){
                      : 'This is fine \u2014 stop asking')+'</button>'+
       '</div>'
     : '';
-  // Collapsed by default, and the trigger lives in the button row now, not
-  // as its own always-visible banner -- a channel with nine real changes
-  // used to fill the whole screen with a list nobody asked to read in
-  // full, every single time the card was opened, pushing the actual
-  // picture below the fold.
-  const changed = (ch.changes||[]).length
-    ? '<div class="chbox" id="chlist" style="display:none"><ul>'+
-      ch.changes.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul></div>'
-    : '';
-  const changesBtn = (ch.changes||[]).length
-    ? '<button id="changesbtn" data-chtoggle="chlist" title="What changed for '+
-      'this channel since the last scan.">Changes ('+ch.changes.length+')</button>'
+  // Always visible, not tucked behind a button -- a change worth surfacing
+  // at all is worth seeing without an extra click. Dismiss (below) is the
+  // way out of a channel whose changes are noise, not hiding the box.
+  const activeCh = activeChanges(ch);
+  const changed = activeCh.length
+    ? '<div class="chbox"><ul>'+
+      activeCh.map(x=>'<li>'+esc(x)+'</li>').join("")+'</ul>'+
+      '<button id="dismisschangesbtn" title="Acknowledge this exact list of '+
+      'changes for this channel. It stays quiet until something actually '+
+      'different happens -- a genuinely new change shows again '+
+      'immediately.">Dismiss</button></div>'
     : '';
   // Exclude/Re-include applies to a channel with no matched candidates
   // just as well as one with them -- a real gap this used to have: a
@@ -1214,7 +1231,6 @@ function renderDetail(){
         includeBtn+
         '<button id="removechanbtn" class="danger" title="Remove this channel from '+
         'the run \u2014 optionally from Dispatcharr too.">Remove</button>'+
-        changesBtn+
         '<span class="muted" id="diagnosemsg"></span>' :
         '<button id="diagnosebtn" title="Re-scan every candidate for this channel with a '+
         'longer sample and a kept video clip \u2014 for when a channel misbehaves in a real '+
@@ -1259,7 +1275,6 @@ function renderDetail(){
             includeBtn+
             '<button id="removechanbtn" class="danger" title="Remove this channel from '+
             'the run \u2014 optionally from Dispatcharr too.">Remove</button>'+
-            changesBtn+
             '<button id="dupchanbtn" title="Make a second copy of this channel so '+
             'it can sit in another group as well \u2014 same streams, no re-probing.">'+
             'Duplicate</button>'+
@@ -1522,6 +1537,7 @@ document.addEventListener("click", e=>{
   if(e.target.id==="diagnosebtn"){ diagnoseChannel(); return; }
   if(e.target.id==="findstreamsbtn"){ openStreams(); return; }
   if(e.target.id==="settlebtn"){ settleChannel(); return; }
+  if(e.target.id==="dismisschangesbtn"){ dismissChanges(); return; }
   if(e.target.id==="epgcheckbtn"){ openEpgModal(); return; }
   if(e.target.id==="epgsrcbtn"){ setEpgSource(); return; }
   if(e.target.id==="groupedit"){ setGroup(); return; }
@@ -3384,6 +3400,23 @@ async function settleChannel(){
   renderList(); renderDetail();
 }
 
+// Same bulk-aware shape as settleChannel(), for the same reason: each
+// channel's dismissal is recorded against ITS OWN current changes text, not
+// a shared flag, so dismissing a multi-selection can't silently swallow one
+// channel's real change under another's noise.
+async function dismissChanges(){
+  const keys = MARKED.size > 1 ? [...MARKED] : [current];
+  for(const k of keys){
+    const ch = DATA.channels.find(c=>c.key===k); if(!ch) continue;
+    const sig = changesSig(ch);
+    if (!sig) continue;
+    const s = SEL[k] = SEL[k] || {};
+    s.changes_dismissed_on = sig;
+  }
+  save();
+  renderList(); renderDetail();
+}
+
 async function refreshAllChannels(){
   // Called once a push finishes: it can create/rename/relink far more
   // channels than the one the curator happens to be looking at, and the
@@ -3486,11 +3519,6 @@ function setPick(what,id){
 document.getElementById("detail").addEventListener("click", e => {
   if(e.target.id === "titletext" || e.target.id === "titleedit") startRename();
   if(e.target.closest("#numtext") || e.target.id === "numedit") startRenumber();
-  const ct = e.target.closest("[data-chtoggle]");
-  if(ct){
-    const box = document.getElementById(ct.dataset.chtoggle);
-    if(box) box.style.display = box.style.display === "none" ? "block" : "none";
-  }
 });
 // Click the dark backdrop (not the box itself) to close whichever modal is
 // open -- one handler for every modal in the app, not just Groups.
