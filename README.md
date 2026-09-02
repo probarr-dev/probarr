@@ -2,10 +2,13 @@
 
 > **Renamed from probarr.** Same project, same data format, nothing to
 > migrate. `python3 -m probarr ...` and `PROBARR_*` env vars still work
-> exactly as before -- the image carries both names. If something broke on
-> your next pull and you're not sure why, it's almost certainly this rename;
-> please open an issue and it'll get fixed properly rather than worked
-> around in Discord.
+> exactly as before -- the image carries both names. **The repo and image
+> path have NOT moved yet** -- still `probarr-dev/probarr` and
+> `ghcr.io/probarr-dev/probarr` -- so don't change those in your compose
+> file; this will be announced separately if/when they do move. If something
+> broke on your next pull and you're not sure why, it's almost certainly
+> this rename; please open an issue and it'll get fixed properly rather
+> than worked around in Discord.
 
 **Verify, compare and visually curate IPTV streams.**
 
@@ -48,7 +51,7 @@ Docker is the supported path — it bundles ffmpeg and needs nothing on the host
 identically on Windows, macOS and Linux.
 
 ```bash
-docker run -d --name channeliq -p 7799:7799 -v ./config:/config ghcr.io/channeliq-dev/channeliq:latest
+docker run -d --name channeliq -p 7799:7799 -v ./config:/config ghcr.io/probarr-dev/probarr:latest
 ```
 
 Open `http://localhost:7799`.
@@ -65,8 +68,8 @@ is always exactly what's on `main` — nothing hand-uploaded. To build it
 yourself (it takes seconds — stdlib only, no dependency resolution):
 
 ```bash
-git clone https://github.com/channeliq-dev/channeliq.git
-cd channeliq
+git clone https://github.com/probarr-dev/probarr.git
+cd probarr
 docker build -t channeliq .
 docker run -d --name channeliq -p 7799:7799 -v ./config:/config channeliq
 ```
