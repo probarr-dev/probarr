@@ -14,6 +14,7 @@ import json
 import os
 
 from . import providers as providers_mod
+from . import rank as rank_mod
 from . import watchdog as watchdog_mod
 
 # Fields whose value is (or may contain) a live provider credential --
@@ -64,6 +65,13 @@ DEFAULTS = {
     # wantlist.py's TOKEN_SORT_THRESHOLDS. "strict" tries none of it and is
     # every wantlist's behaviour before this existed.
     "match_sensitivity": "strict",
+    # Hard ceiling on candidates probed per channel. The adaptive stop
+    # (rank.FALLBACK_DEPTH) only fires once enough candidates come back
+    # CLEAN, so a channel whose candidates are all dead never triggers it --
+    # and the concurrency>1 probe path has no adaptive stop at all. This is
+    # the only bound on either case. 0 means no ceiling, which is how every
+    # run behaved before this setting existed.
+    "max_candidates": rank_mod.DEFAULT_MAX_CANDIDATES,
     # Ongoing per-channel maintenance from Dispatcharr's own event log --
     # see watchdog.py's module docstring for the full mechanism. Off by
     # default, same reasoning as the lineup scheduler: this pushes to
@@ -114,6 +122,12 @@ def coerce(values):
     _int("frame_height", 180, 2160)
     _int("thumb_height", 90, 720)
     _int("freshness_hours", 0, 24 * 60)
+    # Floor of 0 (= no ceiling), else at least FALLBACK_DEPTH: a ceiling
+    # below the adaptive target would make that target unreachable and
+    # quietly cap every uncurated push at the ceiling instead.
+    _int("max_candidates", 0, 500)
+    if out["max_candidates"] and out["max_candidates"] < rank_mod.FALLBACK_DEPTH:
+        out["max_candidates"] = rank_mod.FALLBACK_DEPTH
     _int("watchdog_threshold", 1, 20)
     _int("watchdog_start_minutes", 5, 24 * 60)
     _int("watchdog_max_hours", 1, 24 * 14)

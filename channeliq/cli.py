@@ -85,7 +85,9 @@ def cmd_verify(args):
         sample_seconds=args.sample_seconds,
         frame_height=args.frame_height or 720,
         thumb_height=args.thumb_height or 240,
-        max_candidates=args.max_candidates, min_candidates=args.min_candidates,
+        # 0 means "no ceiling", which build_worklist expresses as None.
+        max_candidates=args.max_candidates or None,
+        min_candidates=args.min_candidates,
         only_channels=args.channel, limit_channels=args.limit_channels,
         resume=not args.no_resume, log=on_log, progress_cb=on_progress,
         clean_target=args.clean_target,
@@ -179,8 +181,10 @@ def build_parser():
     v.add_argument("--gap", type=float, default=0.4, help="seconds between serial probes")
     v.add_argument("--sample-seconds", type=int, default=8,
                    help="seconds of video to decode per stream (default %(default)s)")
-    v.add_argument("--max-candidates", type=int, default=None,
-                   help="cap candidates probed per channel")
+    v.add_argument("--max-candidates", type=int,
+                   default=rank_mod.DEFAULT_MAX_CANDIDATES,
+                   help="hard cap on candidates probed per channel, whatever "
+                        "their outcome; 0 for no cap (default %(default)s)")
     v.add_argument("--rolling", action="store_true",
                    help="probe worst-and-stalest channels first instead of "
                         "alphabetically -- pair with --budget-minutes to "

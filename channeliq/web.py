@@ -3213,6 +3213,12 @@ class Handler(BaseHTTPRequestHandler):
             sample_seconds=int(body.get("sample_seconds") or cfg["sample_seconds"]),
             frame_height=cfg["frame_height"],
             thumb_height=cfg["thumb_height"],
+            # Never passed from here at all until this setting existed, so a
+            # web-started run had no per-channel ceiling whatsoever -- and at
+            # concurrency>1, where verify()'s adaptive stop deliberately does
+            # not apply, nothing bounded a run at all. 0 means no ceiling,
+            # matching the old behaviour for anyone who wants it back.
+            max_candidates=cfg["max_candidates"] or None,
         )
         if lineup_name:
             kwargs["lineup"] = lineup_name

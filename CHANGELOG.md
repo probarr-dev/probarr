@@ -53,6 +53,22 @@ if they ever drift again.
 Runs made before this keep whatever they probed; a re-verify picks up the
 extra candidates.
 
+### New setting: max streams per channel
+A hard ceiling on candidates probed per channel, default **12**, in Settings
+(`--max-candidates` on the CLI; **0** for no cap).
+
+The depth rule above is adaptive and only fires once enough candidates come
+back *clean* — so it never triggers on a channel whose candidates are all
+dead, and it deliberately doesn't apply at all when **Streams at once** is
+above 1. Nothing bounded either case, and a web-started run passed no
+ceiling whatsoever. On a multi-country provider a generic name ("TLC",
+"CNN") can pool into dozens of candidates, so that was a real runaway.
+
+Can't be set below the clean-target of 4: a ceiling under it would make the
+adaptive rule unreachable and silently cap every uncurated push at the
+ceiling instead. **Find streams** and **Import from Dispatcharr** now honour
+this setting too, instead of their own hardcoded 6.
+
 ### Fixes
 - The "placeholder" verdict now names the container that reported the fixed
   duration — `reports a fixed 600.0s duration (hls)`. On MPEG-TS a finite

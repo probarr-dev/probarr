@@ -431,17 +431,32 @@ connection to learn nothing.
 
 So "86 of 106 probed" is the feature working, not a failure.
 
-Two things worth knowing:
+There is a second, separate limit behind it: **Settings → Max streams per
+channel** (default **12**). That one is a hard ceiling regardless of
+outcome, and it matters in two cases the rule above doesn't cover:
 
-- **This only applies at concurrency 1.** At 2 or more there is no early
-  stop at all — cancelling probes already in flight isn't worth the
-  complexity — so a run at higher concurrency probes *everything*. If your
-  runs feel enormous, this is usually why.
-- **It was 2 until recently**, which capped how many streams a push could
-  ever pick from. If you're on an older run, re-verify to pick up the
-  extra two.
+- **A channel whose candidates are all dead** never gets 4 clean ones, so
+  the early stop never fires. The ceiling is what stops it walking a pool
+  of fifty.
+- **At concurrency 2 or more there is no early stop at all** — cancelling
+  probes already in flight isn't worth the complexity — so the ceiling is
+  the *only* limit that applies. If your runs feel enormous, this is why.
 
-To probe everything deliberately: `--clean-target 0` on the CLI.
+So: normally ~4 probes per channel, at most 12, and never unbounded.
+
+| | stops when | applies at concurrency 1 | at 2+ |
+|---|---|---|---|
+| depth of 4 | 4 come back **clean** | yes | no |
+| Max streams per channel (12) | 12 probed, **any outcome** | yes | yes |
+
+Set the ceiling to **0** for no cap. It can't be set below 4 — a ceiling
+under the clean-target would make that target unreachable and quietly cap
+every uncurated push at the ceiling instead.
+
+**Both were lower until recently** (2 clean, and no ceiling at all from the
+web UI). If you're looking at an older run, re-verify to pick up the rest.
+
+CLI equivalents: `--clean-target 0` and `--max-candidates 0`.
 
 ### It only pushed one stream / is it limited to 2?
 

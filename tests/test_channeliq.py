@@ -915,6 +915,29 @@ class TestProbeDepthMatchesPushDepth(unittest.TestCase):
                 rank_mod.FALLBACK_DEPTH,
                 f"{fn.__name__} probes to a different depth than the push uses")
 
+    def test_the_probe_ceiling_sits_above_the_adaptive_target(self):
+        """max_candidates is a hard cap; FALLBACK_DEPTH is an adaptive stop
+        that only fires on CLEAN results. A ceiling at or below the target
+        makes the target unreachable and silently caps every uncurated push
+        at the ceiling instead -- which is the "limited to 2 streams per
+        channel" behaviour this pair was untangled to fix."""
+        from channeliq import rank as rank_mod
+        self.assertGreater(rank_mod.DEFAULT_MAX_CANDIDATES,
+                           rank_mod.FALLBACK_DEPTH)
+
+    def test_settings_refuses_a_ceiling_below_the_target(self):
+        from channeliq import settings as settings_mod, rank as rank_mod
+        got = settings_mod.coerce({"max_candidates": 2})
+        self.assertEqual(got["max_candidates"], rank_mod.FALLBACK_DEPTH)
+        # 0 is the documented "no ceiling" escape hatch and must survive.
+        self.assertEqual(settings_mod.coerce({"max_candidates": 0})
+                         ["max_candidates"], 0)
+
+    def test_the_cli_ceiling_flag_matches_the_setting(self):
+        from channeliq import cli as cli_mod, rank as rank_mod
+        args = cli_mod.build_parser().parse_args(["verify", "--source", "x"])
+        self.assertEqual(args.max_candidates, rank_mod.DEFAULT_MAX_CANDIDATES)
+
     def test_the_cli_flag_defaults_to_the_same_depth(self):
         """argparse carries its OWN default, which overrides the library
         one entirely -- so fixing the function signatures left `channeliq

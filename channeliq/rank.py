@@ -36,6 +36,22 @@ from .probe import (STATUS_OK, STATUS_DIRTY, STATUS_PLACEHOLDER,
 # in a run log as "skipped X: already has 2 clean candidate(s)".
 FALLBACK_DEPTH = 4
 
+# Hard ceiling on candidates probed per channel, whatever their outcome --
+# the companion to FALLBACK_DEPTH's adaptive stop, and deliberately well
+# above it. FALLBACK_DEPTH stops early on SUCCESS; a channel whose first
+# candidates are all dead never triggers it, and would otherwise walk the
+# entire pool. On a multi-country provider a generic name ("TLC", "CNN")
+# can pool into dozens of candidates, and the concurrency>1 path has no
+# adaptive stop at all (see verify.py), so without a ceiling that path is
+# genuinely unbounded.
+#
+# 12 leaves room for 8 duds before the 4 clean ones this wants are out of
+# reach -- a ceiling AT or BELOW FALLBACK_DEPTH would silently make the
+# adaptive rule unreachable and cap every uncurated push at the ceiling
+# instead, which is the exact "limited to 2 streams per channel" behaviour
+# this pair of constants was untangled to fix.
+DEFAULT_MAX_CANDIDATES = 12
+
 # A still picture ranks below a corrupted one on purpose. Corruption is often
 # transient and the channel is at least the right channel; a placeholder card
 # is not the content at all.

@@ -641,6 +641,15 @@ __TOPBAR__
     </div>
 
     <div class="field">
+      <div class="lab">Max streams per channel</div>
+      <div class="ctl"><input type="number" id="max_candidates" min="0" max="500">
+        <div class="help">Hard cap on how many of a channel's streams get probed, whatever
+          they come back as. A run normally stops a channel early once 4 come back clean
+          &mdash; this is the backstop for when they don't, and the only limit that applies
+          when <b>Streams at once</b> is above 1. 0 means no cap.</div></div>
+    </div>
+
+    <div class="field">
       <div class="lab">Freshness window</div>
       <div class="ctl"><input type="number" id="freshness_hours" min="0" max="1440">
         <div class="help">Skips re-probing a lineup's unchanged streams within this many hours; 0 always re-probes everything.</div></div>
@@ -800,7 +809,7 @@ __TOPBAR__
 const $ = id => document.getElementById(id);
 const KEYS = ["concurrency","gap_seconds","sample_seconds","frame_height",
               "thumb_height","source","epg","wantlist","failover_display",
-              "freshness_hours","match_sensitivity","watchdog_threshold",
+              "freshness_hours","max_candidates","match_sensitivity","watchdog_threshold",
               "watchdog_start_minutes","watchdog_max_hours","watchdog_stable_hours"];
 // Checkboxes need .checked, not .value -- everything else on this page is a
 // plain input/select, so this is its own tiny list rather than teaching
@@ -2969,6 +2978,14 @@ __TOPBAR__
         into a local undo/redo stack instead of saving each one
         immediately, with Commit/Discard to close it out.</li>
     </ul>
+
+    <p class="relnote"><b>New setting: max streams per channel.</b> A hard
+      ceiling on candidates probed per channel, default <b>12</b> (0 for no
+      cap). The depth rule below is adaptive and only fires once enough come
+      back <i>clean</i>, so it never triggers on an all-dead channel and
+      doesn't apply at all above 1 stream at once &mdash; nothing bounded
+      either case, and a web-started run passed no ceiling at all. Can't be
+      set below 4, which would make the adaptive rule unreachable.</p>
 
     <p class="relnote"><b>Failover depth: probing and pushing now agree.</b>
       Probing stopped collecting candidates once a channel had <b>2</b> clean
