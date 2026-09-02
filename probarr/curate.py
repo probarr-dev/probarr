@@ -66,6 +66,16 @@ aside .tools{padding:9px 10px;border-bottom:1px solid var(--line);display:flex;
 .dot.ok{background:var(--ok)}.dot.review{background:var(--warn)}
 .dot.bad{background:var(--bad)}.dot.off{background:var(--faint)}
 .chan .cnt{color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+.chgroup-hdr{display:flex;gap:7px;align-items:center;padding:6px 10px;cursor:pointer;
+  background:var(--bg2);border-bottom:1px solid rgba(255,255,255,.03);
+  position:sticky;top:0;z-index:1;user-select:none}
+.chgroup-hdr:hover{background:var(--panel2)}
+.chgroup-chev{color:var(--text);font-size:20px;font-weight:700;width:16px;flex:none;
+  text-align:center;line-height:1}
+.chgroup-name{flex:1;font-size:11.5px;font-weight:700;color:var(--dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chgroup-cnt{color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+.chgroup-all{width:auto;margin:0}
 main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
 .dhead{margin-bottom:12px}
 .dhead h1{margin:0 0 4px;font-size:20px;display:flex;align-items:center;gap:10px}
@@ -994,34 +1004,75 @@ function listLogo(ch){
   const sel = SEL[ch.key] || {};
   return sel.logo_override || (ch.candidates||[]).map(c=>c.logo).find(Boolean) || "";
 }
+// Sticky per session, not per channel: a group collapsed while triaging
+// stays collapsed as you filter/search, but resets on reload -- this is
+// scroll-position-grade convenience, not a decision worth persisting to
+// the server the way group membership itself is.
+const COLLAPSED_GROUPS = new Set();
+
+function chanRowHTML(ch){
+  const logoUrl = listLogo(ch);
+  const st = state(ch);
+  return '<div class="chan'+(current===ch.key?' sel':'')+(ch.missing?' missing':'')+
+  (MARKED.has(ch.key)?' marked':'')+'" data-k="'+esc(ch.key)+'">'+
+    '<span class="dot '+st+'" title="'+esc(STATE_LABEL[st]||st)+'"></span>'+
+    (ch.number!=null?'<span class="num">'+ch.number+'</span>'
+      :'<span class="num nonum" title="No channel number set \u2014 this channel '+
+        'will be dropped from every export until it has one">NO #</span>')+
+    (logoUrl ? '<img class="chlogo" src="'+esc(logoUrl)+'" alt="" loading="lazy">'
+             : '<span class="chlogo chlogo-empty"></span>')+
+    '<span class="nm">'+esc(ch.title)+
+      (ch.dispatcharr?'<span class="dpip" title="imported from Dispatcharr">D</span>':'')+
+      (activeChanges(ch).length ? '<span class="chpip" title="'+
+        esc(activeChanges(ch).join(" \u00b7 "))+'">changed</span>' : '')+
+      '</span>'+
+    '<span class="cnt">'+(ch.missing?"\u2014":(ch.candidates||[]).length)+'</span>'+
+  '</div>';
+}
+
 function renderList(){
   const list=visible();
-  document.getElementById("chanlist").innerHTML = list.length ? list.map(ch=>{
-    const logoUrl = listLogo(ch);
-    const st = state(ch);
-    return '<div class="chan'+(current===ch.key?' sel':'')+(ch.missing?' missing':'')+
-    (MARKED.has(ch.key)?' marked':'')+'" data-k="'+esc(ch.key)+'">'+
-      '<span class="dot '+st+'" title="'+esc(STATE_LABEL[st]||st)+'"></span>'+
-      (ch.number!=null?'<span class="num">'+ch.number+'</span>'
-        :'<span class="num nonum" title="No channel number set — this channel '+
-          'will be dropped from every export until it has one">NO #</span>')+
-      (logoUrl ? '<img class="chlogo" src="'+esc(logoUrl)+'" alt="" loading="lazy">'
-               : '<span class="chlogo chlogo-empty"></span>')+
-      '<span class="nm">'+esc(ch.title)+
-        (ch.dispatcharr?'<span class="dpip" title="imported from Dispatcharr">D</span>':'')+
-        (activeChanges(ch).length ? '<span class="chpip" title="'+
-          esc(activeChanges(ch).join(" \u00b7 "))+'">changed</span>' : '')+
-        '</span>'+
-      '<span class="cnt">'+(ch.missing?"\u2014":(ch.candidates||[]).length)+'</span>'+
-    '</div>';
-  }).join("")
-    : (filter==="triage"
+  if(!list.length){
+    document.getElementById("chanlist").innerHTML = (filter==="triage"
         ? '<div class="empty">Nothing needs you.<div class="hint">Every channel '+
           'has a clean pick the ranking is confident about. Switch to '+
           '<b>All</b> to browse them, or export as-is.</div></div>'
         : '<div class="empty">No channels match.</div>');
+    renderChips();
+    return;
+  }
+  // Grouped by the same per-channel group Set group/export use -- a large
+  // lineup as one long undifferentiated scroll made finding a section by
+  // eye slower than the filter chips already are. Order follows each
+  // group's first appearance in `list`, which already carries the run's
+  // own wantlist/number ordering, rather than introducing a second,
+  // alphabetical order that would disagree with it.
+  const groups = [];
+  const byName = {};
+  for(const ch of list){
+    const g = chanGroup(ch) || "(no group)";
+    if(!byName[g]){ byName[g] = {name: g, chans: []}; groups.push(byName[g]); }
+    byName[g].chans.push(ch);
+  }
+  document.getElementById("chanlist").innerHTML = groups.map(g => {
+    const collapsed = COLLAPSED_GROUPS.has(g.name);
+    const allMarked = g.chans.every(ch => MARKED.has(ch.key));
+    return '<div class="chgroup">'+
+      '<div class="chgroup-hdr" data-g="'+esc(g.name)+'">'+
+        '<span class="chgroup-chev">'+(collapsed?"\u25b8":"\u25be")+'</span>'+
+        '<input type="checkbox" class="chgroup-all" data-g="'+esc(g.name)+'"'+
+          (allMarked?' checked':'')+' title="Select every channel in this group for '+
+          'a bulk action (Set group, Diagnose, This is fine, and so on) \u2014 same '+
+          'as Cmd/Ctrl-click on each row.">'+
+        '<span class="chgroup-name">'+esc(g.name)+'</span>'+
+        '<span class="chgroup-cnt">'+g.chans.length+'</span>'+
+      '</div>'+
+      (collapsed ? '' : g.chans.map(chanRowHTML).join(''))+
+    '</div>';
+  }).join("");
   renderChips();
 }
+
 
 // The channel's own true aspect ratio -- whatever is actually curated into
 // slot 1 (the operator's pick, or the auto-pick before anything has been
@@ -1553,6 +1604,20 @@ document.addEventListener("click", e=>{
   if(e.target.id==="includebtn" || e.target.id==="includebtn2"){ toggleInclude(); return; }
   const chip=e.target.closest(".chip");
   if(chip){ filter=chip.dataset.f; renderList(); saveViewState(); return; }
+  const gcheck=e.target.closest(".chgroup-all");
+  if(gcheck){
+    const g = gcheck.dataset.g;
+    const chans = visible().filter(ch => (chanGroup(ch)||"(no group)")===g);
+    const allMarked = chans.every(ch=>MARKED.has(ch.key));
+    chans.forEach(ch => allMarked ? MARKED.delete(ch.key) : MARKED.add(ch.key));
+    renderList(); renderDetail(); return;
+  }
+  const ghdr=e.target.closest(".chgroup-hdr");
+  if(ghdr){
+    const g = ghdr.dataset.g;
+    COLLAPSED_GROUPS.has(g) ? COLLAPSED_GROUPS.delete(g) : COLLAPSED_GROUPS.add(g);
+    renderList(); return;
+  }
   const row=e.target.closest(".chan");
   if(row){
     if(e.metaKey || e.ctrlKey){
@@ -4438,6 +4503,20 @@ __TOPBAR__
   <button id="bulkepg">Set EPG source</button>
   <button id="bulkinclude">Exclude / re-include</button>
   <button id="bulkwm">Clear watermark</button>
+  <span class="sep"></span>
+  <label class="miniline" style="display:inline-flex;align-items:center;gap:5px"
+    title="Batches every change below into one staged set with undo/redo, instead of
+    saving each one straight away. Nothing reaches the server until you Commit.">
+    <input type="checkbox" id="editmode" style="width:auto">Edit mode</label>
+  <span id="editbar" style="display:none;align-items:center;gap:6px">
+    <button id="editundo" disabled title="Undo the last staged change">&#8630; Undo</button>
+    <button id="editredo" disabled title="Redo the last undone change">&#8631; Redo</button>
+    <span class="count" id="editcount">0 staged</span>
+    <button id="editdiscard" title="Throw away every staged change made since Edit mode
+      was turned on. Nothing was saved to the server, so this is completely safe.">Discard</button>
+    <button class="primary" id="editcommit" disabled
+      title="Save every staged change at once and turn Edit mode back off.">Commit</button>
+  </span>
 </div>
 
 <div class="bulktable">
@@ -4524,16 +4603,83 @@ function simpleState(ch){
 const STATE_LABEL = {ok:"clean", review:"check", bad:"no usable stream", off:"excluded"};
 
 let saveTimer;
+// --- Edit mode: stage every bulk change locally with undo/redo, instead of
+// each one hitting the server the moment it's made. A single "Set group"
+// applied to 40 channels was already one atomic write, but there was no way
+// to back out of a batch of SEVERAL such actions once made -- only re-doing
+// them one at a time by hand. Off by default: every call site below already
+// calls save(), so this only changes what save() itself does, not how any
+// bulk action is written.
+let EDIT_MODE = false, PRE_EDIT_SEL = null;
+let UNDO_STACK = [], REDO_STACK = [];
+
+function snapshotForUndo(){
+  if(!EDIT_MODE) return;
+  UNDO_STACK.push(JSON.stringify(SEL));
+  REDO_STACK = [];
+  updateEditBar();
+}
+
 function save(){
+  if(EDIT_MODE){
+    // Staged: reflected in the UI (the row itself already re-renders), but
+    // nothing reaches the server until Commit turns EDIT_MODE back off.
+    updateEditBar();
+    return Promise.resolve();
+  }
   document.getElementById("selcount").dataset.saving = "1";
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async ()=>{
-    try{
-      await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+"/selection",
-        {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(SEL)});
-    }catch(e){}
-  }, 400);
+  return new Promise(resolve=>{
+    saveTimer = setTimeout(async ()=>{
+      try{
+        await fetch("/api/run/"+encodeURIComponent(DATA.run_id)+"/selection",
+          {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(SEL)});
+      }catch(e){}
+      resolve();
+    }, 400);
+  });
 }
+
+function updateEditBar(){
+  document.getElementById("editbar").style.display = EDIT_MODE ? "inline-flex" : "none";
+  document.getElementById("editundo").disabled = !UNDO_STACK.length;
+  document.getElementById("editredo").disabled = !REDO_STACK.length;
+  document.getElementById("editcommit").disabled = !UNDO_STACK.length;
+  document.getElementById("editcount").textContent = UNDO_STACK.length+" staged";
+}
+document.getElementById("editmode").addEventListener("change", e=>{
+  EDIT_MODE = e.target.checked;
+  if(EDIT_MODE){
+    PRE_EDIT_SEL = JSON.stringify(SEL);
+    UNDO_STACK = []; REDO_STACK = [];
+  }
+  updateEditBar();
+});
+document.getElementById("editundo").addEventListener("click", ()=>{
+  if(!UNDO_STACK.length) return;
+  REDO_STACK.push(JSON.stringify(SEL));
+  SEL = JSON.parse(UNDO_STACK.pop());
+  renderRows(); updateEditBar();
+});
+document.getElementById("editredo").addEventListener("click", ()=>{
+  if(!REDO_STACK.length) return;
+  UNDO_STACK.push(JSON.stringify(SEL));
+  SEL = JSON.parse(REDO_STACK.pop());
+  renderRows(); updateEditBar();
+});
+document.getElementById("editdiscard").addEventListener("click", ()=>{
+  if(PRE_EDIT_SEL) SEL = JSON.parse(PRE_EDIT_SEL);
+  EDIT_MODE = false; UNDO_STACK = []; REDO_STACK = []; PRE_EDIT_SEL = null;
+  document.getElementById("editmode").checked = false;
+  renderRows(); updateEditBar();
+});
+document.getElementById("editcommit").addEventListener("click", ()=>{
+  const hadChanges = UNDO_STACK.length > 0;
+  EDIT_MODE = false; UNDO_STACK = []; REDO_STACK = []; PRE_EDIT_SEL = null;
+  document.getElementById("editmode").checked = false;
+  updateEditBar();
+  if(hadChanges) save();      // EDIT_MODE is false now, so this actually persists
+});
 
 function visible(){
   const q = document.getElementById("q").value.trim().toLowerCase();
@@ -4627,6 +4773,7 @@ document.getElementById("grp-new").addEventListener("input", e=>{
   }
 });
 function applyGroup(v){
+  snapshotForUndo();
   grpKeys.forEach(k => { SEL[k] = {...(SEL[k]||{}), group: v || undefined}; });
   save(); document.getElementById("grpmodal").classList.remove("on"); renderRows();
 }
@@ -4664,6 +4811,7 @@ document.getElementById("epgsrc-list").addEventListener("click", e=>{
   [...document.querySelectorAll("#epgsrc-list .grp-opt")].forEach(x=>x.classList.toggle("on", x===o));
 });
 function applyEpgSource(v){
+  snapshotForUndo();
   epgSrcKeys.forEach(k => { SEL[k] = {...(SEL[k]||{}), epg_source: v || undefined}; });
   save(); document.getElementById("epgsrcmodal").classList.remove("on"); renderRows();
 }
@@ -4675,6 +4823,7 @@ document.getElementById("epgsrc-save").addEventListener("click", ()=> applyEpgSo
 // --- Include / exclude -----------------------------------------------------
 document.getElementById("bulkinclude").addEventListener("click", ()=>{
   const keys = [...MARKED]; if(!keys.length) return;
+  snapshotForUndo();
   const currentlyIncluded = (SEL[keys[0]]||{}).include !== false;
   const newValue = !currentlyIncluded;
   keys.forEach(k => { const s = SEL[k] = SEL[k]||{}; s.include = newValue; });
@@ -4687,6 +4836,7 @@ document.getElementById("bulkinclude").addEventListener("click", ()=>{
 // a previously-drawn box applies just as well to many channels at once.
 document.getElementById("bulkwm").addEventListener("click", ()=>{
   const keys = [...MARKED]; if(!keys.length) return;
+  snapshotForUndo();
   keys.forEach(k => { const s = SEL[k]; if(s) delete s.watermark_box; });
   save(); renderRows();
 });
