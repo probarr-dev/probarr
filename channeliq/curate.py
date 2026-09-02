@@ -459,10 +459,12 @@ __TOPBAR__
         <div class="fbchoice">
           <label class="fbopt" data-v="native">
             <input type="radio" name="fbmode" value="native">
-            <span><span class="t">Native (one channel, two streams)</span>
-              <span class="d">Dispatcharr's own failover switches to the
-                fallback automatically. No lineup clutter, but the fallback
-                is not individually selectable.</span></span>
+            <span><span class="t">Native (one channel, ordered failover list)</span>
+              <span class="d">Dispatcharr's own failover switches down your
+                curated order automatically -- as many streams as you've
+                ordered, not just one fallback. No lineup clutter, but the
+                individual entries aren't separately selectable in
+                Dispatcharr's own UI.</span></span>
           </label>
           <label class="fbopt" data-v="separate">
             <input type="radio" name="fbmode" value="separate">
@@ -3540,8 +3542,19 @@ function chosenIds(ch){
   if(s.primary) out.push(s.primary);
   if(s.fallback && s.fallback !== s.primary) out.push(s.fallback);
   if(out.length) return out;
-  const auto = (ch.candidates||[]).find(c => c.status==="ok" || c.status==="dirty");
-  return auto ? [auto.id] : [];
+  // Real bug found live: this used to return just the ONE top candidate,
+  // while autoPick() (used when a run has no selection at all) and the
+  // server's own push fallback (_resolve_curated, when neither streams
+  // nor primary/fallback is set) both default to AUTO_FALLBACK_DEPTH.
+  // A channel that had only ever gotten a `group` written to it (e.g.
+  // every channel under a wantlist [Group] header -- see _seed_groups)
+  // landed here, showed only ONE candidate as "in the channel" in Curate,
+  // and if anything persisted that (a drag, a digit key, an Add-then-
+  // Remove) baked a single-stream failover chain into selection.json
+  // permanently, even though nothing had actually been curated down from
+  // the real default of AUTO_FALLBACK_DEPTH.
+  return (ch.candidates||[]).filter(c => c.status==="ok" || c.status==="dirty")
+    .slice(0, AUTO_FALLBACK_DEPTH).map(c=>c.id);
 }
 // Chosen streams in their chosen order, then everything else by rank --
 // so the list reads top to bottom as "what this channel is, then what
