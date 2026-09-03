@@ -53,6 +53,31 @@ if they ever drift again.
 Runs made before this keep whatever they probed; a re-verify picks up the
 extra candidates.
 
+### The browser no longer talks to anything but this container
+Channel logos were rendered straight from the URLs a provider and a guide
+put in their own data, so the **viewer's browser** fetched them. One real
+Curate page load made **42 off-origin requests** — 33 to a provider's logo
+CDN, 8 to raw.githubusercontent.com, 1 to a guide provider's CloudFront.
+Each one handed a third party the viewer's IP and, from the filenames
+alone, the list of channels they were curating. On an install run behind a
+VPN that is precisely backwards: the container's traffic was tunnelled and
+the browser's wasn't.
+
+It was also the cause of the standing "channel logos sometimes don't load"
+reports. The container can reach those hosts; a browser often can't.
+
+Every remote image is now fetched **once by the container**, cached on
+disk, and served from `/img/<digest>`. The browser is never given the
+remote URL at all — a digest, not a `?url=` proxy, so this can't be turned
+into an open relay against a service that has no authentication by design.
+Private, loopback and link-local addresses are refused outright, since a
+provider writes its own playlist and `tvg-logo="http://192.168.0.1/"` is
+entirely within its power.
+
+The real URLs are untouched where they matter: a Dispatcharr push still
+sends the provider's own logo URL, not a path only this container could
+resolve.
+
 ### Runs now warn when the wrong country's feeds are leaking in
 The "no Regions filter set" note used to fire on VOLUME alone (candidates
 per channel over 6). A reported run sat at 4.4 per channel — under any

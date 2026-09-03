@@ -14,6 +14,7 @@ becomes a glance rather than an investigation.
 import json
 import os
 
+from . import imagecache
 from . import rank as rank_mod
 from . import watchdog as watchdog_mod
 from .theme import CSS, topbar
@@ -262,6 +263,10 @@ main.detail{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 20px}
 .em-logo-opt:hover{border-color:var(--accent)}
 .em-logo-opt.picked{border-color:var(--accent);background:rgba(80,140,255,.08)}
 .em-logo-opt img{height:34px;width:100%;object-fit:contain;background:var(--bg);
+  border-radius:3px}
+/* Same footprint as the image, for a tile whose logo has no local copy --
+   so the grid doesn't reflow around it and the label still lines up. */
+.em-logo-opt .noimg{height:34px;width:100%;background:var(--bg);
   border-radius:3px}
 .em-logo-opt .lbl{font-size:9.5px;color:var(--dim);line-height:1.25;
   overflow:hidden;text-overflow:ellipsis;display:-webkit-box;
@@ -1003,9 +1008,21 @@ function renderChips(){
 // rather than a broken-image icon.
 const STATE_LABEL = {ok: "clean", review: "needs a look",
   bad: "no usable stream", off: "excluded"};
+// The ONLY way a URL is allowed to reach an <img src> on this page.
+// Resolves a remote url to the local path this container serves it from
+// (see imagecache.py). Falls back to NOTHING, never to the remote url:
+// silently degrading to a direct fetch is exactly the leak this exists to
+// stop, and a missing logo is a far smaller problem than the viewer's
+// browser announcing their channel list to a provider CDN.
+function imgsrc(u){
+  if(!u) return "";
+  if(u.startsWith("/")) return u;          // already local (run thumbnails)
+  return (DATA.logo_map||{})[u] || "";
+}
 function listLogo(ch){
   const sel = SEL[ch.key] || {};
-  return sel.logo_override || (ch.candidates||[]).map(c=>c.logo).find(Boolean) || "";
+  return imgsrc(sel.logo_override ||
+                (ch.candidates||[]).map(c=>c.logo).find(Boolean) || "");
 }
 // Sticky per session, not per channel: a group collapsed while triaging
 // stays collapsed as you filter/search, but resets on reload -- this is
@@ -3013,9 +3030,16 @@ async function ensureLogoCountries(){
   }catch(e){ LOGO_COUNTRIES = []; }
   return LOGO_COUNTRIES;
 }
-function logoOptHTML(url, label, picked){
+// `url` is the REAL remote url and stays in data-logo-url, because that is
+// what gets stored as logo_override and pushed to Dispatcharr. `local` is
+// the only thing the <img> is allowed to point at. When a caller has no
+// local path the tile renders with no image rather than reaching out --
+// see imgsrc().
+function logoOptHTML(url, label, picked, local){
+  const src = local || imgsrc(url);
   return '<div class="em-logo-opt'+(picked?' picked':'')+'" data-logo-url="'+esc(url)+'" '+
-    'title="'+esc(label)+'"><img src="'+esc(url)+'" alt="" loading="lazy">'+
+    'title="'+esc(label)+'">'+
+    (src ? '<img src="'+esc(src)+'" alt="" loading="lazy">' : '<div class="noimg"></div>')+
     '<div class="lbl">'+esc(label)+'</div></div>';
 }
 async function renderLogoSection(ch, epgSources){
@@ -3023,8 +3047,8 @@ async function renderLogoSection(ch, epgSources){
   const override = sel.logo_override || "";
   const m3uLogo = (ch.candidates||[]).map(c=>c.logo).find(Boolean) || "";
   const curEl = document.getElementById("em-logo-current");
-  const activeUrl = override || m3uLogo ||
-    (epgSources.find(s=>s.logo) || {}).logo || "";
+  const activeUrl = imgsrc(override || m3uLogo ||
+    (epgSources.find(s=>s.logo) || {}).logo || "");
   curEl.innerHTML = activeUrl
     ? '<img src="'+esc(activeUrl)+'" alt="">'+
       '<span>'+(override ? 'Using the picked logo below.'
@@ -3043,7 +3067,7 @@ async function renderLogoSection(ch, epgSources){
     if(s.logo && !seen.has(s.logo)){
       seen.add(s.logo);
       opts.push(logoOptHTML(s.logo, s.source, s.logo===override ||
-        (!override && s.logo===activeUrl)));
+        (!override && s.logo===activeUrl), s.logo_local));
     }
   }
   if(override && !seen.has(override)){
@@ -3108,7 +3132,8 @@ function runLogoSearch(){
         '" match "'+esc(q)+'"</div>';
       return;
     }
-    box.innerHTML = results.map(r => logoOptHTML(r.url, r.filename, false)).join("");
+    box.innerHTML = results.map(r =>
+      logoOptHTML(r.url, r.filename, false, r.url_local)).join("");
   }, 300);
 }
 document.getElementById("em-logo-q").addEventListener("input", runLogoSearch);
@@ -4323,7 +4348,27 @@ def build_payload(by_channel, store, guide_present=False, inherited=None,
     selection = dict(inherited or {})
     for k, v in (store.read_selection() or {}).items():
         selection[k] = {**inherited.get(k, {}), **v} if inherited else v
+    # Remote image URL -> the local path that serves it (see imagecache.py:
+    # the browser must never be handed a URL that would make it talk to a
+    # provider CDN or GitHub). A MAP rather than a rewrite of each `logo`
+    # field on purpose: _resolve_curated() reads this same payload to build
+    # the Dispatcharr push, and Dispatcharr needs the REAL url -- pushing
+    # "/img/<digest>" would hand it a path only this container can resolve.
+    # So the real url stays where the export reads it, and the display side
+    # goes through imgsrc() in the JS, which resolves through this map and
+    # falls back to nothing rather than to the remote url.
+    logo_map = {}
+    for ch in channels:
+        for c in ch.get("candidates") or []:
+            if c.get("logo"):
+                logo_map[c["logo"]] = imagecache.local_url(store.root, c["logo"])
+    for sel_entry in (selection or {}).values():
+        u = (sel_entry or {}).get("logo_override")
+        if u:
+            logo_map[u] = imagecache.local_url(store.root, u)
+
     return {"run_id": store.run_id, "meta": store.read_meta(),
+            "logo_map": logo_map,
             "selection": selection, "channels": channels}
 
 
@@ -4472,6 +4517,26 @@ BULK_EXTRA_CSS = """
 .bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
   padding:10px 14px;border-bottom:1px solid var(--line);background:var(--bg2)}
 .bulkbar input[type=search]{width:200px}
+/* Deliberately styled as a button, not a text link: the way OUT of a mode
+   has to read as an action at a glance, and a plain underlined link in a
+   row of buttons reads as decoration. */
+.bulkbar .backlink{display:inline-flex;align-items:center;gap:5px;flex:none;
+  padding:4px 11px;border:1px solid var(--line);border-radius:5px;
+  background:var(--panel);color:var(--fg);text-decoration:none;
+  font-size:12.5px;font-weight:600;white-space:nowrap}
+.bulkbar .backlink:hover{border-color:var(--accent);color:var(--accent)}
+/* The other half of "you are in a mode": the page gets a visible edge and
+   a labelled header strip, so bulk edit looks like something layered over
+   the run rather than just another page you navigated to. */
+.bulkscope{border:1px solid var(--line);border-radius:8px;margin:12px 14px;
+  overflow:hidden;background:var(--bg)}
+.bulkscope-head{display:flex;align-items:center;gap:8px;padding:8px 14px;
+  background:var(--bg2);border-bottom:1px solid var(--line)}
+.bulkscope-head .t{font-weight:700;font-size:13px}
+.bulkscope-head .r{color:var(--dim);font-size:12px}
+.bulkscope-head .x{margin-left:auto;text-decoration:none;color:var(--dim);
+  font-size:18px;line-height:1;padding:2px 8px;border-radius:5px}
+.bulkscope-head .x:hover{background:var(--panel);color:var(--fg)}
 .bulkbar .sep{width:1px;height:20px;background:var(--line);margin:0 2px;flex:none}
 .bulkbar .count{color:var(--dim);font-size:12px;min-width:80px}
 /* CSS Grid, not a real <table> -- table-layout:fixed's column widths
@@ -4510,7 +4575,28 @@ BULK_HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 
 __TOPBAR__
 
+<div class="bulkscope">
+<div class="bulkscope-head">
+  <span class="t">Bulk edit</span>
+  <span class="r" id="scoperun"></span>
+  <!-- The cross, where every "close this" lives. Duplicates the Back
+       button on purpose: one is discoverable by reading the toolbar, the
+       other by looking where a close control always is. -->
+  <a class="x" id="closebulk" href="#" title="Close bulk edit and return to Curate"
+     aria-label="Close bulk edit">&times;</a>
+</div>
+
 <div class="bulkbar">
+  <!-- First thing in the bar, where a way out belongs. Bulk edit is a
+       full page rather than a modal, so nothing about it said "you are in
+       a mode you can leave" -- the topbar's own nav goes to the Runs list,
+       not back to the run you came from, and real users asked how to get
+       back to Curate. -->
+  <a class="backlink" id="backtocurate" href="#"
+     title="Return to the Curate view for this run. Nothing here is lost --
+     changes save as you make them, unless Edit mode is on, in which case
+     Commit or Discard them first.">&larr; Back to Curate</a>
+  <span class="sep"></span>
   <input type="search" id="q" placeholder="Find a channel&hellip;">
   <button id="selall">Select all</button>
   <button id="selnone">Select none</button>
@@ -4551,6 +4637,7 @@ __TOPBAR__
   <div class="bhead">Include</div>
   <div class="bhead">Watermark</div>
   <div id="rows"></div>
+</div>
 </div>
 
 <div class="modal" id="grpmodal">
@@ -4739,6 +4826,19 @@ function updateCount(){
   document.getElementById("selcount").textContent = MARKED.size+" selected";
 }
 
+const CURATE_URL = "/run/" + encodeURIComponent(DATA.run_id) + "/curate";
+document.getElementById("backtocurate").href = CURATE_URL;
+document.getElementById("closebulk").href = CURATE_URL;
+document.getElementById("scoperun").textContent = "run " + DATA.run_id;
+// Esc closes it, the same as any other overlay on the Curate page -- but
+// never while a modal is open (that Esc belongs to the modal) and never
+// mid-edit with staged changes, which Esc would silently throw away.
+document.addEventListener("keydown", e => {
+  if(e.key !== "Escape") return;
+  if(document.querySelector(".modal.on")) return;
+  if(EDIT_MODE && UNDO_STACK.length) return;
+  window.location.href = CURATE_URL;
+});
 document.getElementById("q").addEventListener("input", renderRows);
 document.getElementById("selall").addEventListener("click", ()=>{
   visible().forEach(ch=>MARKED.add(ch.key)); renderRows();

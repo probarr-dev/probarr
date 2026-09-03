@@ -7060,3 +7060,76 @@ class TestWatchdogProcessDue(Temp):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestImageCache(Temp):
+    """No remote image URL may reach the browser.
+
+    Measured on one real Curate load before this existed: 42 off-origin
+    requests, to a provider's logo CDN, raw.githubusercontent.com and a
+    guide provider's CloudFront. Each one told a third party the viewer's
+    IP and, from the filenames, which channels they were curating -- on an
+    install running behind a VPN specifically so that wouldn't happen. It
+    also explained a standing "logos sometimes don't load" report: the
+    container can reach those hosts, a browser often can't.
+    """
+
+    def test_a_remote_url_becomes_a_local_path(self):
+        from channeliq import imagecache
+        got = imagecache.local_url(self.root, "https://logo.example/bbc2.png")
+        self.assertTrue(got.startswith("/img/"), got)
+        self.assertNotIn("example", got)
+
+    def test_local_and_empty_urls_are_left_alone(self):
+        from channeliq import imagecache
+        self.assertEqual(imagecache.local_url(self.root, ""), "")
+        self.assertEqual(imagecache.local_url(self.root, None), "")
+        self.assertEqual(imagecache.local_url(self.root, "/run/x/thumbs/a.jpg"),
+                         "/run/x/thumbs/a.jpg")
+
+    def test_the_digest_round_trips_to_the_real_url(self):
+        from channeliq import imagecache
+        url = "https://logo.example/itv1.png"
+        d = imagecache.local_url(self.root, url)[len("/img/"):]
+        self.assertEqual(imagecache._read_index(self.root)[d], url)
+
+    def test_an_unknown_digest_is_never_fetched(self):
+        """The browser can only ask for something the server already put in
+        the index -- which is what stops this being an open SSRF relay on a
+        service the README says has no authentication."""
+        from channeliq import imagecache
+        self.assertIsNone(imagecache.get(self.root, "0" * 32))
+        self.assertIsNone(imagecache.get(self.root, "../../etc/passwd"))
+        self.assertIsNone(imagecache.get(self.root, ""))
+
+    def test_private_addresses_are_refused(self):
+        """A provider writes its own playlist, so a tvg-logo of
+        http://192.168.0.1/ is entirely within its power."""
+        from channeliq import imagecache
+        for url in ("http://127.0.0.1/x.png", "http://localhost/x.png",
+                    "http://192.168.0.1/x.png", "http://10.0.0.5/x.png",
+                    "http://169.254.169.254/latest/meta-data"):
+            self.assertFalse(imagecache._fetchable(url), url)
+
+    def test_non_http_schemes_are_refused(self):
+        from channeliq import imagecache
+        for url in ("file:///etc/passwd", "ftp://x/y.png", "gopher://x"):
+            self.assertFalse(imagecache._fetchable(url), url)
+
+    def test_the_payload_maps_every_candidate_logo(self):
+        from channeliq import curate
+        from channeliq.store import RunStore
+        store = RunStore(self.root, "run1", create=True)
+        store.write_wantlist_raw([{"key": "A", "number": 1, "name": "A"}], [])
+        rec = {"rec_key": "A|s1", "channel_key": "A", "stream_id": "s1",
+               "stream_name": "s1", "status": "ok", "width": 1920,
+               "height": 1080, "fps": 25, "measured_kbps": 4000,
+               "probed_at": 1000, "logo": "https://cdn.example/bbc1.png"}
+        store.append(rec)
+        payload = curate.build_payload({"A": [rec]}, store, False, {})
+        # The real url survives for the Dispatcharr push...
+        self.assertEqual(payload["channels"][0]["candidates"][0]["logo"],
+                         "https://cdn.example/bbc1.png")
+        # ...and the display side has a local path for it.
+        self.assertTrue(payload["logo_map"]["https://cdn.example/bbc1.png"]
+                        .startswith("/img/"))

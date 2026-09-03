@@ -32,6 +32,7 @@ from . import logos as logos_mod
 from . import aliases as aliases_mod
 from . import lineups as lineups_mod
 from . import epgsources as epgsources_mod
+from . import imagecache as imagecache_mod
 from . import rank as rank_mod
 from . import watchdog as watchdog_mod
 from . import runs as runs_mod
@@ -264,6 +265,18 @@ class Handler(BaseHTTPRequestHandler):
             # include point for one. Modern browsers accept SVG content at
             # /favicon.ico as long as the type is declared correctly.
             return self._send(FAVICON_SVG, "image/svg+xml")
+        if path.startswith("/img/"):
+            # Every remote image the UI shows is served from here, from
+            # this container's own disk -- see imagecache.py for why the
+            # browser is never handed the remote URL itself. Immutable:
+            # the digest IS the URL's hash, so a given path can never mean
+            # different bytes and the browser should never re-ask.
+            got = imagecache_mod.get(Handler.root, path[len("/img/"):])
+            if not got:
+                return self._send(b"", "image/png", 404)
+            body, ctype = got
+            return self._send(body, ctype,
+                              cache="public, max-age=31536000, immutable")
         if path == "/":
             # The runs list used to live here; it moved to /runs (still on
             # the Runs nav tab) so "/" itself can go straight to the thing
@@ -2801,6 +2814,14 @@ class Handler(BaseHTTPRequestHandler):
         # already here. bump_trust=True: this endpoint backs the page's own
         # per-channel display, a real curation signal, not idle exploration.
         winner = epgcheck_mod.consensus_winner(sources, root=self.root, bump_trust=True)
+        # Each source's icon is a remote URL on the guide provider's own
+        # host. The picker needs the REAL url (it becomes logo_override and
+        # is what a Dispatcharr push sends), but the browser must never
+        # fetch it -- so both travel, and the JS renders only `logo_local`.
+        for _src in sources:
+            if isinstance(_src, dict) and _src.get("logo"):
+                _src["logo_local"] = imagecache_mod.local_url(self.root,
+                                                              _src["logo"])
         self._send(json.dumps({"expected": expected, "sources": sources,
                               "winner": winner}),
                   "application/json")
@@ -2912,6 +2933,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(json.dumps({"results": []}), "application/json")
         norm = self._norm()
         results = logos_mod.search(self.root, query, country_dir, norm)
+        # Same split as the EPG icons above: raw.githubusercontent.com is
+        # the url a push must carry, and exactly the host the viewer's
+        # browser must not be made to contact.
+        for _r in results:
+            if isinstance(_r, dict) and _r.get("url"):
+                _r["url_local"] = imagecache_mod.local_url(self.root, _r["url"])
         self._send(json.dumps({"results": results}), "application/json")
 
     def _epg_search(self, run_id, source_name, query):
