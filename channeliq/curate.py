@@ -1039,7 +1039,7 @@ function chanRowHTML(ch){
     (ch.number!=null?'<span class="num">'+ch.number+'</span>'
       :'<span class="num nonum" title="No channel number set \u2014 this channel '+
         'will be dropped from every export until it has one">NO #</span>')+
-    (logoUrl ? '<img class="chlogo" src="'+esc(logoUrl)+'" alt="" loading="lazy">'
+    (logoUrl ? '<img class="chlogo" src="'+esc(logoUrl)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
              : '<span class="chlogo chlogo-empty"></span>')+
     '<span class="nm">'+esc(ch.title)+
       (ch.dispatcharr?'<span class="dpip" title="imported from Dispatcharr">D</span>':'')+
@@ -1243,7 +1243,7 @@ function renderDetail(){
           '<span class="num nonum">NO #</span>')+'</span>'+
       (ch.number!=null?' &middot; ':' ')+
       '<button id="numedit" title="Set this channel’s number">✎</button> '+
-      (dLogoUrl ? '<img class="dhlogo" src="'+esc(dLogoUrl)+'" alt="">' : '')+
+      (dLogoUrl ? '<img class="dhlogo" src="'+esc(dLogoUrl)+'" alt="" onerror="this.style.display=\'none\'">' : '')+
       '<span id="titletext" tabindex="0" title="Click to rename">'+esc(ch.title)+'</span>'+
       '<button id="titleedit" title="Rename this channel">\u270e</button> '+
       // Whether push() would refuse this channel as an unclaimed number
@@ -3039,7 +3039,7 @@ function logoOptHTML(url, label, picked, local){
   const src = local || imgsrc(url);
   return '<div class="em-logo-opt'+(picked?' picked':'')+'" data-logo-url="'+esc(url)+'" '+
     'title="'+esc(label)+'">'+
-    (src ? '<img src="'+esc(src)+'" alt="" loading="lazy">' : '<div class="noimg"></div>')+
+    (src ? '<img src="'+esc(src)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'">' : '<div class="noimg"></div>')+
     '<div class="lbl">'+esc(label)+'</div></div>';
 }
 async function renderLogoSection(ch, epgSources){
@@ -3050,7 +3050,7 @@ async function renderLogoSection(ch, epgSources){
   const activeUrl = imgsrc(override || m3uLogo ||
     (epgSources.find(s=>s.logo) || {}).logo || "");
   curEl.innerHTML = activeUrl
-    ? '<img src="'+esc(activeUrl)+'" alt="">'+
+    ? '<img src="'+esc(activeUrl)+'" alt="" onerror="this.style.display=\'none\'">'+
       '<span>'+(override ? 'Using the picked logo below.'
         : m3uLogo ? 'Using the provider’s own logo (no pick made yet).'
         : 'Using a matched EPG source’s icon (no pick made yet).')+'</span>'
