@@ -2979,6 +2979,16 @@ __TOPBAR__
         immediately, with Commit/Discard to close it out.</li>
     </ul>
 
+    <p class="relnote"><b>Runs warn when the wrong country's feeds leak in.</b>
+      The "no Regions filter set" note used to fire on volume alone. A real
+      42-channel Dutch lineup sat under that threshold while its candidates
+      carried <b>sixteen</b> different country markers, and got filled with
+      Polish, French and Australian feeds &mdash; in places the Dutch feed
+      was never probed at all. The note now fires on that spread too, and
+      names the countries it found. <b>Regions</b> ("which country?") and
+      <b>Custom prefixes</b> ("what packaging to ignore?") are different
+      knobs; prefixes will never filter by country.</p>
+
     <p class="relnote"><b>New setting: max streams per channel.</b> A hard
       ceiling on candidates probed per channel, default <b>12</b> (0 for no
       cap). The depth rule below is adaptive and only fires once enough come

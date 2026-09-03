@@ -53,6 +53,21 @@ if they ever drift again.
 Runs made before this keep whatever they probed; a re-verify picks up the
 extra candidates.
 
+### Runs now warn when the wrong country's feeds are leaking in
+The "no Regions filter set" note used to fire on VOLUME alone (candidates
+per channel over 6). A reported run sat at 4.4 per channel — under any
+volume threshold — while its candidates carried **sixteen** different
+country markers for a 42-channel Dutch lineup. It duly filled that lineup
+with Polish, French and Australian feeds, and in places the Dutch feed was
+never probed at all, skipped because two foreign ones came back clean
+first.
+
+The note now also fires on DIVERSITY, and names the countries it actually
+found, so "set Regions" is an instruction you can act on rather than a
+riddle. Also spelled out in the README: **Regions** ("which country?") and
+**Custom prefixes** ("what packaging should be ignored?") are different
+knobs, and prefixes will never filter by country.
+
 ### New setting: max streams per channel
 A hard ceiling on candidates probed per channel, default **12**, in Settings
 (`--max-candidates` on the CLI; **0** for no cap).

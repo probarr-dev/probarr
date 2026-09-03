@@ -208,6 +208,53 @@ def _seed_groups(root, store, lineup, wanted):
             store.write_selection(sel)
 
 
+def _warn_no_region_filter(regions, pools, norm, total, log):
+    """Warn when a run has no Regions filter and the catalogue plainly spans
+    several countries. Module-level so it can be tested directly against a
+    pool shape, rather than only through a full run.
+    """
+    if regions or not pools:
+        return
+    # Two independent signatures of the same mistake, because one of
+    # them alone misses the case that actually got reported.
+    #
+    # VOLUME caught the original incident: 139 channels pulling 1,203
+    # candidates because plainly-named channels ("5", "Al Jazeera
+    # English") matched every country's copy.
+    #
+    # DIVERSITY catches what volume cannot. A reported run had only 4.4
+    # candidates per channel -- comfortably under any volume threshold
+    # -- yet those candidates carried sixteen different country markers
+    # for a 42-channel Dutch lineup, and the run duly filled it with
+    # Polish, French and Australian feeds. Worse, the domestic feed was
+    # sometimes skipped by the clean-target early stop because two
+    # foreign ones happened to probe clean first. Counting DISTINCT
+    # regions sees that immediately; averaging never could.
+    by_region = {}
+    for pool in pools.values():
+        for s in pool:
+            r = norm.region_of(s.name)
+            if r:
+                by_region[r] = by_region.get(r, 0) + 1
+    per_channel = total / len(pools)
+    if len(by_region) >= 4 or per_channel > 6:
+        log("note: no Regions filter is set on this run.")
+        if len(by_region) >= 4:
+            spread = ", ".join(f"{r} {n}" for r, n in
+                               sorted(by_region.items(), key=lambda kv: -kv[1])[:8])
+            log(f"  candidates carry {len(by_region)} different country "
+                f"markers: {spread}"
+                + (", ..." if len(by_region) > 8 else ""))
+        if per_channel > 6:
+            log(f"  {per_channel:.1f} candidates per channel on average")
+        log("  On a multi-country provider a plainly-named channel "
+            "(\"ESPN 1\", \"Eurosport 2\", \"5\") matches every country's "
+            "copy of it, so a run can quietly fill your lineup with the "
+            "wrong country's feed -- and the right one may not even get "
+            "probed. Set Regions (e.g. \"NL\") on this run or its lineup "
+            "and re-run.")
+
+
 def _run(store, root, source, wantlist, epg, regions, strict_region, region_tags,
          aliases, concurrency, gap_seconds, sample_seconds, frame_height,
          thumb_height, max_candidates, min_candidates, only_channels,
@@ -278,22 +325,7 @@ def _run(store, root, source, wantlist, epg, regions, strict_region, region_tags
 
     total = sum(len(v) for v in pools.values())
     log(f"{len(pools)} channels, {total} candidate streams (concurrency {concurrency})")
-    # Real incident this catches: a run against a genuinely multi-country
-    # catalogue with no Regions filter set matched a plainly-named channel
-    # ("5", "Al Jazeera English") against every country's copy of it, not
-    # just the intended one -- 139 channels pulled 1,203 candidates instead
-    # of a few hundred. Nothing caught it until someone read the log and
-    # did the division by hand. A high average here, with no filter set, is
-    # exactly that signature -- surfaced automatically so a future run
-    # doesn't need a person who happens to already know what "too many
-    # candidates" looks like.
-    if not regions and pools and (total / len(pools)) > 6:
-        log(f"note: {total/len(pools):.1f} candidates per channel on average with "
-            "no Regions filter set -- on a multi-country provider a plainly-named "
-            "channel (e.g. \"5\", \"Al Jazeera English\") can match every "
-            "country's copy of it, not just the one you want. If this run is "
-            "taking far longer than expected, set Regions (e.g. \"UK\") on it "
-            "or its lineup and re-run.")
+    _warn_no_region_filter(regions, pools, norm, total, log)
 
     if wanted:
         store.write_wantlist(wanted, missing)

@@ -988,6 +988,67 @@ class TestProbeDepthMatchesPushDepth(unittest.TestCase):
         self.assertEqual(int(m.group(1)), rank_mod.FALLBACK_DEPTH)
 
 
+class TestMultiCountryWarning(unittest.TestCase):
+    """The "no Regions filter" note has to fire on the shape that actually
+    got reported, not just the one that prompted it.
+
+    The original heuristic was volume-only: candidates-per-channel over 6.
+    A real reported run sat at 4.4 per channel -- under any volume threshold
+    -- while carrying SIXTEEN different country markers for a 42-channel
+    Dutch lineup, and duly filled it with Polish, French and Australian
+    feeds. Counting distinct regions is what sees that.
+    """
+
+    def _warn_lines(self, names, regions=None):
+        from channeliq import runner as runner_mod
+        from channeliq.normalize import Normalizer
+        from channeliq.sources.base import Stream
+        norm = Normalizer()
+        pools = {}
+        for i, n in enumerate(names):
+            pools.setdefault(norm.key(n), []).append(
+                Stream(id=f"s{i}", name=n, url=f"http://x/{i}"))
+        out = []
+        # Exercise the real block by calling the module-level helper the
+        # run uses, via a tiny stand-in for the surrounding _run() locals.
+        total = sum(len(v) for v in pools.values())
+        runner_mod._warn_no_region_filter(regions, pools, norm, total, out.append)
+        return "\n".join(out)
+
+    def test_fires_on_many_countries_even_at_a_low_average(self):
+        # 4 channels, 8 candidates = 2.0 per channel, well under 6 -- but
+        # eight different countries.
+        names = ["NL: ESPN 1", "AU: ESPN 1",
+                 "NL: Eurosport 2", "PL: Eurosport 2",
+                 "DE: RTL", "FR: RTL",
+                 "ES: Fox", "BR: Fox"]
+        msg = self._warn_lines(names)
+        self.assertIn("no Regions filter", msg)
+        self.assertIn("different country markers", msg)
+        # Names the countries, because "set Regions" is unactionable if you
+        # can't see which ones leaked in.
+        self.assertIn("NL", msg)
+        self.assertIn("AU", msg)
+
+    def test_silent_for_a_single_country_provider(self):
+        names = ["NL: ESPN 1", "NL: ESPN 1 HD", "NL: Eurosport 2", "NL: RTL"]
+        self.assertEqual(self._warn_lines(names), "")
+
+    def test_silent_once_a_regions_filter_is_set(self):
+        names = ["NL: ESPN 1", "AU: ESPN 1", "DE: RTL", "FR: RTL",
+                 "ES: Fox", "BR: Fox", "PL: Sport", "MX: Sport"]
+        self.assertEqual(self._warn_lines(names, regions=["NL"]), "")
+
+    def test_still_fires_on_the_original_volume_signature(self):
+        # One channel, 7 candidates, all the same country: average 7.0.
+        # Quality-tag variants, so they genuinely collapse to ONE pool.
+        names = ["UK: Channel 5", "UK: Channel 5 HD", "UK: Channel 5 FHD",
+                 "UK: Channel 5 RAW", "UK: Channel 5 4K", "UK: Channel 5 SD",
+                 "UK: Channel 5 UHD"]
+        msg = self._warn_lines(names)
+        self.assertIn("candidates per channel on average", msg)
+
+
 class TestRunCustomPrefixesSurviveTheRun(Temp):
     """A run's one-off "Custom prefixes" must outlive the run that used them.
 

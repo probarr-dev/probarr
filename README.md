@@ -416,6 +416,39 @@ Still not matching after that? In order:
 3. **Find streams** on the channel in Curate — attach anything from the
    catalogue by hand. Always works, needs no configuration, doesn't scale.
 
+### I got the wrong country's channels
+
+Different problem from the one above, and much easier to miss: the channel
+matched *too much* rather than too little.
+
+On a big multi-country provider, a plainly-named channel matches every
+country's copy of it. `ESPN 1` exists in NL, AU, US, BR, ES…, and nothing
+about the name says which one you meant. A real 42-channel Dutch lineup
+pulled candidates carrying **sixteen** different country markers — and
+because probing stops once enough come back clean, the Dutch feed was
+sometimes skipped in favour of a Polish and a French one that happened to
+probe first.
+
+**Fix: set Regions on the run** (`NL`, `UK`, …). It's the field directly
+above Custom prefixes on the New Run form, and it's a different thing
+entirely:
+
+| Field | Answers | Example |
+|---|---|---|
+| **Regions** | *which country's feed do I want?* | `NL` |
+| **Custom prefixes** | *what packaging should be ignored?* | `OD`, `ZG` |
+
+Prefixes will not filter by country, and Regions will not strip a bouquet
+tag. If you're getting foreign feeds, prefixes are the wrong knob — no
+amount of tuning them will help.
+
+Runs now warn about this in the log when no Regions filter is set and the
+candidates plainly span several countries, naming the countries it found.
+
+**Tick "Strict"** as well if unmarked candidates are still getting through.
+Without it, a stream carrying no country marker at all is kept, on the
+grounds that plenty of legitimate channels don't carry one.
+
 ### It only probed some of my streams
 
 Expected. The run log says so explicitly:
